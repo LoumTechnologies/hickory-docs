@@ -38,7 +38,7 @@ import type { BindState, Frame, Variable } from "./client";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isDebuggable } from "./languages";
 import { languageFromPath } from "../editor/languages";
-import { languageForBlock } from "../editor/hickDoc";
+import { languageForBlock, proseFences } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
 
 /** One gutter dot. */
@@ -183,9 +183,11 @@ export function patchDebugTargets(state: EditorState): { path: string; at: numbe
       const row = state.doc.line(number), text = row.text;
       if (row.from < block.contentFrom || row.to > block.contentTo) continue;
       if (old > 0 || next > 0) {
-        if (text.startsWith("+")) { next--; if (text.slice(1).trim()) target?.lines.push(number - 1); }
-        else if (text.startsWith("-")) old--;
-        else if (text.startsWith(" ")) { old--; next--; }
+        if (text.startsWith("+") && next > 0) { next--; if (text.slice(1).trim()) target?.lines.push(number - 1); }
+        else if (text.startsWith("-") && old > 0) old--;
+        else if (text.startsWith(" ") && old > 0 && next > 0) {
+          old--; next--; if (text.slice(1).trim()) target?.lines.push(number - 1);
+        }
       } else if (text.startsWith("+++ ")) {
         const path = text.slice(4).split("\t")[0].replace(/^b\//, "");
         target = isDebuggable(languageFromPath(path)) ? { path, at: row.from, end: block.to, lines: [] } : undefined;
@@ -198,6 +200,22 @@ export function patchDebugTargets(state: EditorState): { path: string; at: numbe
   }
   return targets;
 }
+const runnableFenceLanguages = new Set([
+  "py", "python", "python3", "js", "javascript", "node", "ts", "typescript", "rs", "rust",
+  "c", "cpp", "c++", "cxx", "go", "golang", "cs", "csharp", "c#", "rb", "ruby",
+]);
+
+export function fenceDebugTargets(state: EditorState) {
+  return proseFences(structureOf(state), state.doc.toString()).filter(fence =>
+    fence.body.trim() && runnableFenceLanguages.has(fence.info.trim().toLowerCase())
+  ).map(fence => ({
+    path: "fence:" + (state.doc.lineAt(fence.from).number - 1),
+    label: fence.info.trim() + " fence",
+    at: fence.from,
+    end: fence.to,
+  }));
+}
+
 // Read-only message editors supply their literal fence boundaries. They have
 // no generated file declaration for the ordinary project mapper to inspect.
 export const debugBreakpointLine = Facet.define<(line: number) => number | null>();
@@ -222,6 +240,9 @@ export function breakpointLine(state: EditorState, line: number): number | null 
   if (patchDebugTargets(state).some(target => target.lines.includes(line))) return line;
   const structure = structureOf(state);
   const at = doc.line(line + 1);
+  if (at.text.trim() && fenceDebugTargets(state).some(fence =>
+    at.from > doc.lineAt(fence.at).from && at.from < doc.lineAt(Math.max(fence.at, fence.end - 1)).from
+  )) return line;
 
   const block = structure.blocks.find(
     (candidate) =>
@@ -788,18 +809,47 @@ function lineAtEvent(view: EditorView, block: { from: number }, event: Event): n
 }
 
 /** Output is presentation, never document text or a guessed execution trace. */
-export const setDebuggerOutput = StateEffect.define<{ events: { category: string; text: string; source?: string | null; line?: number | null }[]; program?: string | null; literate: boolean; path?: string }>();
+export const setDebuggerOutput = StateEffect.define<{ events: { category: string; text: string; source?: string | null; line?: number | null }[]; program?: string | null; literate: boolean; path?: string; launchAt?: number }>();
 class RunOutput extends WidgetType {
   private mounts = new Map<HTMLElement, { cancelled: boolean; root?: import("react-dom/client").Root; observer?: ResizeObserver }>();
-  constructor(readonly text: string) { super(); }
-  eq(other: RunOutput) { return other.text === this.text; }
+  constructor(readonly chunks: { text: string; line?: number }[]) { super(); }
+  get text() { return this.chunks.map(chunk => chunk.text).join(""); }
+  eq(other: RunOutput) {
+    return other.chunks.length === this.chunks.length &&
+      other.chunks.every((chunk, index) => chunk.text === this.chunks[index].text && chunk.line === this.chunks[index].line);
+  }
   toDOM(view: EditorView) {
     const block = document.createElement("div"); block.className = "cm-run-output";
     block.setAttribute("aria-label", "Output terminal"); block.setAttribute("role", "region");
     block.setAttribute("contenteditable", "false");
     const heading = document.createElement("div"); heading.className = "inline-terminal-heading"; heading.textContent = "›_  Terminal";
-    const fallback = document.createElement("pre"); fallback.textContent = this.text;
+    const fallback = document.createElement("pre");
+    const complete = this.chunks.every((chunk, index) => index === this.chunks.length - 1 || /\n$/.test(chunk.text));
+    const hasSource = complete && this.chunks.some(chunk => chunk.line !== undefined) &&
+      !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\r(?!\n)/.test(this.text);
+    if (hasSource) {
+      const source = view.state.doc;
+      for (const chunk of this.chunks) {
+        if (chunk.line === undefined) { fallback.append(chunk.text); continue; }
+        const line = chunk.line;
+        for (const row of chunk.text.split(/(?<=\n)/)) {
+          if (!row) continue;
+          const button = document.createElement("button");
+          button.type = "button"; button.textContent = row.replace(/\r?\n$/, "");
+          button.title = `Go to source line ${line + 1}`;
+          button.style.cssText = "font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer";
+          button.onclick = () => {
+            if (view.state.doc !== source || !block.isConnected) return;
+            const anchor = source.line(line + 1).from;
+            view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+            view.focus();
+          };
+          fallback.append(button, row.endsWith("\n") ? "\n" : "");
+        }
+      }
+    } else fallback.textContent = this.text;
     block.append(heading, fallback);
+    if (hasSource) return block;
     const mount = { cancelled: false } as { cancelled: boolean; root?: import("react-dom/client").Root; observer?: ResizeObserver };
     this.mounts.set(block, mount);
     mount.observer = new ResizeObserver(() => view.requestMeasure()); mount.observer.observe(block);
@@ -824,16 +874,23 @@ const runOutputField = StateField.define<DecorationSet>({
   update(value, tr) {
     if (tr.docChanged) value = Decoration.none;
     for (const effect of tr.effects) if (effect.is(setDebuggerOutput)) {
-      const { events, program, literate, path } = effect.value;
+      const { events, program, literate, path, launchAt } = effect.value;
       const blocks = literate ? structureOf(tr.state).blocks.filter(block => block.name === "file" || block.name === "exec") : [];
-      const groups = new Map<number, string[]>();
+      const fence = literate ? fenceDebugTargets(tr.state).find(target => target.path === program) : undefined;
+      const patch = literate && !fence ? patchDebugTargets(tr.state) : [];
+      const clickedEnd = patch.find(target => target.at === launchAt && target.path === program)?.end
+        ?? blocks.find(block => block.from === launchAt && block.attrs.path === program)?.to;
+      const groups = new Map<number, { text: string; line?: number }[]>();
       for (const event of events) {
         const line = event.line == null || literate && event.source !== path ? null : tr.state.doc.line(Math.max(1, Math.min(tr.state.doc.lines, event.line + 1)));
         const owner = blocks.find(block => line && line.from >= block.contentFrom && line.from <= block.contentTo) ?? blocks.find(block => block.attrs.path === program);
-        const at = owner ? tr.state.doc.lineAt(owner.to).to : tr.state.doc.length;
-        groups.set(at, [...(groups.get(at) ?? []), event.text]);
+        const patchOwner = line && patch.find(target => target.lines.includes(line.number - 1));
+        const end = fence?.end ?? clickedEnd ?? (patchOwner ? patchOwner.end : owner?.to);
+        const at = end === undefined ? tr.state.doc.length : tr.state.doc.lineAt(Math.max(0, end - 1)).to;
+        if (!groups.has(at)) groups.set(at, []);
+        groups.get(at)!.push({ text: event.text, line: path && event.source === path && event.line != null && event.line >= 0 && event.line < tr.state.doc.lines ? event.line : undefined });
       }
-      value = Decoration.set([...groups].sort(([a], [b]) => a - b).map(([at, chunks]) => Decoration.widget({ widget: new RunOutput(chunks.join("")), block: true, side: 1 }).range(at)));
+      value = Decoration.set([...groups].sort(([a], [b]) => a - b).map(([at, chunks]) => Decoration.widget({ widget: new RunOutput(chunks), block: true, side: 1 }).range(at)));
     }
     return value;
   },

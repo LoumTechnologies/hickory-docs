@@ -125,13 +125,20 @@ export interface OpenLocation {
 export function diagramFilePath(href: string, source: string): string | null {
   let path: string;
   try { path = decodeURIComponent(href); } catch { return null; }
-  if (!path || /[:\\\r\n]/.test(path) || path.startsWith("/")) return null;
+  if (!path || /[:\\\r\n\0]/.test(path) || path.startsWith("/")) return null;
   const parts = source.split("/").slice(0, -1);
   for (const part of path.split("/")) {
     if (part === "..") { if (!parts.length) return null; parts.pop(); }
     else if (part && part !== ".") parts.push(part);
   }
   return parts.length ? parts.join("/") : null;
+}
+export function workspaceLinkTarget(href: string, source: string) {
+  const [file, hash] = href.split("#", 2);
+  const path = diagramFilePath(file, source);
+  if (!path) return null;
+  const line = hash && /^L[1-9]\d{0,8}$/.test(hash) ? Number(hash.slice(1)) : 1;
+  return { path, line };
 }
 export function openLocation(path: string, line: number, character?: number, recordHistory = true, expectedSource?: string): void {
   window.dispatchEvent(

@@ -597,11 +597,13 @@ try {
           break;
         }
         case "table-dataflow-state": {
-          const tables = page.getByTestId("table-panel"); await tables.nth(2).waitFor();
+          const tables = page.locator('[data-testid="table-panel"]:not(.notebook-table *)');
+          await tables.nth(2).waitFor();
           const totals = tables.nth(1).locator('.table-panel__cell[data-column="2"]');
-          await totals.nth(1).filter({ hasText: request.tea }).waitFor();
           const receipt = tables.nth(2).locator('.table-panel__cell[data-row="1"][data-column="1"]');
           if (request.total !== undefined) { await receipt.filter({ hasText: request.total }).waitFor(); await page.getByRole("region", { name: "Read-only table" }).getByRole("cell", { name: request.total, exact: true }).waitFor(); }
+          await totals.nth(1).filter({ hasText: new RegExp(`^${request.tea}$`) }).waitFor();
+          await totals.nth(2).filter({ hasText: /^5$/ }).waitFor();
           value = { tea: await totals.nth(1).textContent(), cake: await totals.nth(2).textContent(), total: await receipt.textContent(), readonly: await page.getByRole("region", { name: "Read-only table" }).count() }; break;
         }
         case "table-dataflow-edit": {
@@ -613,7 +615,7 @@ try {
           await page.goto(request.url);
           await page.evaluate(source => globalThis.renderNotebookOutput(source), request.source);
           const region = page.getByRole("region", { name: "Read-only table" }); await region.waitFor();
-          value = { text: await region.textContent(), editable: await page.locator('.table-panel,[contenteditable="true"]').count() }; break;
+          value = { text: await region.textContent(), editable: await page.locator('.table-panel__formula:not(:disabled),[contenteditable="true"]').count() }; break;
         }
         case "native-table": {
           await page.close(); page = await browser.newPage({ viewport: { width: 900, height: 700 } });
@@ -857,6 +859,74 @@ try {
         case "debug-move":{
           const options=page.getByLabel('Debug options',{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();const label=request.kind==='run_to'?'Run to line':'Move instruction pointer to line',button=page.getByRole('button',{name:label,exact:true}).last();if(!await button.count()){value={supported:false};break;}
           await page.getByLabel('Debugger target line',{exact:true}).last().fill(String(request.line));await button.click();await page.waitForFunction(line=>{const stack=document.querySelector('select[aria-label="Call stack"]');const option=stack?.selectedOptions?.[0];return !!option&&option.textContent.endsWith(' — line '+line);},String(request.line));value={supported:true};break;
+        }
+        case "workbook-link": {
+          const link = editor(request.path).locator(".cm-md-link").filter({ hasText: "workbook.md" });
+          await link.click();
+          await editor(request.path).waitFor();
+          await link.click({ modifiers: [process.platform === "darwin" ? "Meta" : "Control"] });
+          const workbook = editor("workbook-demo/workbook.md");
+          await workbook.waitFor();
+          await workbook.locator(".cm-md-heading").first().waitFor();
+          break;
+        }
+        case "architecture-link": {
+          const preview = page.locator(".rendered-diagram").filter({ has: page.getByRole("button", { name: "Refresh architecture" }) });
+          const node = preview.getByTestId("graph-node-orders.py");
+          try { await node.click({ timeout: 4000 }); }
+          catch (error) {
+            const hit = await node.evaluate(node => {
+              const rect = node.getBoundingClientRect();
+              const hit = node.getRootNode().elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              const details = Array.from([node, node.parentElement, node.closest(".react-flow"), node.closest(".graph-editor")], el => {
+                const r = el.getBoundingClientRect(), style = getComputedStyle(el);
+                return { class: el.className, rect: [r.x,r.y,r.width,r.height], pointer: style.pointerEvents, position: style.position };
+              });
+              return { hit: hit?.className, details };
+            });
+            throw new Error(String(error) + "\n" + JSON.stringify(hit));
+          }
+          const target = editor(request.path);
+          await target.waitFor();
+          const selection = () => target.evaluate(async node => {
+            const { EditorView } = await import("/node_modules/@codemirror/view/dist/index.js");
+            return EditorView.findFromDOM(node).state.selection.main.head;
+          });
+          for (let attempt = 0; attempt < 40; attempt++) {
+            value = await selection();
+            if (value > 0) break;
+            await page.waitForTimeout(25);
+          }
+          break;
+        }
+        case "workbook-run":
+          const group = debugRail().locator(`.cm-debug-rail__group[data-source-offset="${request.at}"]`);
+          const profiles = group.getByRole("button", { name: "Launch profiles for python fence", exact: true, includeHidden: true });
+          if (await profiles.isVisible()) await profiles.click();
+          else await selectGutterAction(profiles);
+          await page.getByRole("button", { name: "Run fence", exact: true }).click();
+          await page.getByRole("tab", { name: /Terminal/ }).waitFor();
+          await page.getByRole("tab", { name: "workbook.md", exact: true }).click();
+          await editor(request.path).waitFor();
+          break;
+        case "workbook-output":
+          await page.locator(".cm-run-output").filter({ hasText: request.text }).last().waitFor();
+          break;
+        case "workbook-debug": {
+          const rail = debugRail();
+          const group = request.at === undefined ? rail : rail.locator(`.cm-debug-rail__group[data-source-offset="${request.at}"]`);
+          const action = group.getByRole("button", { name: `Debug ${request.path}`, exact: true, includeHidden: true });
+          await action.waitFor({ state: "attached", timeout: 5000 });
+          await group.evaluate(group => {
+            const rect = group.getBoundingClientRect();
+            const rail = group.closest(".cm-debug-rail").getBoundingClientRect();
+            if (rect.top < rail.top || rect.top > rail.bottom) {
+              throw Error("Launch gutter outside viewport: " + JSON.stringify({ top: rect.top, rail: [rail.top, rail.bottom], offset: group.dataset.sourceOffset }));
+            }
+          });
+          if (await action.isVisible()) await action.click();
+          else await selectGutterAction(action);
+          break;
         }
         case "debug-start":
           await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;

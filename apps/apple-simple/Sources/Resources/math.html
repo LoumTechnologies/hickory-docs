@@ -29,9 +29,18 @@ if (globalThis.hickoryTableMode || location.search === '?table') {
   document.body.className = 'table-mode'; document.getElementById('formula').setAttribute('aria-label', 'Inline table grid');
   const style = document.createElement('style'); style.textContent = '#formula{position:static!important;width:100%!important;padding:0;transform:none!important;box-sizing:border-box}#status{display:none}body{overflow:auto}#formula.native-table-fill{height:100vh}.native-table-fill>.table-panel{height:100%;margin:0;display:flex;flex-direction:column}.native-table-fill .table-panel__scroll{flex:1;min-height:0}'; document.head.append(style);
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
-  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math'; document.head.append(script);
+  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
+  script.onerror = () => globalThis.webkit?.messageHandlers?.table?.postMessage({ kind: 'unavailable' });
+  document.head.append(script);
 }
 // Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
+function followDiagramLink(href, revision) {
+  if (globalThis.webkit?.messageHandlers?.diagramLink) {
+    globalThis.webkit.messageHandlers.diagramLink.postMessage({ href, revision });
+  } else if (globalThis.hickoryAndroidDiagram && typeof href === 'string') {
+    location.href = 'hickory-diagram://navigate/' + encodeURIComponent(href) + '?revision=' + revision;
+  }
+}
 function fitPreview() {
   if (document.body.classList.contains('notebook-mode') || document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
@@ -95,6 +104,36 @@ globalThis.renderNotebookOutput = function (source) {
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
   const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
   script.onerror = () => { document.getElementById('status').textContent = 'Table renderer unavailable; output is shown as text.'; }; document.head.append(script);
+};
+// Source positions are host metadata. A process can only supply text.
+globalThis.renderSourceOutput = (source, revision) => {
+  const { text, links } = JSON.parse(source);
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\r(?!\n)/.test(text)) {
+    globalThis.renderTerminal(text);
+    return;
+  }
+  document.body.className = 'terminal-mode';
+  const root = document.getElementById('formula');
+  outputResize?.disconnect();
+  outputTerminal?.dispose();
+  outputTerminal = undefined;
+  outputBytes = '';
+  root.style.overflow = 'auto';
+  const lines = document.createElement('pre');
+  lines.style.cssText = 'margin:0;font:12px ui-monospace,monospace;white-space:pre-wrap';
+  const rows = text.split(/\r?\n/);
+  for (const [i, row] of rows.entries()) {
+    if (row && Object.hasOwn(links, row)) {
+      const line = links[row];
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = row; button.title = 'Go to source line ' + (line + 1);
+      button.style.cssText = 'font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer;white-space:inherit;text-align:left';
+      button.addEventListener('click', () => followDiagramLink(String(line), revision));
+      lines.append(button);
+    } else lines.append(row);
+    if (i < rows.length - 1) lines.append('\n');
+  }
+  root.replaceChildren(lines);
 };
 // Interactive panes share xterm with output previews, but only this explicit
 // binding enables stdin. The host owns transport, session lifetime and errors.
@@ -173,7 +212,13 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         const b = boxes.get(item.id), group = element('g');
         group.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' }));
         group.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id));
-        if (typeof item.href === 'string') { group.style.cursor = 'pointer'; group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: item.href, revision: sizeRevision })); }
+        if (typeof item.href === 'string') {
+          group.style.cursor = 'pointer';
+          group.setAttribute('role', 'link'); group.setAttribute('tabindex', '0');
+          const follow = () => followDiagramLink(item.href, sizeRevision);
+          group.addEventListener('click', follow);
+          group.addEventListener('keydown', event => { if (event.key === 'Enter') follow(); });
+        }
         svg.append(group);
       }
       node.replaceChildren(svg);
@@ -187,7 +232,7 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         // after rendering, without enabling arbitrary callback execution.
         for (const match of source.matchAll(/(?:^|[;\n])\s*click\s+([\w-]+)\s+(?:href\s+)?"([^"]+)"/g)) {
           const group = [...node.querySelectorAll('g.node')].find(el => el.id.match(/(?:^|-)flowchart-(.+)-\d+$/)?.[1] === match[1]);
-          if (group) { group.style.cursor = 'pointer'; group.addEventListener('click', event => event.preventDefault()); group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: match[2], revision: sizeRevision })); }
+          if (group) { group.style.cursor = 'pointer'; group.addEventListener('click', event => event.preventDefault()); group.addEventListener('dblclick', () => followDiagramLink(match[2], sizeRevision)); }
         }
         const svg = node.querySelector('svg'), box = svg?.viewBox?.baseVal;
         if (box?.width && box?.height) { svg.style.maxWidth = 'none'; svg.setAttribute('width', box.width); svg.setAttribute('height', box.height); }

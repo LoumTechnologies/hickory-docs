@@ -162,8 +162,15 @@ function buildMath(state: EditorState, source: MathSource): DecorationSet {
     const last = state.doc.lineAt(span.to).number;
     let touched = false;
     for (let n = first; n <= last && !touched; n++) touched = live.has(n);
-    if (state.field(mathSourceModes, false)?.get(span.from) ?? touched) continue;
     const block = span.display && ownsItsLines(state, span);
+    if (state.field(mathSourceModes, false)?.get(span.from) ?? touched) {
+      if (block) {
+        for (let n = first; n <= last; n++) {
+          ranges.push(Decoration.line({ attributes: { style: "text-align:center" } }).range(state.doc.line(n).from));
+        }
+      }
+      continue;
+    }
     ranges.push(
       Decoration.replace({
         widget: new MathWidget(span.source, span.display, block),
@@ -208,7 +215,19 @@ export function renderedMath(source: MathSource = proseMath): Extension {
       const mode = state.field(mathSourceModes).get(span.from);
       if (!widget && mode !== true && !activeLines(state).has(state.doc.lineAt(pos).number)) return false;
       event.preventDefault(); event.stopPropagation();
-      view.dispatch({ effects: setMathSource.of({ at: span.from, source: !!widget }) });
+      const bounds = widget?.querySelector(".katex")?.getBoundingClientRect() ?? widget?.getBoundingClientRect();
+      const sourceAt = span.source && state.sliceDoc(span.from, span.to).indexOf(span.source);
+      const body = span.source.trim();
+      const leading = span.source.length - span.source.trimStart().length;
+      const ratio = bounds?.width ? Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) : 0.5;
+      const characters = typeof Intl.Segmenter === "function"
+        ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(body)].map(item => item.segment)
+        : [...body];
+      const caret = widget && typeof sourceAt === "number" && sourceAt >= 0
+        ? span.from + sourceAt + leading + characters.slice(0, Math.round(ratio * characters.length)).join("").length
+        : undefined;
+      view.dispatch({ effects: setMathSource.of({ at: span.from, source: !!widget }), ...(caret === undefined ? {} : { selection: { anchor: caret } }) });
+      if (widget) view.focus();
       return true;
     }
     let touch: { x: number; y: number; time: number } | undefined;

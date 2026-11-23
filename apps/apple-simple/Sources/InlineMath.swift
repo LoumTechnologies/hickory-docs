@@ -23,6 +23,7 @@ import WebKit
         displayed = key; revision += 1
         if diagramRenderer == "notebook" { view.evaluateJavaScript("globalThis.renderNotebookOutput(" + json + ")", completionHandler: nil) }
         else if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
+        else if diagramRenderer == "source-output" { view.evaluateJavaScript("globalThis.renderSourceOutput(" + json + "," + String(revision) + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + "," + String(revision) + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
@@ -51,7 +52,7 @@ import WebKit
     }
 }
 // Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
-func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: MathCoordinator.self)]) -> URL? {
+func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: MathCoordinator.self)], requireSpreadsheet: Bool = false) -> URL? {
     // Resource-only SwiftPM bundles need not initialize as Foundation Bundles.
     // Inspect their installed directories too, including macOS Contents layout.
     let installed = roots.flatMap { root in
@@ -67,7 +68,12 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
     for root in installed + testResources {
         for relative in ["HickoryAssets/Resources/math.html", "Resources/math.html", "Contents/Resources/Resources/math.html", "Contents/Resources/math.html", "math.html"] {
             let url = root.appendingPathComponent(relative)
-            if FileManager.default.isReadableFile(atPath: url.path) { return url }
+            guard FileManager.default.isReadableFile(atPath: url.path) else { continue }
+            if requireSpreadsheet {
+                let table = url.deletingLastPathComponent().appendingPathComponent("node_modules/table.js")
+                guard FileManager.default.isReadableFile(atPath: table.path) else { continue }
+            }
+            return url
         }
     }
     return nil
@@ -116,11 +122,17 @@ struct NativeMathView: UIViewRepresentable {
 struct NativeInlineTerminal: View {
     var text: String
     var editSource: (() -> Void)? = nil
+    var sourceLinks: [String: Int] = [:]
+    var onSource: ((Int) -> Void)? = nil
     var body: some View {
         VStack(spacing: 0) {
             HStack { Image(systemName: "terminal"); Text(text.contains("\u{1e}HICKORY_DISPLAY ") ? "Output" : "Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
                 .font(.system(size: 11, design: .monospaced)).padding(6).background(.primary.opacity(0.06))
-            NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
+            if !sourceLinks.isEmpty, let json = try? JSONSerialization.data(withJSONObject: ["text": text, "links": sourceLinks]) {
+                NativeMathView(source: String(decoding: json, as: UTF8.self), diagramRenderer: "source-output", onLink: { href in
+                    if let line = Int(href), sourceLinks.values.contains(line) { onSource?(line) }
+                })
+            } else { NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal") }
         }.foregroundStyle(.primary).background(.background)
             .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.35)))
             .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
@@ -129,12 +141,39 @@ struct NativeInlineTerminal: View {
 struct NativeDiagramPreview: View {
     var diagram: InlineDiagram
     var buffer: DocumentBuffer
+    @State private var architecture: String?
+    @State private var architectureNotice = "Reading the code model…"
+    @State private var architectureRefresh = 0
+    private var current: Bool {
+        exactUTF8(buffer.text, buffer.inlineMarkup.source) &&
+            buffer.inlineMarkup.diagrams.contains { $0.id == diagram.id && $0.body == diagram.body && $0.renderer == diagram.renderer }
+    }
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
-        else { NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer, onSize: { size in
-            guard exactUTF8(buffer.text,buffer.inlineMarkup.source), buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
+        else if diagram.renderer == "architecture" {
+            ZStack(alignment: .topTrailing) {
+                if let architecture { preview(architecture, renderer: "graph") }
+                else { Text(architectureNotice).font(.caption).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                Button("Refresh architecture", systemImage: "arrow.clockwise") { architectureRefresh += 1 }.labelStyle(.iconOnly)
+            }.task(id: architectureRefresh) {
+                guard let engine = buffer.receiptEngine else { architectureNotice = "Reconnect to the workspace and refresh."; return }
+                do {
+                    let path = buffer.file.path
+                    let result: NativeTableJSON = try await engine.request("POST", "/api/architecture", body: ["uri": nativeDebugURI(path)])
+                    guard !Task.isCancelled, current, exactUTF8(path, buffer.file.path) else { return }
+                    architecture = String(decoding: try JSONSerialization.data(withJSONObject: result.object), as: UTF8.self)
+                } catch {
+                    if !Task.isCancelled { architectureNotice = error.localizedDescription; architecture = nil }
+                }
+            }
+        } else { preview(diagram.body, renderer: diagram.renderer) }
+    }
+
+    private func preview(_ source: String, renderer: String) -> some View {
+        NativeMathView(source: source, diagramRenderer: renderer, onSize: { size in
+            guard current, buffer.diagramSizes[diagram.id] != size else { return }
             buffer.diagramSizes[diagram.id] = size; buffer.renderMarkup?()
-        }, onLink: { buffer.openDiagramFile?($0) }).background(.background) }
+        }, onLink: { href in if current { buffer.openDiagramFile?(href) } }).background(.background)
     }
 }
 struct InlineEquationControl: View {

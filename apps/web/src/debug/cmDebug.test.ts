@@ -385,7 +385,7 @@ describe("read-only output next to program source", () => {
   it("retains output labels without changing source and retires it after edits", () => {
     const source = "print('hi')\n";
     const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: source, extensions: debugEditor({ language: "python", onToggleBreakpoint: () => {} }) }) });
-    view.dispatch({ effects: setDebuggerOutput.of({ literate: false, events: [
+    view.dispatch({ selection: { anchor: source.length }, effects: setDebuggerOutput.of({ literate: false, path: "main.py", events: [
       { category: "stdout", text: "hi\n", source: "main.py", line: 0 },
       { category: "stderr", text: "warning\n" },
     ] }) });
@@ -394,6 +394,11 @@ describe("read-only output next to program source", () => {
     expect(output.textContent).not.toContain("[stdout");
     expect(output.textContent).not.toContain("[stderr");
     expect(output.getAttribute("contenteditable")).toBe("false");
+    const links = output.querySelectorAll("button");
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent).toBe("hi");
+    links[0].click();
+    expect(view.state.selection.main.head).toBe(0);
     expect(view.state.doc.toString()).toBe(source);
     view.dispatch({ changes: { from: 0, insert: "# changed\n" } });
     expect(view.dom.querySelector(".cm-run-output")).toBeNull();

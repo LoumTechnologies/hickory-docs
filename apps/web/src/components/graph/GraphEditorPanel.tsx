@@ -73,6 +73,7 @@ export interface GraphEditorPanelProps {
   sourceWritable?: () => boolean;
   sourceOwner?: object;
   sourceRevision?: () => object | null;
+  onOpenNode?: (id: string) => void;
 }
 
 const NODE_TYPES = { scene: SceneNodeView };
@@ -203,7 +204,7 @@ function canvasHeight(scene: Scene): number {
   return Math.min(640, Math.max(80, bottom - top + 48));
 }
 
-function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: hostCurrent, sourceWritable, sourceOwner, sourceRevision }: GraphEditorPanelProps) {
+function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: hostCurrent, sourceWritable, sourceOwner, sourceRevision, onOpenNode }: GraphEditorPanelProps) {
   // The last byte form THIS panel wrote. A source that comes back equal is
   // our own commit echoing through the registry; anything else is an external
   // edit — undo, a collaborator, the agent — and the document wins.
@@ -667,7 +668,10 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
     );
   }
 
-  const height = sceneRef.current ? canvasHeight(sceneRef.current) : 280;
+  const previewOnly = !!onOpenNode;
+  const measuredHeight = sceneRef.current ? canvasHeight(sceneRef.current) : 280;
+  // The read-only graph can fit a full row of linked nodes inside its clip.
+  const height = previewOnly ? Math.max(220, measuredHeight) : measuredHeight;
   // The inspector reads the FIRST selected thing for its current values;
   // its actions apply to the whole selection.
   const selectedNode = sceneRef.current?.nodes.find((n) => selection.nodes.includes(n.id));
@@ -689,6 +693,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
       ref={engagement.root}
       {...engagement.handlers}
     >
+      {!previewOnly && <>
       <div className="graph-editor__toolbar">
         {!derived && (
           <button type="button" onClick={() => invokeGraph("add")}>
@@ -783,6 +788,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
           </span>
         )}
       </div>
+      </>}
       <div
         className={`graph-editor__canvas${active ? " graph-editor__canvas--active" : ""}`}
         style={{ height }}
@@ -795,6 +801,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
+          onNodeClick={onOpenNode && ((_, node) => onOpenNode(node.id))}
           onConnect={onConnect}
           onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
@@ -803,9 +810,10 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
           onEdgesDelete={onEdgesDelete}
           onEdgeDoubleClick={onEdgeDoubleClick}
           onSelectionChange={onSelectionChange}
-          nodesConnectable={!derived}
-          edgesReconnectable={!derived}
-          deleteKeyCode={derived ? null : ["Backspace", "Delete"]}
+          nodesDraggable={!previewOnly}
+          nodesConnectable={!derived && !previewOnly}
+          edgesReconnectable={!derived && !previewOnly}
+          deleteKeyCode={derived || previewOnly ? null : ["Backspace", "Delete"]}
           // A side is a place a line meets a box, not a polarity: any handle
           // accepts either end of a connection.
           connectionMode={ConnectionMode.Loose}

@@ -135,7 +135,7 @@ Simple UI gutter gestures already identify a program: prefer that exact program 
 <storycode:copy id="f-1a7a9a03aa8d-launchWithProfiles">
 /** The only frontend Run/Debug profile resolution path. Remember the target, never its version. */
 export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection: LaunchSelection) => void,
-  options: {choose?: boolean; preferProgram?: boolean; isCurrent?: () => boolean; contextLabel?: string} = {}): Promise<void> {
+  options: {choose?: boolean; preferProgram?: boolean; isCurrent?: () => boolean; contextLabel?: string; onRun?: (id: string) => void} = {}): Promise<void> {
   const key = JSON.stringify(query);
   if(pending.has(key))return;
   pending.add(key);
@@ -145,7 +145,8 @@ export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection
     const candidates = supportsDebugProtocol(catalog)?catalog.profiles.filter(p=>p.can_debug):[];
     const last=remembered.get(memory), known=catalog.profiles.find(p=>p.id===last);
     const unavailable=!!last && !known;
-    const clicked = options.preferProgram ? candidates.find(p=>p.program === (query.program ?? catalog.viewed)) : undefined;
+    const target = query.program?.startsWith("fence:") ? catalog.viewed : query.program ?? catalog.viewed;
+    const clicked = options.preferProgram ? candidates.find(p=>p.program === target) : undefined;
     const preferred = clicked ?? known ?? catalog.profiles.find(p=>p.default);
     const automatic = supportsDebugProtocol(catalog)&&preferred?.can_debug ? preferred : !preferred && candidates.length===1 ? candidates[0] : null;
     const choice = !options.choose && (!unavailable || clicked) && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
@@ -156,6 +157,8 @@ export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection
     if(choice.mode==="debug"){if(!supportsDebugProtocol(catalog))throw new Error(debugProtocolNotice);onDebug({...selection,name:choice.profile.name});}
     else {
       const session=await request<{id:string;title:string}>("POST","/api/launch-profiles/run",{...query,profile:selection});
+      if (options.isCurrent?.() === false) return;
+      options.onRun?.(session.id);
       showTerminalRequest(session.id,session.title);
     }
   } catch(e) { await choose(undefined,e instanceof Error?e.message:String(e)); }
@@ -208,7 +211,7 @@ export function LaunchProfiles() {
         {state.catalog.profiles.map(profile=><section key={profile.id} className="launch-profile-option">
           <strong>{profile.name}</strong><span className="muted">{profile.origin}{profile.default?" · default":""}</span>
           <code>{profile.attach ? `Attach · loopback port ${profile.attach.port} · external source revision unverified` : profile.program ?? profile.command.join(" ")}</code>
-          <span><button type="button" disabled={!!profile.attach} onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>
+          <span>{profile.id !== "fence-debug" && <button type="button" disabled={!!profile.attach} onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>}
           <button type="button" disabled={!profile.can_debug||!supportsDebugProtocol(state.catalog!)} data-tip={!profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
             onClick={()=>state.settle({profile,mode:"debug"})}>Debug {profile.name}</button></span>
         </section>)}

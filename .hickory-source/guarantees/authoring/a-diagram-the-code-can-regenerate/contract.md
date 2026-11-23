@@ -105,15 +105,26 @@ const MAX_FILE_BYTES: u64 = 512 * 1024;
 <a id="f-882b777229b8-generate_topology"></a>
 ### `generate_topology`
 
-Walk `root` and deduce a topology from its code.
+The code model resolves identifiers across saved files. A file node opens at
+its first definition when the analyzer finds one. The workspace preview bounds
+the scan and reads the containing folder, so those relative destinations use
+the same base as the document editor. Loading a diagram reads code without
+starting a language runtime.
 
 <storycode:copy id="f-882b777229b8-generate_topology">
 /// Walk `root` and deduce a topology from its code.
 pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topology> {
+    topology_in(root, group, None)
+}
+
+fn topology_in(root: &Path, group: Grouping, limit: Option<usize>) -> std::io::Result<Topology> {
     let mut files = Vec::new();
-    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+    for (visited, entry) in ignore::WalkBuilder::new(root).follow_links(false).build().flatten().enumerate() {
+        if limit.is_some_and(|limit| visited >= limit || files.len() >= 80) {
+            return Err(std::io::Error::other("Folder exceeds the inline architecture preview limit. Open a smaller project folder."));
+        }
         let path = entry.path();
-        if !path.is_file() {
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
         if entry
@@ -163,10 +174,17 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
     // Nodes in path order (the sort above makes it the same everywhere),
     // edges counted.
     let mut order: Vec<String> = Vec::new();
+    let mut destinations = BTreeMap::new();
     let mut seen = std::collections::BTreeSet::new();
     for file in &files {
         let id = node_of(&file.path);
         if seen.insert(id.clone()) {
+            if id == file.path {
+                let path = file.path.replace('%', "%25").replace('#', "%23").replace('?', "%3F");
+                let href = file.definitions.iter().map(|definition| definition.start_line).min()
+                    .map_or(path.clone(), |line| format!("{path}#L{}", line + 1));
+                destinations.insert(id.clone(), href);
+            }
             order.push(id);
         }
     }
@@ -184,6 +202,7 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
         nodes: order
             .into_iter()
             .map(|id| SceneNode {
+                href: destinations.remove(&id),
                 id,
                 ..SceneNode::default()
             })
@@ -209,6 +228,34 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
 The topology as the format the flag asked for.
 
 <storycode:copy id="f-882b777229b8-render">
+#[derive(serde::Deserialize)]
+pub(crate) struct ArchitectureTarget {
+    uri: String,
+}
+
+pub(crate) async fn workspace_architecture(
+    axum::extract::State(state): axum::extract::State<crate::serve::LocalState>,
+    axum::Json(target): axum::Json<ArchitectureTarget>,
+) -> Result<axum::Json<Scene>, crate::serve::api::ApiError> {
+    use crate::serve::api::ApiError;
+    tokio::task::spawn_blocking(move || {
+        let workspace = state.index.root();
+        let lease = state.resource_root.check(workspace).map_err(ApiError::conflict)?;
+        if !target.uri.starts_with("hick:///") {
+            return Err(ApiError::bad_request("Open a saved workspace file before reading its architecture."));
+        }
+        let path = crate::debug_sessions::source_document(workspace, &target.uri)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let folder = path.parent().ok_or_else(|| ApiError::bad_request("Open a file contained in the workspace."))?;
+        let topology = topology_in(folder, Grouping::File, Some(4000))
+            .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+        if state.resource_root.check(workspace).map_err(ApiError::conflict)? != lease {
+            return Err(ApiError::conflict("Workspace changed while reading its architecture. Refresh the diagram."));
+        }
+        Ok(axum::Json(Scene { topology: Some(topology), ..Scene::default() }))
+    }).await.map_err(|error| ApiError::internal(error.to_string()))?
+}
+
 /// The topology as the format the flag asked for.
 pub fn render(topology: &Topology, mermaid: bool) -> String {
     if mermaid {

@@ -206,6 +206,7 @@ pub async fn output(
         .terminals
         .get(&id)
         .ok_or_else(|| ApiError::not_found("Terminal no longer exists"))?;
+    let output_done = session.output_done();
     let bytes = match query.view.as_str() {
         "screen" => session.screen_text().into_bytes(),
         "replay" => session.attach().0,
@@ -224,7 +225,7 @@ pub async fn output(
     }
     let end = query.offset.saturating_add(query.limit).min(bytes.len());
     Ok(Json(
-        json!({"session":id,"representation":query.view,"revision":revision,"span":{"start":query.offset,"end":end},"bytes":bytes[query.offset..end],"total":bytes.len(),"next":if end < bytes.len() { Some(end) } else { None },"coverage":"Current screen or retained replay only; older evicted scrollback is unavailable","verification":"Terminal output is evidence, not an independently certified check"}),
+        json!({"session":id,"representation":query.view,"output_done":output_done,"revision":revision,"span":{"start":query.offset,"end":end},"bytes":bytes[query.offset..end],"total":bytes.len(),"next":if end < bytes.len() { Some(end) } else { None },"coverage":"Current screen or retained replay only; older evicted scrollback is unavailable","verification":"Terminal output is evidence, not an independently certified check"}),
     ))
 }
 

@@ -90,9 +90,9 @@ if __name__ == "__main__":
 
 This patch constructs the receipt-label change over the Python base above.
 Inspect its before/after code, use language tools on the added statement, or
-debug `generated/coupon.py` from the patch destination header. Added code has
-source ownership. In Simple, click the added line's number to toggle a
-pending breakpoint. The fold control at the hunk header collapses its body.
+debug `generated/coupon.py` from the patch destination header. In Simple, click an added or context line's number to toggle a pending
+breakpoint in the destination program. A stop on context code still points to
+the authored file block that owns those bytes. The fold control at the hunk header collapses its body.
 Save the document before debugging so the adapter runs the displayed project.
 
 ```patch id="coupon-receipt" after="coupon-base"
@@ -138,11 +138,28 @@ the graph, then restore its preview. Native previews also support Mermaid.
 {"topology":{"nodes":[{"id":"catalog"},{"id":"order"},{"id":"receipt"}],"edges":[{"from":"catalog","to":"order"},{"from":"order","to":"receipt"}]},"layout":{"catalog":{"x":20,"y":20,"w":130,"h":50},"order":{"x":200,"y":20,"w":130,"h":50},"receipt":{"x":380,"y":20,"w":130,"h":50}}}
 </h:diagram>
 
+## Architecture from the code model
+
+This diagram reads the saved Python files beside the workbook. The arrows
+show name-resolved references. Select a file node to open it at its first
+definition, or refresh after saving changes to the code.
+
+<h:diagram renderer="architecture">
+</h:diagram>
+
 ## Literal content stays literal
+
+Use the play gutter to debug this Python fence or choose **Launch profiles**
+to run it as a fresh program. Click a code line number to set a breakpoint.
+Run and Debug put terminal output below the fence. Debug output links to
+source when the adapter reports a matching location.
 
 ```python
 # **This is code, not bold prose.**
+import sys
+
 print("<script>literal text</script>")
+print("This line is stderr.", file=sys.stderr)
 ```
 
 Search for `Notebook`, fold an indented Python block, split a pane and move this

@@ -1,4 +1,6 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import { TablePanel } from "./TablePanel";
+import { writeCsv } from "../lib/csv";
 
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
@@ -19,6 +21,8 @@ function cell(value: unknown): string {
 /** No edit callback, formula evaluation or writable controls. Values stay data. */
 export function ReadOnlyTable({ table }: { table: NotebookTable }) {
   const [filter, setFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterButton = useRef<HTMLButtonElement>(null);
   const [sort, setSort] = useState<{ column: number; descending: boolean } | null>(null);
   const rows = useMemo(() => {
     const result = table.rows.filter(row => row.some(v => cell(v).toLowerCase().includes(filter.toLowerCase())));
@@ -46,14 +50,23 @@ export function ReadOnlyTable({ table }: { table: NotebookTable }) {
       return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
     } } },
   ]);
-  return <section className="notebook-table" aria-label="Read-only table">
-    <label>Filter this page <input value={filter} onChange={e => setFilter(e.target.value)} /></label>
-    <span className="muted"> Read-only · {table.rows.length} rows{table.total != null ? ` of ${table.total}` : ""}{table.has_more ? " · preview truncated" : ""}{table.columns_truncated ? " · first 256 columns" : ""}</span>
-    <div className="notebook-table-scroll"><table>
-      <thead><tr>{table.schema.map((col, i) => <th key={i} aria-sort={sort?.column === i ? (sort.descending ? "descending" : "ascending") : "none"}>
-        <button onClick={() => sortBy(i, sort?.column === i && !sort.descending)}>{col.name}</button><small>{col.dtype}</small>
-      </th>)}</tr></thead>
-      <tbody>{rows.map((row, i) => <tr key={i}>{table.schema.map((_, j) => <td key={j} data-tip={cell(row[j])} className={row[j] === null ? "muted" : ""}>{cell(row[j])}</td>)}</tr>)}</tbody>
-    </table></div>
+  const source = writeCsv({ rows: [table.schema.map(col => col.name), ...rows.map(row => table.schema.map((_, column) => cell(row[column])))],
+    delimiter: ",", newline: "\n", trailingNewline: false });
+  return <section className="notebook-table" aria-label="Read-only table" style={{ position: "relative" }}>
+    <button ref={filterButton} className="debug-icon" type="button" aria-label="Filter table" aria-expanded={filterOpen}
+      style={{ position: "absolute", right: 4, top: 3, zIndex: 2 }} onClick={() => setFilterOpen(open => !open)}>
+      <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12L9 8v4l-2 1V8Z" fill="none" stroke="currentColor" /></svg>
+    </button>
+    {filterOpen && <div role="dialog" aria-label="Filter table" className="simple-semantic-results" style={{ position: "absolute", right: 26, top: 4, zIndex: 3 }}
+      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setFilterOpen(false); filterButton.current?.focus(); } }}>
+      <label>Filter this page <input autoFocus value={filter} onChange={e => setFilter(e.target.value)} /></label>
+      <label>Sort by <select value={sort?.column ?? ""} onChange={e => e.target.value === "" ? setSort(null) : sortBy(Number(e.target.value), false)}>
+        <option value="">Original order</option>
+        {table.schema.map((col, column) => <option key={column} value={column}>{col.name}</option>)}
+      </select></label>
+      {sort && <button type="button" onClick={() => sortBy(sort.column, !sort.descending)}>{sort.descending ? "Descending" : "Ascending"}</button>}
+    </div>}
+    <TablePanel source={source} delimiter="," header fitProseDefault laneRight />
+    {(table.has_more || table.columns_truncated) && <small>Showing {rows.length} loaded rows{table.total != null ? ` of ${table.total}` : ""}{table.columns_truncated ? " · first 256 columns" : ""}</small>}
   </section>;
 }

@@ -631,7 +631,7 @@ export function DebugStrip(props: DebugStripProps) {
   );
   return <>
     {props.reading && <ObservationReading reading={props.reading} changed={props.readingChanged} historical={props.status !== "paused" || props.selectedFrame !== props.reading.scope.frame || props.observationScope!==undefined&&(!props.observationScope||(["session","run","stop","frame","invocation"] as const).some(key=>props.observationScope![key]!==props.reading!.scope[key]))} />}
-    {props.editorView ? <DebugGutterControls view={props.editorView} line={props.pausedLine} program={props.program}>{controls}</DebugGutterControls> : <PaneHeaderContent part="actions">{controls}</PaneHeaderContent>}
+    {props.editorView ? <DebugGutterControls view={props.editorView} line={props.pausedLine} program={props.program} active={!over}>{controls}</DebugGutterControls> : <PaneHeaderContent part="actions">{controls}</PaneHeaderContent>}
     {showBuild && (
       <div className="debug-build" data-testid="debug-build">
         <div className="debug-build__title">

@@ -117,6 +117,7 @@ impl ProjectContext {
         let mut native = self.native.lock().unwrap();
         if native.is_none() {
             let project = EvaluatedProject {
+                patch_context_lines: Vec::new(),
                 old: ProjectTree::default(),
                 new: self.tree.clone(),
                 inventory: Default::default(),

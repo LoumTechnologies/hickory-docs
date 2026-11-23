@@ -35,7 +35,7 @@ import {captureEditorRecovery,editorRecoveryLease,restoreEditorRecovery} from ".
 import {EditorRecoveryView,editorRecoveryTransport} from "./EditorRecoveryView";
 import { api,request } from "../api/client";
 import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
-import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
+import { onOpenLocation, onShowTerminal, openLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers, createSourceCopy,adoptCreatedDraft } from "./buffers";
 import { RichOwners } from "./RichInline";
@@ -284,6 +284,13 @@ export function App() {
     const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
     activateTab(owner?.id ?? currentGroup.id, tab);
   }
+  useEffect(() => onShowTerminal(({ id }) => {
+    if (!/^term-[0-9a-f]{32}$/.test(id)) return;
+    terminal.id = id;
+    terminal.error = "";
+    terminal.publish();
+    openTab("terminal");
+  }), [terminal, currentGroup.id]);
   async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify, startup}: OpenFileOptions = {}): Promise<OpenedFile | null> {
     if (!isCurrent() || !originCurrent()) return null;
     const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);

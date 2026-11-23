@@ -7,6 +7,7 @@ import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import type { RenderedSlot } from "../editor/rendered";
 import type { Block, ExecBlock, DiagramBlock } from "../api/types";
 import { request } from "../api/client";
+import { openLocation, workspaceLinkTarget } from "../lib/revealLine";
 
 const inlineUnavailable = "Inline rendering unavailable. Continue editing source or reload to retry.";
 
@@ -87,6 +88,17 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => simpleMathSpans(libs, state)),
+        libs.links.mdLinks({
+          docPath: () => buffer.file.path,
+          skip: state => [...libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks),
+            ...libs.markdown.fencedCodeRanges(state.doc.toString())].sort(([a], [b]) => a - b),
+          onFollow: href => {
+            const target = workspaceLinkTarget(href, buffer.file.path);
+            if (!target || !view.dom.isConnected) return { status: "unavailable", reason: "Choose a link to a file in this workspace." };
+            openLocation(target.path, target.line);
+            return { status: "completed", value: { navigation_requested: true } };
+          },
+        }),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
         block.name !== "math" && block.name !== "patch" && !libs.elements.slotKindOf(block)?.startsWith("session-")
@@ -168,9 +180,9 @@ async function load() {
   const parser = await import("../editor/hickLang");
   await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
-  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss] = await Promise.all([
+  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),
-    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"),
+    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"), import("../editor/mdLinks"), import("../editor/markdownStyling"),
   ]);
-  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss };
+  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown };
 }

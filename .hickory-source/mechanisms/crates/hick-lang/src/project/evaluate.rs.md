@@ -110,6 +110,8 @@ pub struct EvaluatedProject {
     /// Explicit atomic scopes; their New endpoint includes every nested act.
     pub scopes: BTreeMap<String, (ProjectTree, ProjectTree)>,
     pub recordings: Vec<super::recorded::RecordedCell>,
+    /// Patch coordinates supplement breakpoint lookup without owning output bytes.
+    pub patch_context_lines: Vec<(String, usize, String, usize)>,
 }
 </storycode:copy>
 <a id="f-4957ad4b2f9a-Operation"></a>
@@ -261,6 +263,7 @@ fn evaluate_project_with_selection(
     let mut local_states = BTreeMap::new();
     let mut versions = vec![input.clone()];
     let mut file_paths = BTreeMap::new();
+    let mut patch_context_lines = Vec::new();
     let mut deltas: Vec<(String, EntryDelta)> = vec![];
     while completed.len() < operations.len() {
         let ready = operations
@@ -299,6 +302,11 @@ fn evaluate_project_with_selection(
             // A patch is a verbatim body: no dedenting or copy substitution.
             let offset = origins.first().map_or(0, |o| o.source.0);
             let patch = apply_project_patch(&local, &diff, &op.document, offset).map_err(|error|format!("invalid or unordered input for patch {}: {error}; declare its generated-file predecessors with after",op.id))?;
+            for (path, byte, line) in patch.context_lines {
+                let Some(prefix) = sources[&op.document].as_bytes().get(..byte) else { continue };
+                let source_line = prefix.iter().filter(|&&b| b == b'\n').count();
+                patch_context_lines.push((op.id.clone(), op.document.clone(), source_line, path, line));
+            }
             local = patch.after;
             patch.paths
         } else {
@@ -401,7 +409,13 @@ fn evaluate_project_with_selection(
         }
         scopes.insert(op.id.clone(), (old, local_states[&op.id].1.clone()));
     }
+    // Coordinates remain valid only while the full destination entry, including
+    // byte ownership, still matches the patch's completed local result.
+    let patch_context_lines = patch_context_lines.into_iter().filter_map(|(id, doc, source, path, line)| {
+        (local_states[&id].1.get(&path) == result.get(&path)).then_some((doc, source, path, line))
+    }).collect();
     let project = EvaluatedProject {
+        patch_context_lines,
         versions,
         file_paths,
         scopes,

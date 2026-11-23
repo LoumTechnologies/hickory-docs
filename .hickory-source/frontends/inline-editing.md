@@ -33,7 +33,7 @@ show their source and a status message. Network navigation remains disabled.
 Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve the measured natural content height, shrinking wide diagrams to the available width. Measurement changes preserve the visible source anchor and never mutate diagram bytes. Source mode is reversible through the same right-gutter icon. Fenced examples and
 other Hickory literal bodies do not create live diagrams.
 
-Ordinary diff fences remain review text. Explicit patch fences are project constructions: offer launch beside each supported destination header and pending breakpoints on added code rows. Hunk counts distinguish destination headers from added strings beginning with plus signs. Deleted and context rows do not acquire new-source ownership; the project mapper remains authoritative about whether added bytes survive later patches. Local syntax colors the added code without its diff prefix. Path-bearing ordinary code fences use the same file context as file tags.
+Ordinary diff fences remain review text. Explicit patch fences are project constructions: offer launch beside each supported destination header and pending breakpoints on nonempty destination rows. Hunk counts distinguish destination headers from added strings beginning with plus signs. A context breakpoint aliases the validated destination line while retaining the pre-existing source owner. The debugger admits the alias only while the destination still matches the completed patch, including its provenance. Local syntax colors the added code without its diff prefix. Path-bearing ordinary code fences use the same file context as file tags.
 
 While a new parse is pending, map unaffected table cells through the text change.
 This is presentation only: keep debugging and equation actions on exact snapshots.
@@ -57,7 +57,8 @@ import Foundation
 // Diagram links are paths relative to the document, bounded by the workspace root.
 func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
     guard !href.isEmpty, !href.contains(":"), !href.hasPrefix("/"), !href.contains("\\"), !href.contains("\n") else { return nil }
-    let path = href.removingPercentEncoding ?? href
+    guard let path = href.removingPercentEncoding,
+          !path.contains(where: { $0.isNewline || $0 == "\0" }) else { return nil }
     guard !path.contains(":"), !path.hasPrefix("/"), !path.contains("\\") else { return nil }
     var parts = source.split(separator: "/").dropLast().map(String.init)
     for part in path.split(separator: "/") {
@@ -66,6 +67,13 @@ func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
     }
     return parts.isEmpty ? nil : parts.joined(separator: "/")
 }
+func workspaceLinkTarget(_ href: String, relativeTo source: String) -> (path: String, line: Int?)? {
+    let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+    guard let first = parts.first, let path = diagramFilePath(String(first), relativeTo: source) else { return nil }
+    let line = parts.count == 2 && parts[1].hasPrefix("L") ? Int(parts[1].dropFirst()) : nil
+    return (path, line.flatMap { $0 > 0 ? $0 - 1 : nil })
+}
+struct InlineLink: Sendable { var range: NSRange; var href: String }
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -76,8 +84,18 @@ struct InlineEquation: Identifiable, Sendable {
     var renderedRange: NSRange { presentationRange ?? range }
     var id: Int { range.location }
 }
+// Typeset glyphs have no one-to-one TeX position. Map across the visible body
+// and snap to a whole grapheme so the next native edit can start safely.
+func equationSourceCaret(_ equation: InlineEquation, fraction: CGFloat) -> Int {
+    let leading = equation.body.prefix(while: \.isWhitespace).utf16.count
+    let body = equation.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    let boundaries = body.indices.map { $0.utf16Offset(in: body) } + [body.utf16.count]
+    let target = Int((CGFloat(body.utf16.count) * min(1, max(0, fraction))).rounded())
+    let nearest = boundaries.min { abs($0 - target) < abs($1 - target) } ?? 0
+    return equation.range.location + min(equation.range.length, leading + nearest)
+}
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = [] }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -275,7 +293,14 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                         result.recordedPatches.insert(recorded.opening)
                         for line in patchLines { result.recordedPatchLines[line] = recorded.opening }
                     }
-                    else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
+                    else {
+                        result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language)
+                        let address = "fence:\(recorded.opening)"
+                        result.launch[recorded.opening] = address
+                        for line in (recorded.opening + 1)..<index where !rows[line].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            result.code[line] = address
+                        }
+                    }
                 }
                 if let declaredPatch, index > declaredPatch + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
@@ -328,7 +353,10 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                     newLines -= 1; patchLines.append(index)
                     if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target }
                 } else if row.hasPrefix("-"), oldLines > 0 { oldLines -= 1; patchLines.append(index) }
-                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 { oldLines -= 1; newLines -= 1 }
+                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 {
+                    oldLines -= 1; newLines -= 1
+                    if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.code[index] = target }
+                }
             } else if row.hasPrefix("+++ ") {
                 let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
                 let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
@@ -342,6 +370,22 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     }
     return result
 }
+func inlineLaunchEnd(_ source: String, header: Int) -> Int {
+    let rows = source.components(separatedBy: "\n")
+    guard rows.indices.contains(header) else { return 0 }
+    let tag = rows[header].trimmingCharacters(in: .whitespaces)
+    let patch = tag.hasPrefix("+++ ")
+    let file = tag.first == "<" && !patch
+    let marker = tag.first
+    for line in (header + 1)..<rows.count {
+        let text = rows[line].trimmingCharacters(in: .whitespacesAndNewlines)
+        if (file || patch) && text.hasPrefix("</") && text.contains(patch ? ":patch>" : ":file>") { return line }
+        if !file && text.count >= 3 && (patch ? (text.first == "`" || text.first == "~") : text.first == marker) &&
+            (text.first == "`" || text.first == "~") && text.allSatisfy({ $0 == text.first }) { return line }
+    }
+    return max(header, rows.count - (source.hasSuffix("\n") ? 2 : 1))
+}
+
 func inlineDebugPath(_ source: String, path: String, line: Int, launch: Bool = false) -> String? {
     let context = inlineDebugContext(source, path: path)
     return launch ? context.launch[line] : context.code[line]
@@ -453,6 +497,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
+    let links = try! NSRegularExpression(pattern: #"(?<![!\\])\[([^\]\n]+)\]\(([^\s()]+)\)"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
@@ -519,6 +564,13 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
                 if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body), presentationRange: NSRange(location: offset + match.range.location, length: match.range.length))) }
             }
         }
+        for match in links.matches(in: row, range: all) where !codeRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
+            let label = match.range(at: 1), href = ns.substring(with: match.range(at: 2))
+            guard workspaceLinkTarget(href, relativeTo: path) != nil else { continue }
+            let range = NSRange(location: offset + label.location, length: label.length)
+            result.links.append(InlineLink(range: range, href: href))
+            result.marks.append(InlineMark(kind: "link", range: range))
+        }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil
         let nextSeparator = line + 1 < rows.count && separator.firstMatch(in: rows[line + 1], range: NSRange(location: 0, length: rows[line + 1].utf16.count)) != nil
         if nextSeparator || (table && row.contains("|")) {
@@ -562,9 +614,28 @@ package com.hickorydocs.simple
 
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
-data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to)
+data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to, val displayBlock: Boolean = false)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList())
+data class InlineLink(val from: Int, val to: Int, val href: String)
+data class WorkspaceLinkTarget(val path: String, val line: Int?)
+fun workspaceLinkTarget(href: String, source: String): WorkspaceLinkTarget? {
+    val parts = href.split('#', limit = 2)
+    val raw = parts.first()
+    val path = runCatching { java.net.URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrNull() ?: return null
+    if (path.isEmpty() || path.startsWith('/') || path.any { it in ":\\\r\n\u0000" }) return null
+    val resolved = source.split('/').dropLast(1).toMutableList()
+    for (part in path.split('/')) {
+        when (part) {
+            ".." -> if (resolved.isEmpty()) return null else resolved.removeAt(resolved.lastIndex)
+            "", "." -> Unit
+            else -> resolved.add(part)
+        }
+    }
+    if (resolved.isEmpty()) return null
+    val line = parts.getOrNull(1)?.takeIf { it.startsWith("L") }?.drop(1)?.toIntOrNull()?.takeIf { it > 0 }?.minus(1)
+    return WorkspaceLinkTarget(resolved.joinToString("/"), line)
+}
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList(), val links: List<InlineLink> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>, val visibleRows: Int? = null) {
     val displayRows: Int get() = visibleRows ?: maxOf(22, minOf(32, rows.size * 2 + 10))
@@ -792,19 +863,35 @@ fun inlineDebugContext(source: String, path: String): InlineDebugContext {
     }
     if (path.substringAfterLast('.').lowercase() !in listOf("md", "markdown")) return InlineDebugContext()
     var fence = ""; var mode = ""; var target: String? = null; var oldLines = 0; var newLines = 0
+    var literalOpening: Int? = null
+    val literalLanguages = setOf("python", "py", "python3", "javascript", "js", "node", "typescript", "ts", "rust", "rs", "c", "cpp", "c++", "cxx", "go", "golang", "csharp", "cs", "c#", "ruby", "rb")
     val opening = Regex("""^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>""")
     val pathHint = Regex("""\bpath\s*=\s*["']([^"']+)["']""")
     val hunk = Regex("""^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@""")
     for ((index, row) in rows.withIndex()) {
         val trimmed = row.trim()
         if (fence.isNotEmpty()) {
-            if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { fence = ""; mode = ""; target = null; continue }
+            if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) {
+                literalOpening?.let { start ->
+                    val body = (start + 1 until index).filter { rows[it].isNotBlank() }
+                    if (body.isNotEmpty()) {
+                        val address = "fence:$start"
+                        launch[start] = address
+                        body.forEach { code[it] = address }
+                    }
+                }
+                literalOpening = null; fence = ""; mode = ""; target = null; continue
+            }
         } else if (mode.isNotEmpty()) {
             if (trimmed.contains("</") && trimmed.contains(":" + mode + ">")) { mode = ""; target = null; continue }
         } else {
             val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
             val declaration: String
-            if (marker != null) { fence = marker.value.trim(); declaration = row.substring(marker.range.last + 1); mode = if (declaration.trim().substringBefore(' ') == "patch") "patch" else "file" }
+            if (marker != null) {
+                fence = marker.value.trim(); declaration = row.substring(marker.range.last + 1)
+                mode = if (declaration.trim().substringBefore(' ') == "patch") "patch" else "file"
+                if (declaration.trim().lowercase() in literalLanguages) literalOpening = index
+            }
             else { val match = opening.find(row) ?: continue; mode = match.groupValues[1]; declaration = match.value }
             oldLines = 0; newLines = 0; target = null
             if (mode == "file") {
@@ -817,9 +904,12 @@ fun inlineDebugContext(source: String, path: String): InlineDebugContext {
         if (mode == "file" && trimmed.isNotEmpty()) target?.let { code[index] = it }
         if (mode == "patch") {
             if (oldLines > 0 || newLines > 0) {
-                if (row.startsWith('+')) { newLines--; if (row.drop(1).isNotBlank()) target?.let { code[index] = it } }
-                else if (row.startsWith('-')) oldLines--
-                else if (row.startsWith(' ')) { oldLines--; newLines-- }
+                if (row.startsWith('+') && newLines > 0) { newLines--; if (row.drop(1).isNotBlank()) target?.let { code[index] = it } }
+                else if (row.startsWith('-') && oldLines > 0) oldLines--
+                else if (row.startsWith(' ') && oldLines > 0 && newLines > 0) {
+                    oldLines--; newLines--
+                    if (row.drop(1).isNotBlank()) target?.let { code[index] = it }
+                }
             } else if (row.startsWith("+++ ")) {
                 val path = row.drop(4).substringBefore('\t').removePrefix("b/")
                 target = path.takeIf { it.substringAfterLast('.').lowercase() in supported }
@@ -828,6 +918,20 @@ fun inlineDebugContext(source: String, path: String): InlineDebugContext {
         }
     }
     return InlineDebugContext(code, launch)
+}
+fun inlineLaunchEnd(source: String, header: Int): Int {
+    val rows = source.split('\n')
+    val tag = rows.getOrNull(header)?.trim().orEmpty()
+    val patch = tag.startsWith("+++ ")
+    val file = tag.startsWith('<') && !patch
+    for (line in (header + 1)..rows.lastIndex) {
+        val text = rows[line].trim()
+        if ((file || patch) && text.startsWith("</") && text.contains(if (patch) ":patch>" else ":file>")) return line
+        val marker = text.firstOrNull()
+        if (!file && text.length >= 3 && (marker == '`' || marker == '~') &&
+            (patch || marker == tag.firstOrNull()) && text.all { it == marker }) return line
+    }
+    return maxOf(header, rows.lastIndex - if (source.endsWith('\n')) 1 else 0)
 }
 fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = false): String? {
     val context = inlineDebugContext(source, path)
@@ -918,6 +1022,8 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
     if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = if (source.isEmpty()) listOf(InlineCell(0, 0, 0, 0, "", "csv")) else inlineCSVCells(source, 0, 0, ","), debug = debug)
     if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
+    val links = mutableListOf<InlineLink>()
+    val linkPattern = Regex("""(?<![!\\])\[([^\]\n]+)\]\(([^\s()]+)\)""")
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
@@ -936,7 +1042,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
                 val from = equationStart
-                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
+                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close), equationOpen, start + row.length, displayBlock = true))
                 val tableFrom = tableStart
                 if (payload == "table" && tableFrom != null && start + close >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + close), tableLine, tableFrom, delimiter))
                 payload = ""; equationStart = null; tableStart = null
@@ -954,7 +1060,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
                 if (closeTable >= 0 && start + closeTable >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + closeTable), tableLine, tableFrom, delimiter))
             }
             val close = row.indexOf("</"); val from = equationStart
-            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
+            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close), equationOpen, start + row.length, displayBlock = true))
             if (trimmed.contains("</") || trimmed.endsWith("/>")) { payload = ""; equationStart = null }
             table = false; return@forEachIndexed
         }
@@ -970,13 +1076,21 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             marks.add(InlineMark(kind, start + match.range.first, start + match.range.last + 1))
             if (kind == "math") { val body = match.groups[1]!!; equations.add(InlineEquation(line, start + body.range.first, start + body.range.last + 1, body.value, start + match.range.first, start + match.range.last + 1)) }
         }
+        for (match in linkPattern.findAll(row)) {
+            if (codeRanges.any { match.range.first <= it.last && match.range.last >= it.first }) continue
+            val href = match.groupValues[2]
+            if (workspaceLinkTarget(href, path) == null) continue
+            val label = match.groups[1]!!.range
+            links.add(InlineLink(start + label.first, start + label.last + 1, href))
+            marks.add(InlineMark("link", start + label.first, start + label.last + 1))
+        }
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
     val patchMarks = debug.code.flatMap { (line, target) ->
         if (rows.getOrNull(line)?.startsWith('+') == true) inlineSyntaxMarks(rows[line].drop(1), target).map { it.copy(from = it.from + starts[line] + 1, to = it.to + starts[line] + 1) } else emptyList()
     }
-    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source))
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source), links = links)
 }
 
 fun inlineTableAttribute(name: String, table: InlineTable, source: String): String? {
@@ -1043,9 +1157,18 @@ if (globalThis.hickoryTableMode || location.search === '?table') {
   document.body.className = 'table-mode'; document.getElementById('formula').setAttribute('aria-label', 'Inline table grid');
   const style = document.createElement('style'); style.textContent = '#formula{position:static!important;width:100%!important;padding:0;transform:none!important;box-sizing:border-box}#status{display:none}body{overflow:auto}#formula.native-table-fill{height:100vh}.native-table-fill>.table-panel{height:100%;margin:0;display:flex;flex-direction:column}.native-table-fill .table-panel__scroll{flex:1;min-height:0}'; document.head.append(style);
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
-  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math'; document.head.append(script);
+  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
+  script.onerror = () => globalThis.webkit?.messageHandlers?.table?.postMessage({ kind: 'unavailable' });
+  document.head.append(script);
 }
 // Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
+function followDiagramLink(href, revision) {
+  if (globalThis.webkit?.messageHandlers?.diagramLink) {
+    globalThis.webkit.messageHandlers.diagramLink.postMessage({ href, revision });
+  } else if (globalThis.hickoryAndroidDiagram && typeof href === 'string') {
+    location.href = 'hickory-diagram://navigate/' + encodeURIComponent(href) + '?revision=' + revision;
+  }
+}
 function fitPreview() {
   if (document.body.classList.contains('notebook-mode') || document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
@@ -1109,6 +1232,36 @@ globalThis.renderNotebookOutput = function (source) {
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
   const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
   script.onerror = () => { document.getElementById('status').textContent = 'Table renderer unavailable; output is shown as text.'; }; document.head.append(script);
+};
+// Source positions are host metadata. A process can only supply text.
+globalThis.renderSourceOutput = (source, revision) => {
+  const { text, links } = JSON.parse(source);
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\r(?!\n)/.test(text)) {
+    globalThis.renderTerminal(text);
+    return;
+  }
+  document.body.className = 'terminal-mode';
+  const root = document.getElementById('formula');
+  outputResize?.disconnect();
+  outputTerminal?.dispose();
+  outputTerminal = undefined;
+  outputBytes = '';
+  root.style.overflow = 'auto';
+  const lines = document.createElement('pre');
+  lines.style.cssText = 'margin:0;font:12px ui-monospace,monospace;white-space:pre-wrap';
+  const rows = text.split(/\r?\n/);
+  for (const [i, row] of rows.entries()) {
+    if (row && Object.hasOwn(links, row)) {
+      const line = links[row];
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = row; button.title = 'Go to source line ' + (line + 1);
+      button.style.cssText = 'font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer;white-space:inherit;text-align:left';
+      button.addEventListener('click', () => followDiagramLink(String(line), revision));
+      lines.append(button);
+    } else lines.append(row);
+    if (i < rows.length - 1) lines.append('\n');
+  }
+  root.replaceChildren(lines);
 };
 // Interactive panes share xterm with output previews, but only this explicit
 // binding enables stdin. The host owns transport, session lifetime and errors.
@@ -1187,7 +1340,13 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         const b = boxes.get(item.id), group = element('g');
         group.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' }));
         group.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id));
-        if (typeof item.href === 'string') { group.style.cursor = 'pointer'; group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: item.href, revision: sizeRevision })); }
+        if (typeof item.href === 'string') {
+          group.style.cursor = 'pointer';
+          group.setAttribute('role', 'link'); group.setAttribute('tabindex', '0');
+          const follow = () => followDiagramLink(item.href, sizeRevision);
+          group.addEventListener('click', follow);
+          group.addEventListener('keydown', event => { if (event.key === 'Enter') follow(); });
+        }
         svg.append(group);
       }
       node.replaceChildren(svg);
@@ -1201,7 +1360,7 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         // after rendering, without enabling arbitrary callback execution.
         for (const match of source.matchAll(/(?:^|[;\n])\s*click\s+([\w-]+)\s+(?:href\s+)?"([^"]+)"/g)) {
           const group = [...node.querySelectorAll('g.node')].find(el => el.id.match(/(?:^|-)flowchart-(.+)-\d+$/)?.[1] === match[1]);
-          if (group) { group.style.cursor = 'pointer'; group.addEventListener('click', event => event.preventDefault()); group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: match[2], revision: sizeRevision })); }
+          if (group) { group.style.cursor = 'pointer'; group.addEventListener('click', event => event.preventDefault()); group.addEventListener('dblclick', () => followDiagramLink(match[2], sizeRevision)); }
         }
         const svg = node.querySelector('svg'), box = svg?.viewBox?.baseVal;
         if (box?.width && box?.height) { svg.style.maxWidth = 'none'; svg.setAttribute('width', box.width); svg.setAttribute('height', box.height); }
@@ -1324,6 +1483,7 @@ import WebKit
         displayed = key; revision += 1
         if diagramRenderer == "notebook" { view.evaluateJavaScript("globalThis.renderNotebookOutput(" + json + ")", completionHandler: nil) }
         else if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
+        else if diagramRenderer == "source-output" { view.evaluateJavaScript("globalThis.renderSourceOutput(" + json + "," + String(revision) + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + "," + String(revision) + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
@@ -1352,7 +1512,7 @@ import WebKit
     }
 }
 // Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
-func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: MathCoordinator.self)]) -> URL? {
+func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: MathCoordinator.self)], requireSpreadsheet: Bool = false) -> URL? {
     // Resource-only SwiftPM bundles need not initialize as Foundation Bundles.
     // Inspect their installed directories too, including macOS Contents layout.
     let installed = roots.flatMap { root in
@@ -1368,7 +1528,12 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
     for root in installed + testResources {
         for relative in ["HickoryAssets/Resources/math.html", "Resources/math.html", "Contents/Resources/Resources/math.html", "Contents/Resources/math.html", "math.html"] {
             let url = root.appendingPathComponent(relative)
-            if FileManager.default.isReadableFile(atPath: url.path) { return url }
+            guard FileManager.default.isReadableFile(atPath: url.path) else { continue }
+            if requireSpreadsheet {
+                let table = url.deletingLastPathComponent().appendingPathComponent("node_modules/table.js")
+                guard FileManager.default.isReadableFile(atPath: table.path) else { continue }
+            }
+            return url
         }
     }
     return nil
@@ -1417,11 +1582,17 @@ struct NativeMathView: UIViewRepresentable {
 struct NativeInlineTerminal: View {
     var text: String
     var editSource: (() -> Void)? = nil
+    var sourceLinks: [String: Int] = [:]
+    var onSource: ((Int) -> Void)? = nil
     var body: some View {
         VStack(spacing: 0) {
             HStack { Image(systemName: "terminal"); Text(text.contains("\u{1e}HICKORY_DISPLAY ") ? "Output" : "Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
                 .font(.system(size: 11, design: .monospaced)).padding(6).background(.primary.opacity(0.06))
-            NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
+            if !sourceLinks.isEmpty, let json = try? JSONSerialization.data(withJSONObject: ["text": text, "links": sourceLinks]) {
+                NativeMathView(source: String(decoding: json, as: UTF8.self), diagramRenderer: "source-output", onLink: { href in
+                    if let line = Int(href), sourceLinks.values.contains(line) { onSource?(line) }
+                })
+            } else { NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal") }
         }.foregroundStyle(.primary).background(.background)
             .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.35)))
             .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
@@ -1430,12 +1601,39 @@ struct NativeInlineTerminal: View {
 struct NativeDiagramPreview: View {
     var diagram: InlineDiagram
     var buffer: DocumentBuffer
+    @State private var architecture: String?
+    @State private var architectureNotice = "Reading the code model…"
+    @State private var architectureRefresh = 0
+    private var current: Bool {
+        exactUTF8(buffer.text, buffer.inlineMarkup.source) &&
+            buffer.inlineMarkup.diagrams.contains { $0.id == diagram.id && $0.body == diagram.body && $0.renderer == diagram.renderer }
+    }
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
-        else { NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer, onSize: { size in
-            guard exactUTF8(buffer.text,buffer.inlineMarkup.source), buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
+        else if diagram.renderer == "architecture" {
+            ZStack(alignment: .topTrailing) {
+                if let architecture { preview(architecture, renderer: "graph") }
+                else { Text(architectureNotice).font(.caption).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                Button("Refresh architecture", systemImage: "arrow.clockwise") { architectureRefresh += 1 }.labelStyle(.iconOnly)
+            }.task(id: architectureRefresh) {
+                guard let engine = buffer.receiptEngine else { architectureNotice = "Reconnect to the workspace and refresh."; return }
+                do {
+                    let path = buffer.file.path
+                    let result: NativeTableJSON = try await engine.request("POST", "/api/architecture", body: ["uri": nativeDebugURI(path)])
+                    guard !Task.isCancelled, current, exactUTF8(path, buffer.file.path) else { return }
+                    architecture = String(decoding: try JSONSerialization.data(withJSONObject: result.object), as: UTF8.self)
+                } catch {
+                    if !Task.isCancelled { architectureNotice = error.localizedDescription; architecture = nil }
+                }
+            }
+        } else { preview(diagram.body, renderer: diagram.renderer) }
+    }
+
+    private func preview(_ source: String, renderer: String) -> some View {
+        NativeMathView(source: source, diagramRenderer: renderer, onSize: { size in
+            guard current, buffer.diagramSizes[diagram.id] != size else { return }
             buffer.diagramSizes[diagram.id] = size; buffer.renderMarkup?()
-        }, onLink: { buffer.openDiagramFile?($0) }).background(.background) }
+        }, onLink: { href in if current { buffer.openDiagramFile?(href) } }).background(.background)
     }
 }
 struct InlineEquationControl: View {
@@ -1476,31 +1674,55 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
+private fun mathPreviewScript(source: String, renderer: String?, revision: Int): String {
+    val escaped = JSONObject.quote(source)
+    return when (renderer) {
+        "notebook" -> "globalThis.renderNotebookOutput($escaped)"
+        "terminal" -> "globalThis.renderTerminal($escaped)"
+        "source-output" -> "globalThis.renderSourceOutput($escaped,$revision)"
+        null -> "globalThis.renderMath($escaped)"
+        else -> "globalThis.renderDiagram($escaped,${JSONObject.quote(renderer)},$revision)"
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null, onReady: (() -> Unit)? = null) {
+@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null, onReady: (() -> Unit)? = null, onLink: ((String) -> Unit)? = null) {
     val ready = rememberUpdatedState(onReady)
+    val activateLink = rememberUpdatedState(onLink)
     val dark = rememberUpdatedState(isSystemInDarkTheme())
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true; settings.allowFileAccess = false; settings.allowContentAccess = false; settings.blockNetworkLoads = true
             webViewClient = object : WebViewClient() {
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val url = request.url
+                    if (request.isForMainFrame && url.scheme == "hickory-diagram" && url.host == "navigate" &&
+                        url.getQueryParameter("revision") == view.getTag(android.R.id.custom)?.toString()) {
+                        url.pathSegments.singleOrNull()?.let { activateLink.value?.invoke(it) }
+                    }
+                    return url.toString() != "file:///android_asset/math.html"
+                }
                 override fun onPageFinished(view: WebView, url: String) {
                     if (url == "file:///android_asset/math.html") {
                         val rendered = view.tag as? String ?: return
-                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
+                        view.evaluateJavascript("globalThis.hickoryAndroidDiagram=true;globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
                     }
                 }
             }
-            tag = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
+            setTag(android.R.id.custom, 1)
+            tag = mathPreviewScript(source, diagramRenderer, 1)
+            loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
         view.evaluateJavascript("globalThis.setPreviewAppearance?.(${dark.value})", null)
-        val script = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
-        if (view.tag != script) {
-            view.tag = script
-            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == script) ready.value?.invoke() }
+        val current = view.getTag(android.R.id.custom) as? Int ?: 1
+        if (view.tag != mathPreviewScript(source, diagramRenderer, current)) {
+            val revision = current + 1
+            view.setTag(android.R.id.custom, revision)
+            val command = mathPreviewScript(source, diagramRenderer, revision)
+            view.tag = command
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + command + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == command) ready.value?.invoke() }
         }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }
@@ -1542,6 +1764,7 @@ import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import type { RenderedSlot } from "../editor/rendered";
 import type { Block, ExecBlock, DiagramBlock } from "../api/types";
 import { request } from "../api/client";
+import { openLocation, workspaceLinkTarget } from "../lib/revealLine";
 
 const inlineUnavailable = "Inline rendering unavailable. Continue editing source or reload to retry.";
 
@@ -1622,6 +1845,17 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => simpleMathSpans(libs, state)),
+        libs.links.mdLinks({
+          docPath: () => buffer.file.path,
+          skip: state => [...libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks),
+            ...libs.markdown.fencedCodeRanges(state.doc.toString())].sort(([a], [b]) => a - b),
+          onFollow: href => {
+            const target = workspaceLinkTarget(href, buffer.file.path);
+            if (!target || !view.dom.isConnected) return { status: "unavailable", reason: "Choose a link to a file in this workspace." };
+            openLocation(target.path, target.line);
+            return { status: "completed", value: { navigation_requested: true } };
+          },
+        }),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
         block.name !== "math" && block.name !== "patch" && !libs.elements.slotKindOf(block)?.startsWith("session-")
@@ -1703,11 +1937,11 @@ async function load() {
   const parser = await import("../editor/hickLang");
   await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
-  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss] = await Promise.all([
+  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),
-    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"),
+    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"), import("../editor/mdLinks"), import("../editor/markdownStyling"),
   ]);
-  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss };
+  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown };
 }
 </ui:copy>
 

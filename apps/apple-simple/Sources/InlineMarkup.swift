@@ -2,7 +2,8 @@ import Foundation
 // Diagram links are paths relative to the document, bounded by the workspace root.
 func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
     guard !href.isEmpty, !href.contains(":"), !href.hasPrefix("/"), !href.contains("\\"), !href.contains("\n") else { return nil }
-    let path = href.removingPercentEncoding ?? href
+    guard let path = href.removingPercentEncoding,
+          !path.contains(where: { $0.isNewline || $0 == "\0" }) else { return nil }
     guard !path.contains(":"), !path.hasPrefix("/"), !path.contains("\\") else { return nil }
     var parts = source.split(separator: "/").dropLast().map(String.init)
     for part in path.split(separator: "/") {
@@ -11,6 +12,13 @@ func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
     }
     return parts.isEmpty ? nil : parts.joined(separator: "/")
 }
+func workspaceLinkTarget(_ href: String, relativeTo source: String) -> (path: String, line: Int?)? {
+    let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+    guard let first = parts.first, let path = diagramFilePath(String(first), relativeTo: source) else { return nil }
+    let line = parts.count == 2 && parts[1].hasPrefix("L") ? Int(parts[1].dropFirst()) : nil
+    return (path, line.flatMap { $0 > 0 ? $0 - 1 : nil })
+}
+struct InlineLink: Sendable { var range: NSRange; var href: String }
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -21,8 +29,18 @@ struct InlineEquation: Identifiable, Sendable {
     var renderedRange: NSRange { presentationRange ?? range }
     var id: Int { range.location }
 }
+// Typeset glyphs have no one-to-one TeX position. Map across the visible body
+// and snap to a whole grapheme so the next native edit can start safely.
+func equationSourceCaret(_ equation: InlineEquation, fraction: CGFloat) -> Int {
+    let leading = equation.body.prefix(while: \.isWhitespace).utf16.count
+    let body = equation.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    let boundaries = body.indices.map { $0.utf16Offset(in: body) } + [body.utf16.count]
+    let target = Int((CGFloat(body.utf16.count) * min(1, max(0, fraction))).rounded())
+    let nearest = boundaries.min { abs($0 - target) < abs($1 - target) } ?? 0
+    return equation.range.location + min(equation.range.length, leading + nearest)
+}
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = [] }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -220,7 +238,14 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                         result.recordedPatches.insert(recorded.opening)
                         for line in patchLines { result.recordedPatchLines[line] = recorded.opening }
                     }
-                    else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
+                    else {
+                        result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language)
+                        let address = "fence:\(recorded.opening)"
+                        result.launch[recorded.opening] = address
+                        for line in (recorded.opening + 1)..<index where !rows[line].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            result.code[line] = address
+                        }
+                    }
                 }
                 if let declaredPatch, index > declaredPatch + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
@@ -273,7 +298,10 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                     newLines -= 1; patchLines.append(index)
                     if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target }
                 } else if row.hasPrefix("-"), oldLines > 0 { oldLines -= 1; patchLines.append(index) }
-                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 { oldLines -= 1; newLines -= 1 }
+                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 {
+                    oldLines -= 1; newLines -= 1
+                    if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.code[index] = target }
+                }
             } else if row.hasPrefix("+++ ") {
                 let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
                 let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
@@ -287,6 +315,22 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     }
     return result
 }
+func inlineLaunchEnd(_ source: String, header: Int) -> Int {
+    let rows = source.components(separatedBy: "\n")
+    guard rows.indices.contains(header) else { return 0 }
+    let tag = rows[header].trimmingCharacters(in: .whitespaces)
+    let patch = tag.hasPrefix("+++ ")
+    let file = tag.first == "<" && !patch
+    let marker = tag.first
+    for line in (header + 1)..<rows.count {
+        let text = rows[line].trimmingCharacters(in: .whitespacesAndNewlines)
+        if (file || patch) && text.hasPrefix("</") && text.contains(patch ? ":patch>" : ":file>") { return line }
+        if !file && text.count >= 3 && (patch ? (text.first == "`" || text.first == "~") : text.first == marker) &&
+            (text.first == "`" || text.first == "~") && text.allSatisfy({ $0 == text.first }) { return line }
+    }
+    return max(header, rows.count - (source.hasSuffix("\n") ? 2 : 1))
+}
+
 func inlineDebugPath(_ source: String, path: String, line: Int, launch: Bool = false) -> String? {
     let context = inlineDebugContext(source, path: path)
     return launch ? context.launch[line] : context.code[line]
@@ -398,6 +442,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
+    let links = try! NSRegularExpression(pattern: #"(?<![!\\])\[([^\]\n]+)\]\(([^\s()]+)\)"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
@@ -463,6 +508,13 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
                 result.marks.append(InlineMark(kind: kind, range: NSRange(location: offset + match.range.location, length: match.range.length)))
                 if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body), presentationRange: NSRange(location: offset + match.range.location, length: match.range.length))) }
             }
+        }
+        for match in links.matches(in: row, range: all) where !codeRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
+            let label = match.range(at: 1), href = ns.substring(with: match.range(at: 2))
+            guard workspaceLinkTarget(href, relativeTo: path) != nil else { continue }
+            let range = NSRange(location: offset + label.location, length: label.length)
+            result.links.append(InlineLink(range: range, href: href))
+            result.marks.append(InlineMark(kind: "link", range: range))
         }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil
         let nextSeparator = line + 1 < rows.count && separator.firstMatch(in: rows[line + 1], range: NSRange(location: 0, length: rows[line + 1].utf16.count)) != nil

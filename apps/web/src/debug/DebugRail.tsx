@@ -7,7 +7,7 @@ import { fileBlocksOf, languageForBlock } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
 import { RAIL_SYNC_EVENT } from "../editor/lineHighlight";
 import { isDebuggable } from "./languages";
-import { patchDebugTargets } from "./cmDebug";
+import { fenceDebugTargets, patchDebugTargets } from "./cmDebug";
 
 /** Pure placement: active controls stay reachable when their line scrolls away. */
 export function debugRailTop(wanted: number, height: number, available: number, sticky: boolean): number | null {
@@ -77,12 +77,12 @@ Source tests, coverage, and Debug contribute individual glyph buttons to one mea
 export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true, actions = [] }: {
   view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: (anchor?: HTMLElement) => void; glyph: string; tone?: string }[];
 }) {
-  const targets: { path: string; at: number; end: number }[] = [];
+  const targets: { path: string; at: number; end: number; label?: string }[] = [];
   if (view && onStart && enabled) {
     if (plainPath) targets.push({ path: plainPath, at: 0, end: view.state.doc.length });
     else {
       const structure = structureOf(view.state);
-      targets.push(...patchDebugTargets(view.state));
+      targets.push(...patchDebugTargets(view.state), ...fenceDebugTargets(view.state));
       for (const block of fileBlocksOf(structure)) {
         if (block.attrs.path && isDebuggable(block.attrs.language ?? languageForBlock(structure, block))) {
           targets.push({ path: block.attrs.path, at: block.from, end: block.to });
@@ -91,8 +91,8 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
     }
   }
   const controls = useDebugLaunchActions(view, targets.flatMap(target => [
-    { key: `start:${target.path}:${target.at}`, label: `Debug ${target.path}`, run: () => onStart?.(target.path, plainPath ? undefined : target.at) },
-    ...(onProfiles ? [{ key: `profiles:${target.path}:${target.at}`, label: `Launch profiles for ${target.path}`, run: () => onProfiles(target.path, plainPath ? undefined : target.at) }] : []),
+    { key: `start:${target.path}:${target.at}`, label: `Debug ${target.label ?? target.path}`, run: () => onStart?.(target.path, plainPath ? undefined : target.at) },
+    ...(onProfiles ? [{ key: `profiles:${target.path}:${target.at}`, label: `Launch profiles for ${target.label ?? target.path}`, run: () => onProfiles(target.path, plainPath ? undefined : target.at) }] : []),
   ]));
   const start = (target: typeof targets[number], profiles = false) => { void controls.launch(`${profiles ? "profiles" : "start"}:${target.path}:${target.at}`); };
   const current = useRef({ targets, start }); current.current = { targets, start };
@@ -116,22 +116,22 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
       return <DebugRailGroup key={`actions:${at}`} view={view} at={at}>
         {items.map(action => <button key={action.label} type="button" className="debug-icon"
           title={action.label} aria-label={action.label} style={{ color: action.tone }} onClick={event=>action.run(event.currentTarget)}>{action.glyph}</button>)}
-        {launch && <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${launch.path}`}
-          data-tip={`Debug ${launch.path} · installs the debugger if needed`} onClick={() => start(launch)}>▷</button>}
+        {launch && <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${launch.label ?? launch.path}`}
+          data-tip={`Debug ${launch.label ?? launch.path} · installs the debugger if needed`} onClick={() => start(launch)}>▷</button>}
         {launch && onProfiles && <button type="button" className="debug-icon"
-          aria-label={`Launch profiles for ${launch.path}`} data-tip="Choose a Run or Debug profile" onClick={() => start(launch, true)}>⋯</button>}
+          aria-label={`Launch profiles for ${launch.label ?? launch.path}`} data-tip="Choose a Run or Debug profile" onClick={() => start(launch, true)}>⋯</button>}
       </DebugRailGroup>;
     })}
     {view && targets.filter(target => !actions.some(action => action.at === target.at)).map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
-      <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.path}`}
-        data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => start(target)}>▷</button>
-      {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>start(target, true)}>⋯</button>}
+      <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.label ?? target.path}`}
+        data-tip={`Debug ${target.label ?? target.path} · installs the debugger if needed`} onClick={() => start(target)}>▷</button>
+      {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.label ?? target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>start(target, true)}>⋯</button>}
     </DebugRailGroup>)}
   </div>;
 }
 
-export function DebugGutterControls({ view, line, program, children }: {
-  view: EditorView | null; line?: number | null; program?: string | null; children: ReactNode;
+export function DebugGutterControls({ view, line, program, active = true, children }: {
+  view: EditorView | null; line?: number | null; program?: string | null; active?: boolean; children: ReactNode;
 }) {
   const rail = view ? debugRailElement(view) : null;
   if (!view || !rail) return null;
@@ -140,7 +140,7 @@ export function DebugGutterControls({ view, line, program, children }: {
     const structure = structureOf(view.state);
     at = fileBlocksOf(structure).find(block => block.attrs.path === program)?.from ?? 0;
   }
-  return createPortal(<DebugRailGroup view={view} at={at} sticky>{children}</DebugRailGroup>, rail);
+  return createPortal(<DebugRailGroup view={view} at={at} sticky={active}>{children}</DebugRailGroup>, rail);
 }
 
 

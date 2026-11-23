@@ -151,6 +151,20 @@ describe("maths in the editor", () => {
 ### `expression_statement`
 
 <storycode:copy id="f-554c1bc6d72b-expression_statement-2">
+it("centers the source of a block equation and places the edit caret inside the equation", () => {
+  const source = "Equation:\n\n$$\nx+y=z\n$$\n";
+  const view = mount(source, 0);
+  try {
+    const preview = view.dom.querySelector(".cm-math");
+    expect(preview).not.toBeNull();
+    preview?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(view.state.selection.main.head).toBeGreaterThan(source.indexOf("x+y=z"));
+    expect(view.state.selection.main.head).toBeLessThan(source.indexOf("x+y=z") + 5);
+    const styled = [...view.dom.querySelectorAll<HTMLElement>(".cm-line")].find(line => line.textContent === "x+y=z");
+    expect(styled?.style.textAlign).toBe("center");
+  } finally { view.destroy(); }
+});
+
 describe("maths in a .md document", () => {
   it("leaves a shell variable in a cell alone", () => {
     const src = '<hick:exec container="sh">\necho $PATH and $HOME\n</hick:exec>\n';

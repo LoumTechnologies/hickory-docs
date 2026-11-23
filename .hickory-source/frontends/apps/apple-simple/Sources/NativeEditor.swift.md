@@ -578,6 +578,9 @@ struct GridCellField: UIViewRepresentable {
         view?.evaluateJavaScript("globalThis.hickoryTable?.reply(..." + json + ")", completionHandler: nil)
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { ready = false; onUnavailable() }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        ready = false; onUnavailable()
+    }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(navigationAction.targetFrame?.isMainFrame != false && navigationAction.request.url == allowedURL ? .allow : .cancel)
     }
@@ -603,7 +606,7 @@ indirect enum NativeTableJSON: Decodable {
     let view = WKWebView(frame: .zero, configuration: configuration); coordinator.view = view; view.navigationDelegate = coordinator
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL, URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
-    if let file = resource ?? nativeMathResource(roots: roots) {
+    if let file = resource ?? nativeMathResource(roots: roots, requireSpreadsheet: true) {
         coordinator.allowedURL = file
         view.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
     }
@@ -737,9 +740,13 @@ final class SimpleMacTextView: NSTextView {
         setSelectedRange(range); scrollRangeToVisible(range)
     }
     var toggleEquationAtPoint: ((CGPoint) -> Bool)?
+    var followLinkAtPoint: ((CGPoint) -> Bool)?
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2, !hasMarkedText(),
-           toggleEquationAtPoint?(convert(event.locationInWindow, from: nil)) == true { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if !hasMarkedText() {
+            if event.modifierFlags.contains(.command), followLinkAtPoint?(point) == true { return }
+            if event.clickCount == 2, toggleEquationAtPoint?(point) == true { return }
+        }
         super.mouseDown(with: event)
     }
     var tableRanges: [NSRange] = [] { didSet { needsDisplay = true } }
@@ -1170,6 +1177,11 @@ private struct EquationLayout: Equatable {
             return self.buffer.restoreEquationPreview(at: CGPoint(x: point.x - origin.x, y: point.y - origin.y),
                                                       layout: manager, container: container)
         }
+        text.followLinkAtPoint = { [weak self] point in
+            guard let self, let manager = self.text.layoutManager, let container = self.text.textContainer else { return false }
+            let origin = self.text.textContainerOrigin
+            return self.buffer.followInlineLink(at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), layout: manager, container: container)
+        }
         text.beginSnippetComposition = { [weak self] range in
             guard let self else{return false}
             self.unfoldAll()
@@ -1467,8 +1479,11 @@ private struct EquationLayout: Equatable {
 
     // Until WebKit has measured a formula, keep its actual source readable.
     // Replace presentation glyphs only; the backing storage and undo never change.
+    private var centeredMath = NSRange(location: 0, length: 0)
     private func presentMath() {
         let source = text.string, storage = text.textStorage!
+        let style = text.typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? .default
+        buffer.centerEquationSource(storage, previous: &centeredMath, baseStyle: style)
         let manager = text.layoutManager!, container = text.textContainer!
         let previous = folding.equations
         if !exactUTF8(mathSource,source) {
@@ -1495,9 +1510,13 @@ private struct EquationLayout: Equatable {
                 }
             }).overlay {
                 Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onTapGesture(count: 2) { [weak self] in
+                    .onTapGesture(count: 2, coordinateSpace: .local) { [weak self] point in
                         guard let self, self.mathRequests[equation.id] == request else { return }
-                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                        let width = self.mathViews[equation.id]?.frame.width ?? 1
+                        guard self.buffer.toggleEquationSource(equation.id, in: source) else { return }
+                        let offset = equationSourceCaret(equation, fraction: point.x / max(1, width))
+                        _ = self.text.window?.makeFirstResponder(self.text)
+                        self.text.setSelectedRange(NSRange(location: offset, length: 0))
                     }
                     .accessibilityLabel("Equation")
                     .accessibilityAddTraits(.isButton)
@@ -1543,7 +1562,9 @@ private struct EquationLayout: Equatable {
         let source = text.string, storage = text.textStorage!
         presentMath()
         var grouped: [Int: [InlineEquation]] = [:]
-        let outputs = buffer.recordedOutputPlacements().merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
+        let outputs = buffer.recordedOutputPlacements()
+            .merging(buffer.terminalOutputRevision == buffer.sourceEditIdentity ? buffer.terminalOutput : [:]) { _, live in live }
+            .merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
         for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
@@ -1568,7 +1589,11 @@ private struct EquationLayout: Equatable {
             if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
             let preview: AnyView
             if let output = outputs[line] {
-                preview = AnyView(NativeInlineTerminal(text: output))
+                preview = AnyView(NativeInlineTerminal(text: output, sourceLinks: buffer.runOutputs[line] == output ? buffer.runOutputLinks : [:], onSource: { [weak buffer = self.buffer] offset in
+                    guard let buffer, exactUTF8(buffer.text, source), exactUTF8(buffer.runOutputSource, source),
+                          buffer.runOutputs[line] == output, starts.indices.contains(offset) else { return }
+                    if buffer.selectSourceRange?(NSRange(location: starts[offset], length: 0), source) == true { buffer.focusSource?() }
+                }))
             } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
@@ -1734,6 +1759,7 @@ private struct EquationLayout: Equatable {
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
+                    if mark.kind == "link" { storage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: mark.range) }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? NSColor.systemGreen : NSColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
@@ -2141,10 +2167,14 @@ import UIKit
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         text.markedTextRange == nil &&
-            buffer.exposedEquation(at: equationPoint(touch.location(in: text)), layout: sourceLayoutManager, container: text.textContainer) != nil
+            (buffer.exposedEquation(at: equationPoint(touch.location(in: text)), layout: sourceLayoutManager, container: text.textContainer) != nil ||
+             buffer.inlineLink(at: equationPoint(touch.location(in: text)), layout: sourceLayoutManager, container: text.textContainer) != nil)
     }
     @objc private func restoreEquationPreview(_ gesture: UITapGestureRecognizer) {
-        _ = buffer.restoreEquationPreview(at: equationPoint(gesture.location(in: text)), layout: sourceLayoutManager, container: text.textContainer)
+        let point = equationPoint(gesture.location(in: text))
+        if !buffer.restoreEquationPreview(at: point, layout: sourceLayoutManager, container: text.textContainer) {
+            _ = buffer.followInlineLink(at: point, layout: sourceLayoutManager, container: text.textContainer)
+        }
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
@@ -2242,8 +2272,11 @@ import UIKit
 
     // Until WebKit has measured a formula, keep its actual source readable.
     // Replace presentation glyphs only; the backing storage and undo never change.
+    private var centeredMath = NSRange(location: 0, length: 0)
     private func presentMath() {
         let source = text.text ?? "", storage = text.textStorage
+        let style = text.typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? .default
+        buffer.centerEquationSource(storage, previous: &centeredMath, baseStyle: style)
         let manager = text.layoutManager, container = text.textContainer
         let previous = folding.equations
         if !exactUTF8(mathSource,source) {
@@ -2270,9 +2303,13 @@ import UIKit
                 }
             }).overlay {
                 Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onTapGesture(count: 2) { [weak self] in
+                    .onTapGesture(count: 2, coordinateSpace: .local) { [weak self] point in
                         guard let self, self.mathRequests[equation.id] == request else { return }
-                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                        let width = self.mathViews[equation.id]?.view.frame.width ?? 1
+                        guard self.buffer.toggleEquationSource(equation.id, in: source) else { return }
+                        let offset = equationSourceCaret(equation, fraction: point.x / max(1, width))
+                        _ = self.text.becomeFirstResponder()
+                        self.text.selectedRange = NSRange(location: offset, length: 0)
                     }
                     .accessibilityLabel("Equation")
                     .accessibilityAddTraits(.isButton)
@@ -2318,7 +2355,9 @@ import UIKit
         let source = text.text ?? "", storage = text.textStorage
         presentMath()
         var grouped: [Int: [InlineEquation]] = [:]
-        let outputs = buffer.recordedOutputPlacements().merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
+        let outputs = buffer.recordedOutputPlacements()
+            .merging(buffer.terminalOutputRevision == buffer.sourceEditIdentity ? buffer.terminalOutput : [:]) { _, live in live }
+            .merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
         for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
@@ -2343,7 +2382,11 @@ import UIKit
             if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
             let preview: AnyView
             if let output = outputs[line] {
-                preview = AnyView(NativeInlineTerminal(text: output))
+                preview = AnyView(NativeInlineTerminal(text: output, sourceLinks: buffer.runOutputs[line] == output ? buffer.runOutputLinks : [:], onSource: { [weak buffer = self.buffer] offset in
+                    guard let buffer, exactUTF8(buffer.text, source), exactUTF8(buffer.runOutputSource, source),
+                          buffer.runOutputs[line] == output, starts.indices.contains(offset) else { return }
+                    if buffer.selectSourceRange?(NSRange(location: starts[offset], length: 0), source) == true { buffer.focusSource?() }
+                }))
             } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
@@ -2510,6 +2553,7 @@ import UIKit
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
+                    if mark.kind == "link" { storage.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: mark.range) }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
@@ -2646,6 +2690,40 @@ struct NativeFindPanel: View {
 // Source editing stays in TextKit. A double activation on the exposed
 // equation returns to its preview only when it hits a glyph of that equation.
 @MainActor extension DocumentBuffer {
+    func centerEquationSource(_ storage: NSTextStorage, previous: inout NSRange, baseStyle: NSParagraphStyle) {
+        if sourceTable != nil && !exactUTF8(inlineMarkup.source, text) { return }
+        let full = NSRange(location: 0, length: storage.length)
+        let old = NSIntersectionRange(previous, full)
+        let equation = inlineMarkup.equations.first { $0.id == sourceTable && $0.displayBlock }
+        let range: NSRange
+        if let equation, exactUTF8(inlineMarkup.source, text), NSMaxRange(equation.renderedRange) <= storage.length {
+            range = (storage.string as NSString).lineRange(for: equation.renderedRange)
+        } else { range = NSRange(location: 0, length: 0) }
+        if range != previous && old.length > 0 { storage.addAttribute(.paragraphStyle, value: baseStyle, range: old) }
+        previous = range
+        guard range.length > 0 else { return }
+        let current = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+        if current?.alignment != .center {
+            let centered = baseStyle.mutableCopy() as! NSMutableParagraphStyle
+            centered.alignment = .center
+            storage.addAttribute(.paragraphStyle, value: centered, range: range)
+        }
+    }
+
+    func inlineLink(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> InlineLink? {
+        guard openDiagramFile != nil, exactUTF8(inlineMarkup.source, text), layout.numberOfGlyphs > 0 else { return nil }
+        let glyph = layout.glyphIndex(for: point, in: container)
+        guard glyph < layout.numberOfGlyphs,
+              layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(point) else { return nil }
+        return inlineMarkup.links.first { NSLocationInRange(layout.characterIndexForGlyph(at: glyph), $0.range) }
+    }
+
+    @discardableResult func followInlineLink(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> Bool {
+        guard let link = inlineLink(at: point, layout: layout, container: container) else { return false }
+        openDiagramFile?(link.href)
+        return true
+    }
+
     func exposedEquation(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> InlineEquation? {
         guard let sourceTable, exactUTF8(inlineMarkup.source, text),
               let equation = inlineMarkup.equations.first(where: { $0.id == sourceTable }),
@@ -2803,6 +2881,7 @@ struct LanguageEditor: View {
         }.onChange(of:buffer.sourceRevision,initial:true){_,_ in debugger?.sourceChanged(buffer);buffer.readTestSources();buffer.readCoverageSource()}
         .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
+            buffer.runOutputLinks = debugger?.outputLinks(buffer) ?? [:]
             buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
         }.overlay(alignment: .topTrailing) {
             if recordedDebug == nil || buffer.language != nil {
@@ -3065,7 +3144,7 @@ struct NativeDebugRail: View {
                 if canCommentOnPatch(line) { commentLine = line }
             case "debug":
                 if showsSession {inspect(line)}
-                else {Task {await debug.prepare(buffer,line:line); if !debug.active { inspect(line) }}}
+                else { inspect(line) }
             case "recorded-run":
                 guard let recordedRunEngine, let recordedDebug, let fence = recordedFences[line] else { return }
                 recordedConstruction.close()
@@ -3306,7 +3385,9 @@ struct NativeDebugInspector: View, Identifiable {
                 if output.count > 50_000 { Text("Output truncated in this control.").font(.caption) }
             }
             if !buffer.receiptNotice.isEmpty { Text(buffer.receiptNotice).font(.caption) }
-            if buffer.file.doc_id != nil { Button("Refresh recorded output", systemImage: "arrow.clockwise") { Task { await buffer.refreshReceipts() } } }
+            if !buffer.receipts(on: line).isEmpty {
+                Button("Refresh recorded output", systemImage: "arrow.clockwise") { Task { await buffer.refreshReceipts() } }
+            }
             if showsSession || ordinaryLaunch || recordedFences[line] != nil || code {
             if buffer.dirty { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {

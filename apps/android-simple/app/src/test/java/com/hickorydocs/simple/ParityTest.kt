@@ -1166,8 +1166,11 @@ class ParityTest {
         assertEquals(listOf("def", "return"), syntax.filter { it.kind == "syntax-keyword" }.map { source.substring(it.from, it.to) })
         assertTrue(syntax.any { it.kind == "syntax-string" && source.substring(it.from, it.to) == "\"café 😀\"" })
         assertTrue(syntax.any { it.kind == "syntax-comment" })
-        assertTrue(snapshot.debug.code.isEmpty())
-        assertTrue(snapshot.debug.launch.isEmpty())
+        assertEquals(mapOf(2 to "fence:1", 3 to "fence:1"), snapshot.debug.code)
+        assertEquals(mapOf(1 to "fence:1"), snapshot.debug.launch)
+        assertEquals(listOf("workbook.md"), computeInlineMarkup("[Workbook](workbook.md)\n`[literal](ignore.md)`", "project.md").links.map { it.href })
+        assertEquals(WorkspaceLinkTarget("sample/orders.py", 8), workspaceLinkTarget("orders.py#L9", "sample/workbook.md"))
+        assertNull(workspaceLinkTarget("%2e%2e/%2e%2e/private", "sample/workbook.md"))
     }
 
     @org.junit.Test fun diagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() {

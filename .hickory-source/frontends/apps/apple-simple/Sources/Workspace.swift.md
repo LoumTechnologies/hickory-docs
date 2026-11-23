@@ -83,7 +83,10 @@ struct StartupSourceObservation {
     @ObservationIgnored var selection = NSRange(location: 0, length: 0) {didSet{if selection != oldValue{selectionIdentity=UUID()}}}
     @ObservationIgnored var receiptEngine: Engine?
     var receiptSource = "" { didSet { renderMarkup?() } }
+    var terminalOutputRevision: UUID?
+    var terminalOutput: [Int: String] = [:] { didSet { renderMarkup?() } }
     var runOutputSource = ""
+    var runOutputLinks: [String: Int] = [:]
     var runOutputs: [Int: String] = [:] { didSet { renderMarkup?() } }
     var receipts: [InlineReceipt] = []
     var receiptRevision = ""
@@ -97,7 +100,8 @@ struct StartupSourceObservation {
             guard exactUTF8(text,source), !dirty, page.document == id, page.source_hash.replacingOccurrences(of: "sha256:", with: "") == nativeSourceHash(source) else {
                 receiptNotice = "Recorded output belongs to another source revision. Save or refresh before retrying."; return
             }
-            receipts = page.blocks.filter { $0.kind == "exec" }; receiptRevision = UUID().uuidString; receiptSource = source; receiptNotice = ""
+            receipts = page.blocks.filter { $0.kind == "exec" }; receiptRevision = UUID().uuidString; receiptSource = source
+            receiptNotice = receipts.isEmpty ? "This document has no recorded execution blocks." : ""
         } catch { if exactUTF8(text,source) { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
     }
     // Recorded execution receipts already carry an exact source-hash check.
@@ -690,16 +694,21 @@ Foreground file opening and background intelligence share one acquisition path. 
         buffer.confirmSourceAddress()
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
-            guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
-            let scope = self.generation
+            guard let self, let buffer, let target = workspaceLinkTarget(href, relativeTo: buffer.file.path) else { return }
+            let path = target.path, scope = self.generation, revision = buffer.sourceEditIdentity
             Task {
                 if self.treeEntry(path, in: self.rootFiles) == nil { await self.refresh() }
-                guard self.generation == scope, self.buffers[buffer.file.path] === buffer else { return }
+                @MainActor func current() -> Bool {
+                    self.generation == scope && self.buffers[buffer.file.path] === buffer && buffer.sourceEditIdentity == revision
+                }
+                guard current() else { return }
                 guard let file = self.treeEntry(path, in: self.rootFiles)?.file, !file.dir else {
-                    self.status = "File not found: \(path). Refresh files and check the diagram link."
+                    self.status = "File not found: \(path). Refresh Files and check the link."
                     return
                 }
-                await self.open(file)
+                if let line = target.line {
+                    await self.openSemanticLocation(SemanticLocation(uri: nativeDebugURI(path), line: line, character: 0), allowDirty: true, isCurrent: current)
+                } else { await self.open(file) }
             }
         }
         buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }

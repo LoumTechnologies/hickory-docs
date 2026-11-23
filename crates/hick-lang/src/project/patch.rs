@@ -7,6 +7,8 @@ pub struct PatchResult {
     pub before: ProjectTree,
     pub after: ProjectTree,
     pub paths: BTreeSet<String>,
+    /// Validated context row source bytes and zero-based destination lines.
+    pub context_lines: Vec<(String, usize, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +43,7 @@ pub fn apply_project_patch(
 ) -> Result<PatchResult, String> {
     let (sections, paths) = parse_patch(diff)?;
     let mut after = tree.clone();
+    let mut context_lines = Vec::new();
     for PatchSection { target: PatchTarget { before: old, after: new }, hunks } in sections {
         let original = match &old {
             Some(path) => tree
@@ -91,6 +94,11 @@ pub fn apply_project_patch(
                         ));
                     }
                     if operation == b' ' {
+                        if let Some(path) = &new
+                            && !payload.trim().is_empty()
+                        {
+                            context_lines.push((path.clone(), source_offset + offset, output_lines));
+                        }
                         append_original(
                             &original,
                             (offsets[consumed], offsets[consumed + 1]),
@@ -150,6 +158,7 @@ pub fn apply_project_patch(
         before: tree.clone(),
         after,
         paths,
+        context_lines,
     })
 }
 

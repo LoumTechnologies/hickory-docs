@@ -550,7 +550,8 @@ The local shared spreadsheet sends typed messages through a narrow Android bridg
 <ui:copy id="simple-android-table-grid">
 // A terminal screen has no stdin path. Expectations and captured bytes use
 // the same renderer; editing an expectation goes back to its guarded source.
-@Composable private fun NativeInlineTerminal(text: String, modifier: Modifier = Modifier, editSource: (() -> Unit)? = null) {
+@Composable private fun NativeInlineTerminal(text: String, modifier: Modifier = Modifier, editSource: (() -> Unit)? = null,
+    sourceLinks: Map<String, Int> = emptyMap(), onSource: ((Int) -> Unit)? = null) {
     val palette = MaterialTheme.colorScheme
     val output = text.contains("\u001eHICKORY_DISPLAY ")
     Column(modifier.background(palette.surface, androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).border(1.dp, palette.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).semantics { contentDescription = "Output terminal" }) {
@@ -559,7 +560,11 @@ The local shared spreadsheet sends typed messages through a narrow Android bridg
             Spacer(Modifier.weight(1f))
             if (editSource != null) Text("Edit source text", color = palette.onSurface, fontSize = 11.sp, modifier = Modifier.clickable(onClick = editSource))
         }
-        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = if (output) "notebook" else "terminal")
+        if (sourceLinks.isEmpty()) NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = if (output) "notebook" else "terminal")
+        else NativeMathView(org.json.JSONObject().put("text", text).put("links", org.json.JSONObject(sourceLinks)).toString(),
+            Modifier.fillMaxWidth().weight(1f), diagramRenderer = "source-output", onLink = { href ->
+                href.toIntOrNull()?.takeIf { it in sourceLinks.values }?.let { onSource?.invoke(it) }
+            })
     }
 }
 
@@ -909,8 +914,10 @@ first source lines and their accessibility bounds stay visible.
     }
     val renderedEquations = previews.filter { readyMath[it.from] == it.body }
     val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams, renderedEquations = renderedEquations)
-    val replacements = editorReplacements(folds, tables, source, diagrams, previews,
-        buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty(),
+    val runOutputs = debug?.outputPlacements(buffer).orEmpty()
+    val outputs = buffer.recordedOutputPlacements() +
+        buffer.terminalOutput.takeIf { buffer.terminalOutputRevision == buffer.sourceRevision }.orEmpty() + runOutputs
+    val replacements = editorReplacements(folds, tables, source, diagrams, previews, outputs,
         fontScale = LocalDensity.current.fontScale, renderedEquations = renderedEquations)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
@@ -918,11 +925,15 @@ first source lines and their accessibility bounds stay visible.
     val restoreEquationAt by rememberUpdatedState<(Offset) -> Boolean> { point ->
         val layout = textLayout
         val equation = equations.firstOrNull { it.from == buffer.exposedEquation }
-        if (layout == null || equation == null || layout.layoutInput.text.text != display || buffer.text != source || buffer.state.composition != null) false
+        if (layout == null || inline.source != source || layout.layoutInput.text.text != display || buffer.text != source || buffer.state.composition != null) false
         else {
             val at = editorSourceOffset(layout.getOffsetForPosition(point.copy(y = point.y + scroll.value)), replacements)
-            if (at !in equation.renderedFrom until equation.renderedTo) false
-            else { buffer.exposedEquation = null; true }
+            val link = inline.links.firstOrNull { at in it.from until it.to }
+            if (equation != null && at in equation.renderedFrom until equation.renderedTo) {
+                buffer.exposedEquation = null; true
+            } else if (link != null && buffer.followWorkspaceLink != null) {
+                buffer.followWorkspaceLink?.invoke(link.href); true
+            } else false
         }
     }
     val paused = if (debug?.positionSourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -1139,6 +1150,7 @@ first source lines and their accessibility bounds stay visible.
                     if (inline.source == toString()) inline.marks.forEach { mark ->
                         if (mark.kind.startsWith("syntax-") && semantic.any { it.from < mark.to && it.to > mark.from }) return@forEach
                         val style = when (mark.kind) {
+                            "link" -> SpanStyle(color = syntaxPalette.primary, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
                             "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
                             "syntax-keyword" -> SpanStyle(color = syntaxPalette.primary)
                             "syntax-string" -> SpanStyle(color = syntaxPalette.tertiary)
@@ -1153,6 +1165,12 @@ first source lines and their accessibility bounds stay visible.
                         addStyle(style, mark.from, mark.to)
                     }
                     if (toString() == source) {
+                        val exposed = equations.firstOrNull { it.from == buffer.exposedEquation && it.displayBlock }
+                        if (exposed != null) {
+                            val from = source.lastIndexOf('\n', exposed.renderedFrom - 1) + 1
+                            val to = source.indexOf('\n', exposed.renderedTo).let { if (it < 0) source.length else it + 1 }
+                            if (to > from) addStyle(androidx.compose.ui.text.ParagraphStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center), from, to)
+                        }
                         replacements.asReversed().forEach { replace(it.from, it.to, it.text) }
                         var removed = 0
                         for (item in replacements) {
@@ -1245,11 +1263,17 @@ first source lines and their accessibility bounds stay visible.
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
                 InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
             }
-            if (layout?.layoutInput?.text?.text == display) (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()).forEach { (line, output) ->
+            if (layout?.layoutInput?.text?.text == display) outputs.forEach { (line, output) ->
                 val start = debugLineOffset(source, line) ?: return@forEach
                 val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
                 val top = layout.getLineBottom(layout.getLineForOffset(editorDisplayOffset(end, replacements))) - scroll.value
-                NativeInlineTerminal(output, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp))
+                NativeInlineTerminal(output, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp),
+                    sourceLinks = debug?.takeIf { runOutputs[line] == output }?.outputLinks(buffer).orEmpty(),
+                    onSource = { target ->
+                        val offset = debugLineOffset(source, target)
+                        if (offset != null && debug?.sourceMatches(buffer) == true && buffer.text == source &&
+                            buffer.selectSourceRange(offset, offset, source)) buffer.focusSource?.invoke()
+                    })
             }
             if (layout != null && layout.layoutInput.text.text == display) previews.groupBy { it.line }.values.forEach { group ->
                 val end = source.indexOf('\n', group.maxOf { it.renderedTo }).let { if (it < 0) source.length else it }
@@ -1265,7 +1289,18 @@ first source lines and their accessibility bounds stay visible.
                                 })
                                 Box(Modifier.fillMaxSize().pointerInput(buffer, equation, source) {
                                     detectTapGestures(onDoubleTap = {
-                                        if (buffer.text == source && buffer.inlineMarkup.source == source) buffer.exposedEquation = equation.from
+                                        if (buffer.text == source && buffer.inlineMarkup.source == source && buffer.state.composition == null) {
+                                            val body = equation.body.trim()
+                                            val leading = equation.body.length - equation.body.trimStart().length
+                                            val fraction = (it.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                            val position = java.text.BreakIterator.getCharacterInstance().apply { setText(body) }
+                                            val raw = (fraction * body.length).toInt()
+                                            val offset = if (position.isBoundary(raw)) raw else position.following(raw)
+                                            buffer.exposedEquation = equation.from
+                                            val caret = equation.from + leading + offset
+                                            buffer.state.edit { this.selection = TextRange(caret) }
+                                            editorFocus.requestFocus()
+                                        }
                                     })
                                 }.semantics {
                                     contentDescription = "Rendered equation"
@@ -1289,7 +1324,27 @@ first source lines and their accessibility bounds stay visible.
                 if (diagram.renderer == "terminal") NativeInlineTerminal(diagram.body, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }), editSource = { buffer.sourceTable = diagram.from })
                 else Column(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }).background(MaterialTheme.colorScheme.surface)) {
                     OutlinedButton(onClick = { buffer.sourceTable = diagram.from }) { Text("Edit source text", fontSize = 12.sp) }
-                    NativeMathView(diagram.body, Modifier.fillMaxWidth().weight(1f), diagramRenderer = diagram.renderer)
+                    val follow: (String) -> Unit = { href ->
+                        if (buffer.text == source && buffer.inlineMarkup.source == source) buffer.followWorkspaceLink?.invoke(href)
+                    }
+                    if (diagram.renderer == "architecture") {
+                        var refresh by remember(buffer, diagram.from) { mutableStateOf(0) }
+                        val path = buffer.file.path
+                        val architecture by produceState<Pair<String?, String>>(null to "Reading the code model…", buffer, path, refresh) {
+                            try {
+                                val engine = buffer.receiptEngine ?: error("Reconnect to the workspace and refresh.")
+                                val scene = engine.request("POST", "/api/architecture", org.json.JSONObject().put("uri", languageURI(path)))
+                                if (buffer.file.path == path && buffer.text == source) value = scene.toString() to ""
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                            catch (failure: Exception) { value = null to (failure.message ?: "Architecture unavailable. Refresh to retry.") }
+                        }
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            val scene = architecture.first
+                            if (scene == null) Text(architecture.second)
+                            else NativeMathView(scene, Modifier.fillMaxSize(), diagramRenderer = "graph", onLink = follow)
+                            TextButton(onClick = { refresh++ }, modifier = Modifier.align(Alignment.TopEnd)) { Text("↻", Modifier.semantics { contentDescription = "Refresh architecture" }) }
+                        }
+                    } else NativeMathView(diagram.body, Modifier.fillMaxWidth().weight(1f), diagramRenderer = diagram.renderer, onLink = follow)
                 }
             }
             if (inline.diagrams.any { it.from == buffer.sourceTable }) OutlinedButton(onClick = { buffer.sourceTable = null }) { Text(if (inline.diagrams.firstOrNull { it.from == buffer.sourceTable }?.renderer == "terminal") "Render terminal" else "Render diagram", fontSize = 12.sp) }
@@ -1746,7 +1801,7 @@ private class ConstructionDisclosure(val line: Int) {
                                 if (output.length > 50_000) Text("Output truncated in this control.", fontSize = 11.sp)
                             }
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
-                            if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
+                            if (buffer.receiptsOn(line).isNotEmpty()) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
                             val launchesHere = debugContext?.launch?.containsKey(line) == true
                             val codeHere = debugContext?.code?.containsKey(line) == true
                             if (launchesHere || codeHere) {

@@ -78,6 +78,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { semanticPath, semanticLocations, querySemanticLocations, type SemanticQuery, type SemanticLocation } from "./Intelligence";
 export { semanticQueries, semanticPath, semanticLocations, querySemanticLocations } from "./Intelligence";
 export type { SemanticQuery, SemanticLocation } from "./Intelligence";
+const terminalReadings = new WeakMap<Buffer, { revision: number; id: string; at: number; program: string; text: string }>();
 const semanticCommands = new WeakMap<Buffer, (query: SemanticQuery, text?: string) => void>();
 export function openSemanticQuery(buffer: Buffer, query: SemanticQuery, text = "") { semanticCommands.get(buffer)?.(query, text); }
 
@@ -119,7 +120,7 @@ import { simplePatchHunks } from "../lib/diff";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
-import { api } from "../api/client";
+import { api, request } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimRevealPosition, onRevealLine, openProviderLocation, openCapturedLocation } from "../lib/revealLine";
 async function loadCsvGrid() {
@@ -318,6 +319,7 @@ export function Document({ buffer, current, renderTools }: {
   const debug = useFollowingDebugSession(buffer.file.path,undefined,buffer,()=>!buffer.resourceDeleted&&(current?.()??true),{
     read:()=>{const file=buffer.file,text=buffer.text,namespace=buffer.namespace,revision=buffer.sourceRevision;return {uri:documentUri(file.path),workspace:namespace,namespace,identity:buffer,text,saved:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted,current:()=>buffer.file===file&&buffer.sourceRevision===revision&&buffer.text===text&&buffer.namespace===namespace&&!buffer.resourceDeleted&&(current?.()??true)};},subscribe:buffer.subscribe
   }) ?? IDLE_SESSION;
+  const launchPosition = useRef<{ at?: number; revision: typeof buffer.sourceRevision } | null>(null);
   const debugRef = useRef(debug); debugRef.current = debug;
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const frame=debug.frames.find(item=>item.id===debug.selectedFrame),frameHash=frame?.in_document&&debug.positionSourceBound!==false&&!(frame.source_reference&&frame.source_reference>0)?frame.source_hash:null;
@@ -495,7 +497,14 @@ export function Document({ buffer, current, renderTools }: {
   }, [view, debuggable, language, literate, parserReady]);
   useEffect(() => {
     if (!view || !debuggable || literate && !parserReady) return;
-    view.dispatch({ effects: setDebuggerOutput.of({ events: changed ? [] : debug.output ?? [], program: debug.program, literate, path: buffer.file.path }) });
+    const reading = terminalReadings.get(buffer);
+    if (reading?.revision === buffer.sourceRevision) {
+      view.dispatch({ effects: setDebuggerOutput.of({ events: reading.text ? [{ category: "console", text: reading.text }] : [],
+        program: reading.program, literate, path: buffer.file.path, launchAt: reading.at }) });
+    } else {
+      view.dispatch({ effects: setDebuggerOutput.of({ events: changed ? [] : debug.output ?? [], program: debug.program, literate, path: buffer.file.path,
+        launchAt: launchPosition.current?.revision === buffer.sourceRevision ? launchPosition.current?.at : undefined }) });
+    }
     view.dispatch({ effects: debugStateEffects(!positionCurrent ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : {...debug,pausedLine:positionLine}) });
     if(debug.status==="starting"||debug.status==="running")debugPositions.delete(buffer);
     if (positionCurrent&&positionLine!==null&&positionLine!==undefined) {
@@ -514,14 +523,43 @@ export function Document({ buffer, current, renderTools }: {
     };
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
-  const start = async (program?: string, choose = false) => {
+  const start = async (program?: string, choose = false, at?: number) => {
     if(buffer.resourceDeleted){setDebugNotice("This retained source was deleted. Its existing debugger still addresses the captured launch; save a copy before starting a new session.");return;}
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
     const source = buffer.text, revision = buffer.sourceRevision, target = literate ? program : undefined;
     await launchWithProfiles({ uri: documentUri(buffer.file.path), program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
-      profile => debugRef.current.start(target, {}, undefined, profile),
-      { choose, preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.sourceRevision === revision && buffer.text === source && !buffer.resourceDeleted && !buffer.dirty && !buffer.saving });
+      profile => {
+        terminalReadings.delete(buffer);
+        launchPosition.current = { at, revision };
+        debugRef.current.start(target, {}, undefined, profile);
+      },
+      { choose, preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.sourceRevision === revision && buffer.text === source && !buffer.resourceDeleted && !buffer.dirty && !buffer.saving,
+        onRun: id => {
+          if (!literate || !target || at === undefined || !/^term-[0-9a-f]{32}$/.test(id)) return;
+          const reading = { id, at, program: target, revision, text: "" };
+          terminalReadings.set(buffer, reading);
+          async function read() {
+            const active = () => terminalReadings.get(buffer) === reading && buffer.sourceRevision === revision && !buffer.resourceDeleted;
+            for (let attempt = 0; attempt < 120 && active(); attempt++) {
+              try {
+                const page = await request<{ session: string; bytes: number[]; output_done?: boolean }>("GET",
+                  `/api/terminals/${id}/output?view=screen&offset=0&limit=16384`);
+                if (!active() || page.session !== id || page.bytes.length > 16384) return;
+                const text = new TextDecoder().decode(Uint8Array.from(page.bytes));
+                if (reading.text !== text) {
+                  reading.text = text;
+                  const editor = editors.get(buffer)?.view;
+                  editor?.dispatch({ effects: setDebuggerOutput.of({ events: text ? [{ category: "console", text }] : [],
+                    program: target, literate, path: buffer.file.path, launchAt: at }) });
+                }
+                if (page.output_done === true) return;
+              } catch { return; }
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+          void read();
+        } });
   };
   const sourceTestActions=useSourceTestLineActions(buffer,view);
   const coverageActions=useCoverageLineActions(buffer,view);
@@ -555,8 +593,8 @@ export function Document({ buffer, current, renderTools }: {
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
-      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions,...gitComparison.actions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? program => start(program) : undefined}
-        onProfiles={debuggable && (!literate || parserReady) ? program => start(program, true) : undefined} />
+      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions,...gitComparison.actions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? (program, at) => start(program, false, at) : undefined}
+        onProfiles={debuggable && (!literate || parserReady) ? (program, at) => start(program, true, at) : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}

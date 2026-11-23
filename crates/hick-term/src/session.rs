@@ -100,6 +100,7 @@ pub struct Session {
     pub spec: SessionSpec,
     screen: Mutex<Screen>,
     output: broadcast::Sender<Arc<Vec<u8>>>,
+    output_done: std::sync::atomic::AtomicBool,
     /// Commands the shell reported, for whoever is recording them.
     typed: broadcast::Sender<crate::command::TypedCommand>,
     writer: Mutex<Box<dyn Write + Send>>,
@@ -243,6 +244,7 @@ impl Session {
             git: Mutex::new(git::facts(&spec.cwd)),
             screen: Mutex::new(Screen::new(24, 80, config.scrollback_lines)),
             output,
+            output_done: std::sync::atomic::AtomicBool::new(false),
             typed,
             writer: Mutex::new(writer),
             master: Mutex::new(pair.master),
@@ -293,7 +295,12 @@ impl Session {
                     }
                 }
             }
+            self.output_done.store(true, std::sync::atomic::Ordering::Release);
         });
+    }
+
+    pub fn output_done(&self) -> bool {
+        self.output_done.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Every command the shell reports from now on.

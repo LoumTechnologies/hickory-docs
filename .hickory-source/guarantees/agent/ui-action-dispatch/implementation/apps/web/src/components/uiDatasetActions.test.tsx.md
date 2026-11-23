@@ -61,7 +61,7 @@ function decode(reading: UiResult) {
 it("reads exact visible values, sorts and filters the loaded page without a dataset write", async () => {
   const { registry, invoke } = setup();
   render(<UiActionContext.Provider value={registry}><ReadOnlyTable table={table} /></UiActionContext.Provider>);
-  const parent = registry.groups().groups[0];
+  const parent = registry.groups().groups.find(group => group.startsWith("notebook-table:"))!;
   expect(JSON.stringify(registry.observe(parent))).not.toContain("PRIVATE λ");
   await invoke(parent, "Sort read-only table page", { column: 1, descending: false });
   let reading = decode(await invoke(parent, "Read visible table page bytes", { offset: 0, limit: 8192 }));
@@ -70,7 +70,9 @@ it("reads exact visible values, sorts and filters the loaded page without a data
   reading = decode(await invoke(parent, "Read visible table page bytes", { offset: 0, limit: 8192 }));
   expect(reading.rows).toEqual([["PRIVATE λ", 2]]); expect(reading.loaded_rows).toBe(2); expect(reading.has_more).toBe(true);
   expect(await invoke(parent, "Sort read-only table page", { column: 99, descending: true })).toMatchObject({ outcome: { status: "unavailable" } });
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Other" } });
+  expect(screen.queryByRole("textbox", { name: "Filter this page" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Filter table" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter this page" }), { target: { value: "Other" } });
   expect(decode(await invoke(parent, "Read visible table page bytes", { offset: 0, limit: 8192 })).rows).toEqual([["Other", 1]]);
 });
 </storycode:copy>

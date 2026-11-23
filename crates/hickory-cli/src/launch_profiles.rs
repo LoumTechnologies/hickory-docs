@@ -102,6 +102,28 @@ pub fn command_profile(
 ) -> Profile {
     profile(id, name, None, command, cwd, origin)
 }
+pub(crate) fn fence_profiles(program: &str) -> Vec<Profile> {
+    let binary = &format!("./fence-program{}", std::env::consts::EXE_SUFFIX);
+    let (command, compiler): (Vec<&str>, Option<&str>) = match program {
+        "fence.py" => (vec!["python3", program], None),
+        "fence.js" | "fence.ts" => (vec!["node", program], None),
+        "fence.rb" => (vec!["ruby", program], None),
+        "fence.go" => (vec!["go", "run", program], None),
+        "fence.cs" => (vec!["dotnet", "run", "--file", program], None),
+        "fence.rs" => (vec![binary], Some("rustc")),
+        "fence.c" => (vec![binary], Some("cc")),
+        "fence.cpp" => (vec![binary], Some("c++")),
+        _ => return Vec::new(),
+    };
+    let mut run = command_profile("fence-run".into(), "fence".into(),
+        command.into_iter().map(str::to_owned).collect(), ".".into(), "fence");
+    if let Some(compiler) = compiler {
+        run.definition.build = [compiler, program, "-o", binary].into_iter().map(str::to_owned).collect();
+    }
+    let debug = profile("fence-debug".into(), program.into(), Some(program.into()), vec![], ".".into(), "fence");
+    if debug.can_debug { vec![run, debug] } else { vec![run] }
+}
+
 fn text<'a>(tree: &'a dyn SourceInventory, path: &str) -> Option<&'a str> {
     let entry = tree.get(path)?;
     (entry.kind == EntryKind::File)

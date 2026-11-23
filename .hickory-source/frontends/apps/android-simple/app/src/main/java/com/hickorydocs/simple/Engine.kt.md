@@ -279,12 +279,14 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var sourceSnapshots by mutableStateOf<Map<String, String>>(emptyMap())
     var targets by mutableStateOf<List<NativeDebugTarget>>(emptyList()); private set
     private var launchProgram: String? = null
+    private var launchAnchor: Int? = null
+    private var terminalOutputJob: kotlinx.coroutines.Job? = null
     private var catalog: JSONObject? by mutableStateOf(null)
     private var commandProfileRevision: Long? by mutableStateOf(null)
     var runningProfile by mutableStateOf(false); private set
     val commandProfiles: List<JSONObject>
         get() = if (commandProfileRevision == null) emptyList()
-        else catalog?.optJSONArray("profiles")?.objects()?.filter { it.opt("can_debug") == false && it.isNull("attach") }.orEmpty()
+        else catalog?.optJSONArray("profiles")?.objects()?.filter { it.isNull("attach") && (it.opt("can_debug") == false || (it.optString("program").endsWith(".py") && it.optString("id") != "fence-debug")) }.orEmpty()
     private var launchBuffer: DocumentBuffer? = null
     private var pausedLine: Int? = null
     private var selectedFrame by mutableStateOf<Long?>(null)
@@ -329,21 +331,42 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if (frame?.optString("source") == path) return if (frame.isNull("source_line")) null else frame.getInt("source_line")
         return if (path == owner && selectedFrame == frames.firstOrNull()?.optLong("id")) pausedLine else null
     }
+    fun outputLinks(buffer: DocumentBuffer): Map<String, Int> {
+        if (!sourceMatches(buffer) || owner != buffer.file.path || !output.dropLast(1).all { it.text.endsWith('\n') }) return emptyMap()
+        val total = buffer.text.count { it == '\n' } + 1
+        val locations = mutableMapOf<String, Int>()
+        val seen = mutableSetOf<String>()
+        val ambiguous = mutableSetOf<String>()
+        for (event in output) for (row in event.text.split('\n')) {
+            val key = row.removeSuffix("\r")
+            if (key.isEmpty()) continue
+            if (!seen.add(key)) ambiguous.add(key)
+            val line = event.line
+            if (event.source == owner && line != null && line in 0 until total) locations[key] = line
+        }
+        return locations.filterKeys { it !in ambiguous }
+    }
     fun outputPlacements(buffer: DocumentBuffer): Map<Int, String> {
         if (!sourceMatches(buffer)) return emptyMap()
         if (recordedMessages) return recordedLaunch?.takeIf { it.current() && output.isNotEmpty() }
             ?.let { mapOf(it.closingLine to output.joinToString("") { event -> event.text }) }.orEmpty()
         val context = inlineDebugContext(buffer.text, buffer.file.path)
+        val anchor = launchAnchor
+        if (anchor != null && owner == buffer.file.path && output.isNotEmpty()) {
+            return mapOf(inlineLaunchEnd(buffer.text, anchor) to output.joinToString("") { it.text })
+        }
         val last = (buffer.text.count { it == '\n' } - if (buffer.text.endsWith('\n')) 1 else 0).coerceAtLeast(0)
         val rows = buffer.text.split('\n')
         fun blockEnd(line: Int): Int {
             val header = context.launch.keys.filter { it <= line }.maxOrNull() ?: return line.coerceAtMost(last)
             val declaration = rows.getOrNull(header)?.trim().orEmpty()
+            val patch = declaration.startsWith("+++ ")
             val fence = if (declaration.startsWith("```")) '`' else if (declaration.startsWith("~~~")) '~' else null
             for (candidate in line + 1..last) {
                 val row = rows[candidate].trim()
                 if (fence != null && row.length >= 3 && row.all { it == fence }) return candidate
-                if (fence == null && row.startsWith("</") && row.contains(":file>")) return candidate
+                if (fence == null && row.startsWith("</") && row.contains(if (patch) ":patch>" else ":file>")) return candidate
+                if (patch && row.length >= 3 && (row.all { it == '`' } || row.all { it == '~' })) return candidate
             }
             return last
         }
@@ -402,6 +425,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 if (target == null&&!chooseProfile) { message = if (targets.isEmpty()) "No file blocks to debug. Add a supported file block and save this document." else "Choose the file block to debug."; return }
             }
             launchProgram = target
+            launchAnchor = line.takeIf { target != null && inlineDebugPath(buffer.text, owner, it, true) == target }
             val query = JSONObject().put("uri", debugURI(owner)).put(if (literate) "expected_document" else "expected_source", launchSource)
             if (target != null) query.put("program", target)
             val result = engine.request("POST", "/api/launch-profiles", query)
@@ -512,7 +536,13 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 .put(if (literate) "expected_document" else "expected_source", launchSource)
                 .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", reading.getString("fingerprint")))
             launchProgram?.let { body.put("program", it) }
-            terminal(engine.request("POST", "/api/launch-profiles/run", body).getString("id"))
+            val request = epoch
+            val revision = buffer.sourceRevision
+            val anchor = launchAnchor
+            val id = engine.request("POST", "/api/launch-profiles/run", body).getString("id")
+            if (request != epoch || revision != buffer.sourceRevision || buffer.resourceDeleted) return
+            terminal(id)
+            if (literate && anchor != null) readInlineTerminal(id, buffer, inlineLaunchEnd(buffer.text, anchor))
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -521,6 +551,34 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             runningProfile = false
         }
     }
+    private fun readInlineTerminal(id: String, buffer: DocumentBuffer, line: Int) {
+        if (!Regex("^term-[0-9a-f]{32}$").matches(id)) return
+        terminalOutputJob?.cancel()
+        val revision = buffer.sourceRevision
+        val path = buffer.file.path
+        buffer.terminalOutputRevision = revision
+        buffer.terminalOutput = emptyMap()
+        fun current() = !buffer.resourceDeleted && buffer.sourceRevision == revision && buffer.file.path == path
+        terminalOutputJob = scope.launch {
+            repeat(120) {
+                if (!current()) return@launch
+                val page = try {
+                    engine.request("GET", "/api/terminals/$id/output?view=screen&offset=0&limit=16384")
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    return@launch
+                }
+                val bytes = page.optJSONArray("bytes") ?: return@launch
+                if (!current() || page.optString("session") != id || bytes.length() > 16384) return@launch
+                val text = ByteArray(bytes.length()) { bytes.getInt(it).toByte() }.toString(Charsets.UTF_8)
+                if (buffer.terminalOutput[line] != text) buffer.terminalOutput = if (text.isEmpty()) emptyMap() else mapOf(line to text)
+                if (page.optBoolean("output_done")) return@launch
+                kotlinx.coroutines.delay(500)
+            }
+        }
+    }
+
     suspend fun launch(profile:JSONObject)=launch(profile,null)
     private suspend fun launch(profile: JSONObject,test:SourceTestLaunch?) {
         val buffer = launchBuffer; val catalog = catalog
@@ -606,7 +664,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return true
     }
     private fun fail(detail: String) { releaseRecordedContext();sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { commandProfileRevision=null;releaseRecordedContext();recordedLaunch=null;attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    fun close() { launchAnchor=null;terminalOutputJob?.cancel();terminalOutputJob=null;commandProfileRevision=null;releaseRecordedContext();recordedLaunch=null;attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
         if(kind=="test_preparing"){

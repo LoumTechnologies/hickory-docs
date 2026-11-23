@@ -48,6 +48,8 @@ pub struct PatchResult {
     pub before: ProjectTree,
     pub after: ProjectTree,
     pub paths: BTreeSet<String>,
+    /// Validated context row source bytes and zero-based destination lines.
+    pub context_lines: Vec<(String, usize, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +93,7 @@ pub fn apply_project_patch(
 ) -> Result<PatchResult, String> {
     let (sections, paths) = parse_patch(diff)?;
     let mut after = tree.clone();
+    let mut context_lines = Vec::new();
 </storycode:copy>
 <a id="f-e9e76260c9bd-apply_project_patch--validate-file-endpoints"></a>
 ### Validate file endpoints
@@ -166,6 +169,11 @@ retain their original patch payload range.
                         ));
                     }
                     if operation == b' ' {
+                        if let Some(path) = &new
+                            && !payload.trim().is_empty()
+                        {
+                            context_lines.push((path.clone(), source_offset + offset, output_lines));
+                        }
                         append_original(
                             &original,
                             (offsets[consumed], offsets[consumed + 1]),
@@ -234,6 +242,7 @@ complete act succeeds.
         before: tree.clone(),
         after,
         paths,
+        context_lines,
     })
 }
 

@@ -27,7 +27,7 @@ Images retain their source and preview below the line.
 import { request } from "../api/client";
 import { editorLanguageActions } from "./languageActions";
 import type { UiOutcome } from "../lib/uiActions";
-import { RangeSetBuilder, StateField } from "@codemirror/state";
+import { Prec, RangeSetBuilder, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -141,6 +141,7 @@ export interface MdLinksConfig {
    * destination resolves to; null (an untitled buffer) resolves against the
    * folder root. */
   docPath: () => string | null;
+  onFollow?: (target: string) => UiOutcome;
   /** Parsed include tags share navigation, without guessing namespace syntax. */
   includes?: (state: EditorState) => readonly { from: number; to: number; target: string }[];
   /** Ranges to leave alone — a fenced block, a generated file's body. A
@@ -336,6 +337,12 @@ Links styled, followed on Mod-click, and images drawn.
 <storycode:copy id="f-1645f056db0c-mdLinks">
 /** Labels for reading, Markdown for editing, double-click navigation and images. */
 export function mdLinks(config: MdLinksConfig): Extension {
+  const follow = config.onFollow ?? (target => followLink(config.docPath(), target));
+  const atEvent = (event: MouseEvent, view: EditorView) => {
+    const label = event.target instanceof Element ? event.target.closest(".cm-md-link") : null;
+    const pos = label ? view.posAtDOM(label) : view.posAtCoords({ x: event.clientX, y: event.clientY });
+    return pos === null ? null : linkAt(view.state, config, pos);
+  };
   const position = { type: "number" as const, integer: true, minimum: 0, maximum: 100_000_000 };
   // First click expands the source and can move text under the second click.
   // Retain its destination for the duration of this double-click gesture.
@@ -358,7 +365,7 @@ export function mdLinks(config: MdLinksConfig): Extension {
       parameters: { position }, enabled: () => true, revision: () => config.docPath(),
       execute: async (view, args) => {
         const link = linkAt(view.state, config, args.position as number);
-        return link ? followLink(config.docPath(), link.target) : { status: "unavailable", reason: "There is no navigable markdown link at this current source position" };
+        return link ? follow(link.target) : { status: "unavailable", reason: "There is no navigable markdown link at this current source position" };
       },
     }),
     ...(config.images && config.onOpenImageSource ? [editorLanguageActions.of({
@@ -377,16 +384,15 @@ export function mdLinks(config: MdLinksConfig): Extension {
       update: (value, tr) => tr.docChanged || tr.selection || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
       provide: (f) => EditorView.decorations.from(f, value => value.decorations),
     }),
-    EditorView.domEventHandlers({
+    Prec.highest(EditorView.domEventHandlers({
       dblclick(event, view) {
         if (event.button !== 0) return false;
-        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         const target = pressed && event.timeStamp - pressed.time < 1000 && Math.abs(event.clientX - pressed.x) < 5 && Math.abs(event.clientY - pressed.y) < 5
-          ? pressed.target : pos === null ? null : linkAt(view.state, config, pos)?.target;
+          ? pressed.target : atEvent(event, view)?.target;
         pressed = null;
         if (!target) return false;
         event.preventDefault();
-        followLink(config.docPath(), target);
+        follow(target);
         return true;
       },
       contextmenu(event, view) {
@@ -402,21 +408,17 @@ export function mdLinks(config: MdLinksConfig): Extension {
       },
       mousedown(event, view) {
         if (event.button !== 0) return false;
+        const link = atEvent(event, view);
         if (event.detail < 2) {
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-          const link = pos === null ? null : linkAt(view.state, config, pos);
           pressed = link ? { target: link.target, x: event.clientX, y: event.clientY, time: event.timeStamp } : null;
         }
         if (!(event.metaKey || event.ctrlKey)) return false;
-        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        if (pos === null) return false;
-        const link = linkAt(view.state, config, pos);
         if (!link) return false;
         event.preventDefault();
-        followLink(config.docPath(), link.target);
+        follow(link.target);
         return true;
       },
-    }),
+    })),
   ];
 }
 </storycode:copy>

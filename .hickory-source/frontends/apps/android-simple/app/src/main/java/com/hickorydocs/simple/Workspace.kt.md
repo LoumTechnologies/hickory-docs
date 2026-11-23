@@ -80,6 +80,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var unmaterializedHistoryDraft by mutableStateOf(false)
     val sourceScroll = androidx.compose.foundation.ScrollState(initialScroll)
     var recoveryBaseline:EditorRecoveryBaseline?=null
+    var terminalOutputRevision by mutableStateOf<Long?>(null)
+    var terminalOutput by mutableStateOf<Map<Int, String>>(emptyMap())
     var receiptEngine: Engine? = null
     var receiptSource by mutableStateOf("")
     var receipts by mutableStateOf<List<org.json.JSONObject>>(emptyList())
@@ -129,6 +131,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation, () -> Boolean) -> Unit)? = null
+    var followWorkspaceLink: ((String) -> Unit)? = null
     var coverageSource by mutableStateOf<SimpleCoverageState?>(null)
     var inspectCoverage:((Int)->Unit)?=null
     var testIndex by mutableStateOf<SourceTestIndex?>(null)
@@ -728,6 +731,15 @@ Open the destination before checking a cross-file provider name. If the current 
         val buffer = existing ?: DocumentBuffer(file, text)
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
+        buffer.followWorkspaceLink = follow@{ href ->
+            val target = workspaceLinkTarget(href, buffer.file.path) ?: return@follow
+            val scope = generation
+            val revision = buffer.sourceRevision
+            workspaceScope.launch {
+                openSemanticLocation(SemanticLocation(languageURI(target.path), target.line ?: 0, 0), allowDirty = true,
+                    isCurrent = { generation == scope && buffers[buffer.file.path] === buffer && buffer.sourceRevision == revision })
+            }
+        }
         buffer.openSemanticLocation = { location, current -> workspaceScope.launch {
             openSemanticLocation(location, isCurrent = { buffers[buffer.file.path] === buffer && current() })
         } }

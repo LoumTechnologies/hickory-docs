@@ -299,6 +299,7 @@ final class ParityTests: XCTestCase {
             window.dispatchEvent(new MouseEvent('mouseup'));
             """
         XCTAssertEqual(try selectedCells(drag), 4)
+        XCTAssertEqual(try evaluate("document.querySelectorAll('.table-fill-handle').length") as? Int, 1)
         XCTAssertEqual(buffer.text, source)
         let wrong = "window.webkit.messageHandlers.table.postMessage({kind:'change',revision:'obsolete',source:'wrong'})"
         try evaluate(wrong + "; null")
@@ -389,6 +390,11 @@ final class ParityTests: XCTestCase {
         let displayOnly = try XCTUnwrap(rows.lastIndex { $0.hasPrefix("+    print") })
         XCTAssertEqual(context.code[body], "generated/coupon.py")
         XCTAssertEqual(context.code[added], "generated/coupon.py")
+        let unchanged = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("     total =") })
+        let literal = try XCTUnwrap(rows.firstIndex { $0.contains("literal text</script>") })
+        let fence = try XCTUnwrap(context.recorded.values.first { $0.contains(literal) })
+        XCTAssertEqual(context.code[unchanged], "generated/coupon.py")
+        XCTAssertEqual(context.code[literal], "fence:\(fence.opening)")
         XCTAssertNil(context.code[displayOnly])
         debugger.toggle(buffer, line: body)
         debugger.toggle(buffer, line: added)
@@ -398,6 +404,59 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(debugger.breakpointMarkers(sibling).isEmpty)
         debugger.toggle(buffer, line: body)
         XCTAssertEqual(debugger.breakpointMarkers(buffer).compactMap { $0["line"] as? Int }, [added])
+    }
+
+    @MainActor func testLiveWorkbookContextAndFenceDebug() async throws {
+        let variables = ProcessInfo.processInfo.environment
+        guard let origin = variables["HICKORY_WORKBOOK_TEST_ORIGIN"],
+              let root = variables["HICKORY_WORKBOOK_TEST_ROOT"] else {
+            throw XCTSkip("Start the isolated workbook fixture to run the native debugger.")
+        }
+        let relativePath = "workbook-demo/workbook.md"
+        let file = URL(fileURLWithPath: root).appendingPathComponent(relativePath)
+        let source = try String(contentsOf: file, encoding: .utf8)
+        let rows = source.components(separatedBy: "\n")
+        let buffer = DocumentBuffer(file: FileNode(name: "workbook.md", path: relativePath, dir: false),
+                                    text: FileText(path: relativePath, content: source, hash: nativeSourceHash(source)))
+        let debugger = NativeDebugger(engine: try Engine(address: origin))
+        defer { debugger.close() }
+
+        func waitFor(_ condition: () -> Bool) async throws {
+            for _ in 0..<200 {
+                if condition() || ["unavailable", "failed"].contains(debugger.status) { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertTrue(condition(), "\(debugger.status) · \(debugger.message)")
+        }
+
+        let patch = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("+++ b/generated/coupon.py") })
+        let context = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("     total =") })
+        debugger.toggle(buffer, line: context)
+        await debugger.prepare(buffer, line: patch)
+        try await waitFor { debugger.status == "paused" }
+        debugger.step("continue")
+        try await waitFor { debugger.status == "finished" }
+        XCTAssertTrue(debugger.outputPlacements(buffer)[inlineLaunchEnd(source, header: patch)]?.contains("Coupon receipt: 1880 cents") == true)
+
+        let print = try XCTUnwrap(rows.firstIndex { $0.contains("literal text</script>") })
+        let fence = try XCTUnwrap(inlineDebugContext(source, path: "workbook.md").recorded.values.first { $0.contains(print) })
+        debugger.toggle(buffer, line: print)
+        await debugger.prepare(buffer, line: fence.opening)
+        try await waitFor { debugger.status == "paused" }
+        debugger.step("continue")
+        try await waitFor { debugger.status == "finished" }
+        let output = debugger.outputPlacements(buffer)[fence.closing] ?? ""
+        XCTAssertTrue(output.contains("literal text</script>"))
+        XCTAssertTrue(output.contains("This line is stderr."))
+
+        await debugger.prepare(buffer, line: fence.opening, chooseProfile: true)
+        let run = try XCTUnwrap(debugger.commandProfiles.first { $0.id == "fence-run" })
+        var terminal: String?
+        await debugger.runProfile(run, buffer: buffer, terminal: { terminal = $0 })
+        XCTAssertNotNil(terminal)
+        try await waitFor { buffer.terminalOutput[fence.closing]?.contains("This line is stderr.") == true }
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), source)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.deletingLastPathComponent().appendingPathComponent("generated").path))
     }
 
     func testGitComparisonProjectsReplacementsAndEndOfFileDeletions() throws {
@@ -494,8 +553,12 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(syntax.filter { $0.kind == "syntax-keyword" }.map { text.substring(with: $0.range) }, ["def", "return"])
         XCTAssertTrue(syntax.contains { $0.kind == "syntax-string" && text.substring(with: $0.range) == "\"café 😀\"" })
         XCTAssertTrue(syntax.contains { $0.kind == "syntax-comment" })
-        XCTAssertTrue(snapshot.debug.code.isEmpty)
-        XCTAssertTrue(snapshot.debug.launch.isEmpty)
+        XCTAssertEqual(snapshot.debug.code, [2: "fence:1", 3: "fence:1"])
+        XCTAssertEqual(snapshot.debug.launch, [1: "fence:1"])
+        let links = computeInlineMarkup("[Workbook](workbook.md)\n`[literal](ignore.md)`", path: "project.md").links
+        XCTAssertEqual(links.map(\.href), ["workbook.md"])
+        XCTAssertEqual(workspaceLinkTarget("orders.py#L9", relativeTo: "sample/workbook.md")?.line, 8)
+        XCTAssertNil(workspaceLinkTarget("%2e%2e/%2e%2e/private", relativeTo: "sample/workbook.md"))
     }
     func testPatchAndPathFenceOfferOnlyOwnedCodeCandidates() {
         // Contract: .hickory-source/frontends/contract.md
@@ -828,6 +891,8 @@ final class ParityTests: XCTestCase {
         let equations = computeInlineMarkup(source, path: "math.md").equations
         XCTAssertEqual(equations.count, 4)
         XCTAssertEqual(equations.map(\.displayBlock), [false, false, true, true])
+        XCTAssertEqual(equationSourceCaret(equations[0], fraction: 0.5), equations[0].range.location + 3)
+        XCTAssertEqual(equationSourceCaret(equations[2], fraction: 0), equations[2].range.location + 2)
         let ns = source as NSString
         XCTAssertEqual(equations.map { ns.substring(with: $0.range) }, equations.map(\.body))
         XCTAssertEqual(equations.map { ns.substring(with: $0.renderedRange) }, ["$p(1-d)$", "$x^2$", "<h:math>\r\nT = \\sum_{i=1}^{n} q_i\r\n</h:math>", "<h:math>x+1</h:math>"])

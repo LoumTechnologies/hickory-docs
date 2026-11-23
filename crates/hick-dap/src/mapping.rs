@@ -9,6 +9,9 @@ use std::{
 pub struct Mapping {
     observation_source: Option<Vec<u8>>,
     observation_document: Option<PathBuf>,
+    project_root: Option<PathBuf>,
+    fence_path: Option<String>,
+    patch_context: HashMap<(PathBuf, u32), (PathBuf, u32)>,
     source_hashes: HashMap<PathBuf, String>,
     /// Generated file path (as the adapter sees it) -> the document's mapping.
     files: HashMap<PathBuf, hick_lsp::position_map::PositionMap>,
@@ -106,6 +109,9 @@ impl Mapping {
                 })
                 .collect(),
             observation_document: None,
+            project_root: None,
+            fence_path: None,
+            patch_context: HashMap::new(),
             observation_source: tree
                 .entries()
                 .get(program)
@@ -147,6 +153,9 @@ impl Mapping {
             .map_err(anyhow::Error::msg)?;
         Ok(Self {
             observation_document: Some(document.clone()),
+            project_root: None,
+            fence_path: None,
+            patch_context: HashMap::new(),
             observation_source: Some(source.as_bytes().to_vec()),
             source_hashes: HashMap::from([(document.clone(), Self::source_digest(source.as_bytes()))]),
             files: HashMap::from([(workdir.canonicalize()?.join(program), positions)]),
@@ -171,6 +180,9 @@ impl Mapping {
                 .unwrap_or_default(),
             observation_source: source,
             observation_document: None,
+            project_root: None,
+            fence_path: None,
+            patch_context: HashMap::new(),
             files: HashMap::new(),
             document: file.to_path_buf(),
             plain: true,
@@ -238,8 +250,58 @@ impl Mapping {
                 .collect(),
             observation_source: Some(state.doc.source.as_bytes().to_vec()),
             observation_document: None,
+            project_root: None,
+            fence_path: None,
+            patch_context: HashMap::new(),
             files,
             document: document.to_path_buf(),
+            plain: false,
+            captured: None,
+        })
+    }
+
+    /// Keep the viewed contributor as primary while retaining the entry-relative origin names.
+    pub fn for_contributor(
+        document: &Path,
+        project_root: &Path,
+        state: &hick_lsp::document::HickDocumentState,
+        workdir: &Path,
+        source: &str,
+    ) -> Result<Self> {
+        let Some(entry) = &state.project_entry else {
+            return Ok(Self::for_state(document, state, workdir)?.with_observation_source(source));
+        };
+        let mut mapping = Self::for_state(&project_root.join(entry), state, workdir)?;
+        mapping.project_root = Some(project_root.into());
+        if let (Some(project), Some(selected)) = (&state.evaluated_project, &state.selected_project)
+            && selected == &project.new
+        {
+            let workdir = workdir.canonicalize()?;
+            for (doc, source, path, line) in &project.patch_context_lines {
+                mapping.patch_context.insert((project_root.join(doc), *source as u32), (workdir.join(path), *line as u32));
+            }
+        }
+        mapping.document = document.into();
+        mapping.observation_document = Some(document.into());
+        Ok(mapping.with_observation_source(source))
+    }
+
+    pub fn authored_fence(
+        document: &Path, source: &str, tree: &hick_lang::ProjectTree, workdir: &Path, program: &str,
+    ) -> Result<Self> {
+        let entry = tree.get(program).ok_or_else(|| anyhow::anyhow!("Selected fence expired"))?;
+        let sources = std::sync::Arc::new(std::collections::BTreeMap::from([("fence.md".into(), source.into())]));
+        let positions = hick_lsp::position_map::PositionMap::for_project(entry, sources, "fence.md")
+            .map_err(anyhow::Error::msg)?;
+        Ok(Self {
+            observation_source: Some(source.as_bytes().to_vec()),
+            observation_document: None,
+            project_root: None,
+            fence_path: Some("fence.md".into()),
+            patch_context: HashMap::new(),
+            source_hashes: HashMap::from([(document.into(), Self::source_digest(source.as_bytes()))]),
+            files: HashMap::from([(workdir.canonicalize()?.join(program), positions)]),
+            document: document.into(),
             plain: false,
             captured: None,
         })
@@ -303,6 +365,9 @@ impl Mapping {
         }
         let map = self.file_map(path)?;
         let (document, line, _) = map.source_document(line, 0)?;
+        if self.fence_path.is_some() && self.fence_path == document {
+            return Some((self.document.clone(), line));
+        }
         if document.as_deref() == Some(hick_lsp::ProjectContext::RECORDED_MESSAGE)
             && self.document.to_string_lossy().starts_with("hick-project:///")
         {
@@ -310,7 +375,7 @@ impl Mapping {
         }
         Some((
             document
-                .map(|name| self.document.parent().unwrap_or(Path::new(".")).join(name))
+                .map(|name| self.project_root.as_deref().or_else(|| self.document.parent()).unwrap_or(Path::new(".")).join(name))
                 .unwrap_or_else(|| self.document.clone()),
             line,
         ))
@@ -332,11 +397,14 @@ impl Mapping {
                 .filter(|path| path.is_file())
                 .map(|path| (path, line));
         }
-        if same_file(document, &self.document) {
+        if self.project_root.is_none() && same_file(document, &self.document) {
             return crate::project::generated_line(&self.files, line);
         }
+        if let Some(location) = self.patch_context.get(&(document.to_path_buf(), line)) {
+            return Some(location.clone());
+        }
         let name = document
-            .strip_prefix(self.document.parent()?)
+            .strip_prefix(self.project_root.as_deref().or_else(|| self.document.parent())?)
             .ok()?
             .to_str()?
             .replace('\\', "/");

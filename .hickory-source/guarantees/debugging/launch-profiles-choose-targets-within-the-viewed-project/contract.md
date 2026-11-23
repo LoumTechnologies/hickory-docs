@@ -842,6 +842,7 @@ pub struct LaunchContext {
 enum Identity {
     Captured(String),
     Document(PathBuf, Box<hick_lsp::document::HickDocumentState>, String),
+    Fence(PathBuf, String),
     Plain(PathBuf),
 }
 </storycode:copy>
@@ -872,7 +873,7 @@ impl LaunchContext {
                 h.update(serde_json::to_vec(origin).expect("byte origins are serializable"));
             }
         }
-        if let Identity::Document(_, _, raw_source) = &self.identity {
+        if let Identity::Document(_, _, raw_source) | Identity::Fence(_, raw_source) = &self.identity {
             h.update(raw_source.as_bytes());
         }
         format!("{:x}", h.finalize())
@@ -888,7 +889,7 @@ impl LaunchContext {
                 "The saved file differs from the displayed code. Save or reload it before choosing a launch profile."
             );
         }
-        if let (Some(expected), Identity::Document(_, _, raw_source)) = (document, &self.identity) {
+        if let (Some(expected), Identity::Document(_, _, raw_source) | Identity::Fence(_, raw_source)) = (document, &self.identity) {
             anyhow::ensure!(
                 raw_source == expected,
                 "The document changed. Save or reload it before choosing a launch profile."
@@ -897,6 +898,9 @@ impl LaunchContext {
         Ok(())
     }
     pub fn profiles(&self) -> Result<Vec<Profile>> {
+        if matches!(self.identity, Identity::Fence(_, _)) {
+            return Ok(launch_profiles::fence_profiles(&self.viewed));
+        }
         launch_profiles::discover(self.inputs.inventory()).map_err(anyhow::Error::msg)
     }
     pub fn selected(&self, selection: &ProfileSelection) -> Result<Profile> {
@@ -904,8 +908,11 @@ impl LaunchContext {
             self.fingerprint() == selection.fingerprint,
             "The project changed after choosing a launch profile. Open Launch profiles and choose again."
         );
-        launch_profiles::select(self.inputs.inventory(), Some(&selection.id))
-            .map_err(anyhow::Error::msg)
+        if matches!(self.identity, Identity::Fence(_, _)) {
+            return self.profiles()?.into_iter().find(|profile| profile.definition.id == selection.id)
+                .context("Choose a current Run or Debug profile for this fence.");
+        }
+        launch_profiles::select(self.inputs.inventory(), Some(&selection.id)).map_err(anyhow::Error::msg)
     }
     pub fn prepare(&self) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
         if matches!(self.identity, Identity::Plain(_)) {
@@ -930,8 +937,11 @@ impl LaunchContext {
                 &self.viewed,
             ),
             Identity::Document(path, state, raw_source) => {
-                Ok(Mapping::for_state(path, state, root)?.with_observation_source(raw_source))
+                Mapping::for_contributor(path, &self.root, state, root, raw_source)
             }
+            Identity::Fence(path, source) => Mapping::authored_fence(
+                path, source, self.inputs.project().context("Missing fence program")?, root, &self.viewed,
+            ),
             Identity::Plain(path) => Ok(Mapping::identity(path).with_plain_sources(
                 root,
                 self.inputs
@@ -981,7 +991,43 @@ impl Registry {
             let source = std::fs::read_to_string(&path)?;
             let endpoint =
                 hick_lsp::ProjectEndpoint::parse(selection).map_err(anyhow::Error::msg)?;
-            let state = crate::project_documents::state_at(&path, &source, &endpoint)?;
+            if let Some(line) = viewed.and_then(|target| target.strip_prefix("fence:")) {
+                anyhow::ensure!(selection == "new" && source.len() <= 1024 * 1024,
+                    "Choose a fence in a current saved document of at most 1 MiB.");
+                let line: usize = line.parse().context("Choose a code fence's opening line again.")?;
+                let start = source.match_indices('\n').nth(line).map(|(at, _)| at + 1)
+                    .context("Choose a complete code fence's opening line.")?;
+                let region = hick_lang::source_context::source_code_regions(&source)
+                    .map_err(anyhow::Error::msg)?.into_iter()
+                    .find(|region| region.kind == "fence" && region.from == start)
+                    .context("Choose a complete ordinary code fence's opening line.")?;
+                let extension = match region.language.as_deref().unwrap_or("").to_ascii_lowercase().as_str() {
+                    "py" | "python" | "python3" => "py",
+                    "js" | "javascript" | "node" => "js",
+                    "ts" | "typescript" => "ts",
+                    "rs" | "rust" => "rs",
+                    "c" => "c",
+                    "cpp" | "c++" | "cxx" => "cpp",
+                    "go" | "golang" => "go",
+                    "cs" | "csharp" | "c#" => "cs",
+                    "rb" | "ruby" => "rb",
+                    _ => anyhow::bail!("This fence has no standalone runner. Choose a supported language."),
+                };
+                let (code, origins) = region.literal_fence(&source, "fence.md", 20_000).map_err(anyhow::Error::msg)?;
+                anyhow::ensure!(!code.trim().is_empty(), "Choose a fence containing a program.");
+                let program = format!("fence.{extension}");
+                let mut entry = ProjectEntry::file(code.into_bytes());
+                entry.origins = origins;
+                let mut tree = hick_lang::ProjectTree::default();
+                tree.insert(&program, entry).map_err(anyhow::Error::msg)?;
+                return Ok(LaunchContext {
+                    inputs: LaunchInputs::Constructed(tree),
+                    root: path.parent().unwrap_or(root).into(),
+                    viewed: program,
+                    identity: Identity::Fence(path, source),
+                });
+            }
+            let (project_root, state) = crate::project_documents::debug_launch_state(root, &path, &source, &endpoint)?;
             let mut tree = state.selected_project.clone().unwrap_or_default();
             if state.selected_project.is_none() {
                 for file in &state.virtual_files {
@@ -1013,7 +1059,7 @@ impl Registry {
             };
             return Ok(LaunchContext {
                 inputs: LaunchInputs::Constructed(tree),
-                root: path.parent().unwrap_or(root).into(),
+                root: project_root,
                 viewed: target,
                 identity: Identity::Document(path, Box::new(state), source),
             });
@@ -1518,6 +1564,28 @@ pub fn command_profile(
 ### `text`
 
 <storycode:copy id="f-01e001976095-text">
+pub(crate) fn fence_profiles(program: &str) -> Vec<Profile> {
+    let binary = &format!("./fence-program{}", std::env::consts::EXE_SUFFIX);
+    let (command, compiler): (Vec<&str>, Option<&str>) = match program {
+        "fence.py" => (vec!["python3", program], None),
+        "fence.js" | "fence.ts" => (vec!["node", program], None),
+        "fence.rb" => (vec!["ruby", program], None),
+        "fence.go" => (vec!["go", "run", program], None),
+        "fence.cs" => (vec!["dotnet", "run", "--file", program], None),
+        "fence.rs" => (vec![binary], Some("rustc")),
+        "fence.c" => (vec![binary], Some("cc")),
+        "fence.cpp" => (vec![binary], Some("c++")),
+        _ => return Vec::new(),
+    };
+    let mut run = command_profile("fence-run".into(), "fence".into(),
+        command.into_iter().map(str::to_owned).collect(), ".".into(), "fence");
+    if let Some(compiler) = compiler {
+        run.definition.build = [compiler, program, "-o", binary].into_iter().map(str::to_owned).collect();
+    }
+    let debug = profile("fence-debug".into(), program.into(), Some(program.into()), vec![], ".".into(), "fence");
+    if debug.can_debug { vec![run, debug] } else { vec![run] }
+}
+
 fn text<'a>(tree: &'a dyn SourceInventory, path: &str) -> Option<&'a str> {
     let entry = tree.get(path)?;
     (entry.kind == EntryKind::File)

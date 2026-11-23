@@ -1106,11 +1106,15 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     var watches: [String] = []
     var profiles: [NativeDebugProfile] = []
     var targets: [NativeDebugTarget] = []
+    private var launchAnchor: Int?
+    private var terminalOutputTask: Task<Void, Never>?
     private var launchProgramKey:NativeSourceKey?
     private var launchProgram:String? {get{launchProgramKey?.string}set{launchProgramKey=newValue.map(NativeSourceKey.init)}}
     var catalog: NativeDebugCatalog?
     var commandProfiles: [NativeDebugProfile] {
-        commandProfileRevision == nil ? [] : catalog?.profiles.filter { !$0.can_debug && $0.attach == nil } ?? []
+        commandProfileRevision == nil ? [] : catalog?.profiles.filter {
+            $0.attach == nil && (!$0.can_debug || ($0.program?.hasSuffix(".py") == true && $0.id != "fence-debug"))
+        } ?? []
     }
     private var commandProfileRevision: UUID?
     private(set) var runningProfile = false
@@ -1191,23 +1195,48 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         if exactUTF8(frame?["source"] as? String,path) { return nativeDebugLine(frame?["source_line"]) }
         return exactUTF8(path,owner) && selectedFrame == nativeDebugID(frames.first?["id"]) ? pausedLine : nil
     }
+    // Only complete, individually addressed output rows can offer a source link.
+    // Terminal control sequences and ambiguous repeated text retain emulator rendering.
+    func outputLinks(_ buffer: DocumentBuffer) -> [String: Int] {
+        guard sourceMatches(buffer), exactUTF8(owner, buffer.file.path),
+              output.dropLast().allSatisfy({ $0.text.utf8.last == 10 }) else { return [:] }
+        let total = buffer.text.utf16.filter { $0 == 10 }.count + 1
+        var locations: [String: Int] = [:], seen = Set<String>(), ambiguous = Set<String>()
+        for event in output {
+            for row in event.text.components(separatedBy: "\n") where !row.isEmpty {
+                let key = row.hasSuffix("\r") ? String(row.dropLast()) : row
+                if !seen.insert(key).inserted { ambiguous.insert(key) }
+                if let line = event.line, exactUTF8(event.source, buffer.file.path), (0..<total).contains(line) { locations[key] = line }
+            }
+        }
+        return locations.filter { !ambiguous.contains($0.key) }
+    }
     func outputPlacements(_ buffer: DocumentBuffer) -> [Int: String] {
         guard sourceMatches(buffer) else { return [:] }
         if let recordedLaunch, exactUTF8(buffer.file.path, owner), !output.isEmpty {
             return [recordedLaunch.fence.closing: output.map(\.text).joined()]
         }
         let context = inlineDebugContext(buffer.text, path: buffer.file.path)
+        if let header = launchAnchor, exactUTF8(owner, buffer.file.path), !output.isEmpty {
+            return [inlineLaunchEnd(buffer.text, header: header): output.map(\.text).joined()]
+        }
+        if let program = launchProgram, program.hasPrefix("fence:"), let opening = Int(program.dropFirst(6)),
+           let fence = context.recorded[opening], !output.isEmpty {
+            return [fence.closing: output.map(\.text).joined()]
+        }
         let last = max(0, buffer.text.components(separatedBy: "\n").count - 1 - (buffer.text.hasSuffix("\n") ? 1 : 0))
         let rows = buffer.text.components(separatedBy: "\n")
         func blockEnd(_ line: Int) -> Int {
             guard let header = context.launch.keys.filter({ $0 <= line }).max(), rows.indices.contains(header) else { return min(last, line) }
             let declaration = rows[header].trimmingCharacters(in: .whitespaces)
+            let patch = declaration.hasPrefix("+++ ")
             let fence = declaration.hasPrefix("```") ? "`" : declaration.hasPrefix("~~~") ? "~" : ""
             if line < last {
                 for candidate in (line + 1)...last {
                     let row = rows[candidate].trimmingCharacters(in: .whitespaces)
                     if !fence.isEmpty && row.count >= 3 && row.allSatisfy({ String($0) == fence }) { return candidate }
-                    if fence.isEmpty && row.hasPrefix("</") && row.contains(":file>") { return candidate }
+                    if fence.isEmpty && row.hasPrefix("</") && row.contains(patch ? ":patch>" : ":file>") { return candidate }
+                    if patch && row.count >= 3 && (row.allSatisfy { $0 == "`" } || row.allSatisfy { $0 == "~" }) { return candidate }
                 }
             }
             return last
@@ -1394,6 +1423,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
                 guard target != nil || chooseProfile else { message = targets.isEmpty ? "No file blocks to debug. Add a supported file block and save this document." : "Choose the file block to debug."; return }
             }
             launchProgram = target
+            launchAnchor = target != nil && inlineDebugPath(buffer.text, path: owner, line: line, launch: true) == target ? line : nil
             var query: [String: Any] = ["uri": nativeDebugURI(owner), literate ? "expected_document" : "expected_source": launchSource]
             if let target { query["program"] = target }
             let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
@@ -1424,11 +1454,38 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
         body[literate ? "expected_document" : "expected_source"] = launchSource
         if let launchProgram { body["program"] = launchProgram }
+        let request = epoch, revision = buffer.sourceEditIdentity, header = launchAnchor
         do {
             let reply: TerminalOpened = try await engine.request("POST", "/api/launch-profiles/run", body: body)
+            guard epoch == request, buffer.sourceEditIdentity == revision, !buffer.resourceDeleted else { return }
             terminal(reply.id)
+            if literate, let header { readInlineTerminal(reply.id, buffer: buffer, line: inlineLaunchEnd(buffer.text, header: header)) }
         } catch { message = error.localizedDescription }
     }
+    private func readInlineTerminal(_ id: String, buffer: DocumentBuffer, line: Int) {
+        guard id.range(of: "^term-[0-9a-f]{32}$", options: .regularExpression) != nil else { return }
+        struct Screen: Decodable { let session: String; let bytes: [UInt8]; let output_done: Bool? }
+        terminalOutputTask?.cancel()
+        let revision = buffer.sourceEditIdentity, path = buffer.file.path
+        buffer.terminalOutputRevision = revision
+        buffer.terminalOutput = [:]
+        terminalOutputTask = Task { [weak buffer] in
+            for _ in 0..<120 {
+                guard !Task.isCancelled, let buffer, !buffer.resourceDeleted, buffer.sourceEditIdentity == revision, exactUTF8(buffer.file.path, path) else { return }
+                do {
+                    let output: Screen = try await engine.request("GET", "/api/terminals/" + id + "/output",
+                        query: [URLQueryItem(name: "view", value: "screen"), URLQueryItem(name: "offset", value: "0"), URLQueryItem(name: "limit", value: "16384")])
+                    guard !Task.isCancelled, !buffer.resourceDeleted, buffer.sourceEditIdentity == revision,
+                          exactUTF8(buffer.file.path, path), exactUTF8(output.session, id), output.bytes.count <= 16384 else { return }
+                    let text = String(decoding: output.bytes, as: UTF8.self)
+                    if buffer.terminalOutput[line] != text { buffer.terminalOutput = text.isEmpty ? [:] : [line: text] }
+                    if output.output_done == true { return }
+                    try await Task.sleep(for: .milliseconds(500))
+                } catch { return }
+            }
+        }
+    }
+
     func launch(_ profile: NativeDebugProfile) {
         guard let catalog else{message="Resolve a current scoped launch profile before Debug. No Start command was sent.";return}
         guard compatibleDebugger(catalog) else{return}
@@ -1536,6 +1593,9 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private func fail(_ detail: String) { retireRecordedCapture();retireTestReadings("debugger reading failed / process outcome unknown");let test=pendingSourceTest;pendingSourceTest=nil;test?.rejected(detail);retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
     func close() {
         commandProfileRevision = nil
+        launchAnchor = nil
+        terminalOutputTask?.cancel()
+        terminalOutputTask = nil
         retireRecordedCapture()
         retireTestReadings("debugger reading closed / process outcome unknown")
         pendingSourceTest=nil

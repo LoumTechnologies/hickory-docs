@@ -646,6 +646,50 @@ def debug_thread_acceptance(driver, folder):
     driver.act("debug-stop");eventually(lambda:not any("paused" in state for state in driver.act("debug-state")),True)
     assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
 
+def workbook_acceptance(driver, folder):
+    """The same saved sample exercises links, context breakpoints and an ordinary fence."""
+    demo = folder / "workbook-demo"
+    path = "workbook-demo/workbook.md"
+    source = (demo / "workbook.md").read_text()
+    rows = source.splitlines()
+    def reveal(line):
+        prefix = "".join(source.splitlines(keepends=True)[:line - 1])
+        offset = len(prefix.encode("utf-16-le")) // 2
+        driver.act("source-text-select", path=path, anchor=offset, head=offset)
+        return offset
+
+    driver.act("browser-surface", url=driver.url + "?" + urlencode({"path": "workbook-demo/project.md"}))
+    driver.act("workbook-link", path="workbook-demo/project.md")
+    assert driver.act("construction-source", path=path) == source
+    reveal(rows.index("## Architecture from the code model") + 1)
+    linked = driver.act("architecture-link", path="workbook-demo/orders.py")
+    assert linked > 0, "The file node should reveal a code definition"
+    driver.act("source-tab", label="workbook.md")
+    context = next(i for i, row in enumerate(rows, 1) if row.startswith("     total ="))
+    reveal(context)
+    driver.act("debug-breakpoint", line=context)
+    patch_header = next(i for i, row in enumerate(rows, 1) if row.startswith("+++ b/generated/coupon.py"))
+    driver.act("workbook-debug", path="generated/coupon.py", at=reveal(patch_header))
+    eventually(lambda: any("paused" in state for state in driver.act("debug-state")), True)
+    driver.act("debug-continue")
+    driver.act("workbook-output", text="Coupon receipt: 1880 cents")
+    eventually(lambda: all("paused" not in state and "running" not in state for state in driver.act("debug-state")), True)
+    literal = next(i for i, row in enumerate(rows, 1) if row.startswith('print("<script>'))
+    reveal(literal)
+    driver.act("debug-breakpoint", line=literal)
+    fence = next(i for i in range(literal - 1, 0, -1) if rows[i - 1] == "```python")
+    driver.act("workbook-debug", path="python fence", at=reveal(fence))
+    eventually(lambda: any("paused" in state for state in driver.act("debug-state")), True)
+    driver.act("debug-continue")
+    driver.act("workbook-output", text="literal text</script>")
+    driver.act("workbook-output", text="This line is stderr.")
+    eventually(lambda: all("paused" not in state and "running" not in state for state in driver.act("debug-state")), True)
+    driver.act("workbook-run", path=path, at=reveal(fence))
+    driver.act("workbook-output", text="This line is stderr.")
+    assert (demo / "workbook.md").read_text() == source
+    assert not (demo / "generated").exists(), "Debug should leave generated paths in its scratch tree"
+
+
 def debug_acceptance(driver):
     driver.act("open", path="debug.py")
     driver.act("debug-breakpoint", line=2)
@@ -1213,6 +1257,14 @@ if __name__ == "__main__":
             debug_path="%2F λ?#.py" if "--debug-literal" in sys.argv else "thread_debug.py"
             (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":debug_path,"default":True}]}))
             (folder/debug_path).write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
+        if {"--workbook-only", "--workbook-apple-only"}.intersection(sys.argv):
+            demo = folder / "workbook-demo"
+            demo.mkdir()
+            for name in ("project.md", "workbook.md", "orders.py", "prepare.py", "test_orders.py"):
+                shutil.copyfile(ROOT / "examples/simple-ui" / name, demo / name)
+            venv = Path(os.environ.get("HICKORY_THREAD_TEST_VENV", str(ROOT / "target/thread-debug-env"))).resolve()
+            if not (venv / "bin/python").exists():
+                raise RuntimeError("Prepare the explicit debugpy test virtualenv first: " + str(venv))
         if "--recorded-patch-only" in sys.argv:
             construction = '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
             (folder / "project.md").write_text(construction + '<hick:project sources="author.md"/>\n</hick:doc>\n')
@@ -1253,6 +1305,8 @@ if __name__ == "__main__":
 </hick:session>
 """)
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
+        if {"--workbook-only", "--workbook-apple-only"}.intersection(sys.argv):
+            environment["PATH"] = str(venv / "bin") + os.pathsep + environment["PATH"]
         if "--recorded-fence-debug-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text('''<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-18T10:00:00Z" doc=".hick-workspace-agent">
@@ -1288,6 +1342,11 @@ raise RuntimeError('wrong assistant fence')
             ui_origin = f"http://127.0.0.1:{ui_port}"
             engine = start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE", str(ROOT / "target/debug/examples/engine_client")), str(folder), "window", ui_origin], env=environment); processes.append(engine)
             backend = origin(engine)
+            if "--workbook-apple-only" in sys.argv:
+                subprocess.run(["swift", "test", "--package-path", "apps/apple-simple", "--scratch-path",
+                    "target/apple-simple-spm", "--filter", "ParityTests/testLiveWorkbookContextAndFenceDebug"],
+                    cwd=ROOT, env={**environment, "HICKORY_WORKBOOK_TEST_ORIGIN": backend, "HICKORY_WORKBOOK_TEST_ROOT": str(folder)}, check=True)
+                sys.exit(0)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only"]))
             if "--early-source-only" in sys.argv:
@@ -1371,6 +1430,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--debug-threads-only" in sys.argv:
                 debug_thread_acceptance(driver,folder)
                 print("Browser: actual debugpy thread read/selection, selected-frame watches, unchanged editor identity/geometry/source and explicit stop passed")
+            elif "--workbook-only" in sys.argv:
+                workbook_acceptance(driver, folder)
+                print("Browser workbook: deliberate link, code architecture, context and fence breakpoints, stdout and stderr passed")
             elif "--debug-only" in sys.argv:
                 debug_acceptance(driver)
                 print("Browser: inline DAP pause, moved session, step values and stop passed")
