@@ -11,7 +11,9 @@ The parser is an independent background capability. Until it loads, literate deb
 
 Text from the initial read remains selectable while ownership is pending.
 When the same buffer acquires authoritative edit access, reconfigure the
-mounted editor's permission facet without replacing its document or history.
+mounted editor's permission facet in place. If disk changed between reads,
+apply only the changed text through a CodeMirror transaction outside undo
+history before enabling input.
 
 After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
 
@@ -70,7 +72,7 @@ new session to the workspace terminal. Opening and typing in a source buffer
 do not request the catalog.
 
 <ui:copy id="simple-browser-semantic-locations">
-import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert} from './SourceText';
+import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert,authoredReplacement} from './SourceText';
 import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,sourceSnippetMenuState,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
@@ -91,7 +93,7 @@ import { createPortal } from "react-dom";
 import type { TablePanelProps } from "../components/TablePanel";
 import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
-import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, EditorSelection, Transaction } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, undo,redo,undoDepth,redoDepth,indentMore, indentLess } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldGutter, indentUnit } from "@codemirror/language";
@@ -418,9 +420,15 @@ export function Document({ buffer, current, renderTools }: {
   }, [buffer]);
   useLayoutEffect(() => {
     const cached = editors.get(buffer);
-    if (!cached || cached.view.state.readOnly === buffer.readonly) return;
-    cached.view.dispatch({effects:cached.permission.reconfigure([EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly)])});
-  }, [buffer, buffer.readonly]);
+    if (!cached) return;
+    const view = cached.view;
+    if (!view.composing && !buffer.dirty && authoredSource(view.state) !== buffer.text) {
+      view.dispatch({...authoredReplacement(view.state, buffer.text), annotations:Transaction.addToHistory.of(false)});
+    }
+    if (view.state.readOnly !== buffer.readonly) {
+      view.dispatch({effects:cached.permission.reconfigure([EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly)])});
+    }
+  }, [buffer, buffer.readonly, buffer.text]);
   useEffect(() => {
     if (!parserReady || !/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
     let cancelled = false;

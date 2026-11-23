@@ -38,7 +38,7 @@ struct NativeStartupSource: Decodable {
 }
 struct FileText: Decodable { var path: String; var content: String; var hash: String; var save_guard: String? = nil; var save_guard_reason: String? = nil }
 struct FileSaved: Decodable { var path: String; var hash: String; var save_guard: String? = nil }
-struct SavedDocument: Decodable { var source: String; var updated_at: String?; var save_guard: String? = nil; var save_guard_reason: String? = nil }
+struct SavedDocument: Decodable { var path: String? = nil; var source: String; var updated_at: String?; var save_guard: String? = nil; var save_guard_reason: String? = nil }
 struct AgentTurn: Decodable, Identifiable {
     var id: String
     var prompt: String
@@ -116,7 +116,7 @@ Save requests carry the exact baseline from the original read. Agent sends selec
     func file(_ file: FileNode) async throws -> FileText {
         if let id = file.doc_id {
             let document: SavedDocument = try await request("GET", "/api/docs/" + id)
-            return FileText(path: file.path, content: document.source, hash: "", save_guard: document.save_guard, save_guard_reason: document.save_guard_reason)
+            return FileText(path: document.path ?? file.path, content: document.source, hash: "", save_guard: document.save_guard, save_guard_reason: document.save_guard_reason)
         }
         return try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: file.path)])
     }

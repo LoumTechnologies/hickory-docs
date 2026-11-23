@@ -730,10 +730,11 @@ describe("simple background source loading", () => {
       ] },
       { name: "outside.txt", path: "outside.txt", dir: false },
     ] });
+    const currentSource = source + "Written while opening.\n";
     const reply = { path, content: source, language: "text", hash: "loaded" };
     vi.mocked(api.file).mockReset()
       .mockResolvedValueOnce({ ...reply, save_guard_reason: "Save permission is pending." })
-      .mockResolvedValueOnce({ ...reply, save_guard: "confirmed" });
+      .mockResolvedValueOnce({ ...reply, content: currentSource, save_guard: "confirmed" });
     const screen = render(createElement(App));
     try {
       const content = await screen.findByLabelText(path);
@@ -751,16 +752,17 @@ describe("simple background source loading", () => {
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
       fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
       await waitFor(() => expect(view.state.readOnly).toBe(false));
+      expect(view.state.doc.toString()).toBe(currentSource);
       expect(api.file).toHaveBeenCalledTimes(2);
       expect(EditorView.findFromDOM(screen.getByLabelText(path))).toBe(view);
       expect(view.state.selection.main.anchor).toBe(10);
       expect(view.state.selection.main.head).toBe(16);
       expect(view.scrollDOM.scrollTop).toBe(125);
       act(() => view.dispatch({ changes: { from: 10, insert: "Draft " } }));
-      const draft = source.slice(0, 10) + "Draft " + source.slice(10);
+      const draft = currentSource.slice(0, 10) + "Draft " + currentSource.slice(10);
       expect(view.state.doc.toString()).toBe(draft);
       act(() => { expect(undo(view)).toBe(true); });
-      expect(view.state.doc.toString()).toBe(source);
+      expect(view.state.doc.toString()).toBe(currentSource);
       act(() => { expect(redo(view)).toBe(true); });
       expect(view.state.doc.toString()).toBe(draft);
     } finally {
@@ -781,7 +783,7 @@ describe("simple background source loading", () => {
     await expect(first).rejects.toThrow("different workspace or source");
     expect(buffers.values.has(file.path)).toBe(false);
   });
-  it("upgrades only an exact provisional source to its guarded workspace buffer", async () => {
+  it("updates a provisional editor with the current bytes from its guarded workspace", async () => {
     const buffers = new Buffers(() => {});
     const file = {name:"early.txt", path:"docs/early.txt", dir:false};
     const workspace = "1".repeat(32), root = "/workspace", content = "Readable 😀\r\n";
@@ -792,14 +794,35 @@ describe("simple background source loading", () => {
     expect(provisional.text).toBe(content);
     buffers.workspace = root; buffers.workspaceId = workspace;
     const guarded = {path:file.path,language:"text",hash:"hash",save_guard:"guard",content};
-    vi.mocked(api.file).mockResolvedValueOnce({...guarded,content:"Changed disk text"});
+    vi.mocked(api.file).mockResolvedValueOnce({...guarded,path:"other.txt",content:"Wrong file"});
     await expect(buffers.open(file)).rejects.toThrow("startup observation differs");
-    expect(buffers.values.get(file.path)).toBe(provisional);
+    expect(provisional.text).toBe(content);
     expect(provisional.readonly).toBe(true);
-    vi.mocked(api.file).mockResolvedValueOnce(guarded);
+    vi.mocked(api.file).mockResolvedValueOnce({...guarded,content:"Changed disk text"});
     expect(await buffers.open(file)).toBe(provisional);
+    expect(provisional.text).toBe("Changed disk text");
+    expect(provisional.dirty).toBe(false);
     expect(provisional.readonly).toBe(false);
     expect(provisional.saveGuard).toBe("guard");
+  });
+  it("refreshes an existing clean editor and keeps a divergent unsaved draft", async () => {
+    const buffers = new Buffers(() => {});
+    const file = {name:"notes.txt",path:"notes.txt",dir:false};
+    buffers.workspace = "/owned"; buffers.workspaceId = "a".repeat(32);
+    const disk = {path:file.path,language:"text",hash:"first",content:"First",save_guard:"original"};
+    vi.mocked(api.file).mockResolvedValueOnce(disk);
+    const opened = await buffers.open(file);
+    vi.mocked(api.file).mockResolvedValueOnce({...disk,content:"Second",hash:"second",save_guard:"next"});
+    expect(await buffers.refreshSavedSource(opened, () => true)).toContain("Reloaded");
+    expect(buffers.values.get(file.path)).toBe(opened);
+    expect(opened.text).toBe("Second");
+    expect(opened.dirty).toBe(false);
+    opened.edit("My draft");
+    vi.mocked(api.file).mockResolvedValueOnce({...disk,content:"Third",hash:"third",save_guard:"third"});
+    expect(await buffers.refreshSavedSource(opened, () => true)).toContain("changed on disk");
+    expect(opened.text).toBe("My draft");
+    expect(opened.base).toBe("Second");
+    expect(opened.saveGuard).toBe("next");
   });
   it("retires a guarded read when its provisional startup editor closes", async () => {
     const buffers = new Buffers(() => {});

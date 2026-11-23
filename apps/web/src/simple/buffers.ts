@@ -100,6 +100,44 @@ export class Buffers {
     this.values.set(source.path, buffer); this.changed();
     return buffer;
   }
+  private sourceCheck = 0;
+  async refreshSavedSource(buffer: Buffer, currentEditor: () => boolean): Promise<string | undefined> {
+    const file = buffer.file, path = file.path;
+    if (!this.workspace || !this.workspaceId || buffer.transient || buffer.isUntitledDraft ||
+        buffer.resourceDeleted || buffer.gitComparison || buffer.startupWorkspace !== undefined ||
+        buffer.saving || this.values.get(path) !== buffer) return;
+    const ticket = ++this.sourceCheck, epoch = this.namespaceRevision;
+    const namespace = this.workspace, workspace = this.workspaceId;
+    const {base, saveGuard, sourceRevision} = buffer;
+    const current = () => ticket === this.sourceCheck && epoch === this.namespaceRevision &&
+      namespace === this.workspace && workspace === this.workspaceId && this.values.get(path) === buffer &&
+      buffer.file === file && base === buffer.base && saveGuard === buffer.saveGuard &&
+      sourceRevision === buffer.sourceRevision && !buffer.saving && !buffer.resourceDeleted && currentEditor();
+    try {
+      const saved = await this.readSavedSource(file);
+      if (!current() || saved.path !== path) return;
+      if (buffer.dirty) {
+        if (saved.content !== base || saved.save_guard !== saveGuard) return `${path} changed on disk. Your unsaved draft is still open.`;
+        return;
+      }
+      const changed = saved.content !== base;
+      if (!changed && buffer.hash === saved.hash && saveGuard === saved.save_guard && buffer.saveGuardReason === saved.save_guard_reason) return;
+      buffer.text = buffer.base = saved.content;
+      buffer.hash = saved.hash;
+      buffer.saveGuard = saved.save_guard;
+      buffer.saveGuardReason = saved.save_guard_reason;
+      buffer.sourceRevision++;
+      buffer.publish(); this.changed();
+      if (changed) return `Reloaded ${path} from disk.`;
+    } catch (error) {
+      if (current()) return `Could not check ${path} on disk. ${String(error)}`;
+    }
+  }
+  private readSavedSource(file: FileNode) {
+    return file.doc_id
+      ? api.doc(file.doc_id).then(doc => ({ path: doc.path, content: doc.source, hash: "",save_guard:doc.save_guard,save_guard_reason:doc.save_guard_reason }))
+      : api.file(file.path);
+  }
   open(file: FileNode, forStartup = false): Promise<Buffer> {
     const path = file.path;
     const current = this.values.get(path);
@@ -115,9 +153,7 @@ export class Buffers {
     if (pending) return pending;
     const revision = this.namespaceRevision, workspace = this.workspaceId, namespace = this.workspace;
     const closed = current?.languageSuspended ? { buffer: current, file: current.file, revision: current.sourceRevision } : null;
-    const read = file.doc_id
-      ? api.doc(file.doc_id).then(doc => ({ path: doc.path, content: doc.source, hash: "",save_guard:doc.save_guard,save_guard_reason:doc.save_guard_reason }))
-      : api.file(path);
+    const read = this.readSavedSource(file);
     const request = read.then(data => {
       if (revision !== this.namespaceRevision) throw new Error("Source addresses changed while opening. Choose the file again.");
       if (forStartup && (this.workspace !== namespace || this.workspaceId !== workspace || data.path !== file.path)) {
@@ -148,8 +184,13 @@ export class Buffers {
       if (available?.startupWorkspace !== undefined) {
         if (!namespace || !/^[0-9a-f]{32}$/.test(workspace) || this.workspace !== namespace || this.workspaceId !== workspace
           || available.namespace !== namespace || available.startupWorkspace && available.startupWorkspace !== workspace
-          || data.path !== file.path || data.content !== available.text || available.dirty) {
+          || data.path !== file.path || available.dirty) {
           throw Error("The startup observation differs from the current workspace source. Close this read-only tab and open the file again.");
+        }
+        if (available.text !== data.content) {
+          available.text = available.base = data.content;
+          available.sourceRevision++;
+          available.publish();
         }
         if (!file.generated_by && !data.save_guard) {
           throw Error(data.save_guard_reason || "Source authority is still unavailable. Refresh files and open this file again.");

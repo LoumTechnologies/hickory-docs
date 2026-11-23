@@ -5,9 +5,9 @@ The read-only navigation epoch lets a fact reader reject work after a workspace 
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The host launcher supplies `HICKORY_API_ORIGIN` for the initial connection and can name a file with `HICKORY_OPEN_FILE`. Race the independent source read and file tree. If source arrives first, mount a read-only buffer with its observed root identity. Only the exact tree entry and ordinary guarded source read can attach editing authority. Failed or disagreeing authority keeps the existing text readable in its mounted editor. An explicit reopen may accept newer disk bytes. Show the file's containing folder in Files while keeping the full root available to navigation, including relative diagram links that leave the displayed folder. A refresh keeps that folder selected while it exists. Language services attach independently. Without a launch address the manual Connect sheet remains available.
+The host launcher supplies `HICKORY_API_ORIGIN` for the initial connection and can name a file with `HICKORY_OPEN_FILE`. Race the independent source read and file tree. If source arrives first, mount a read-only buffer with its observed root identity. Only the exact tree entry and ordinary guarded source read can attach editing authority. The guarded read may find a newer revision after the preview mounted. When workspace and path match, update the same buffer before attaching editing authority. A failed or differently addressed read leaves the preview readable. Show the file's containing folder in Files while keeping the full root available to navigation, including relative diagram links that leave the displayed folder. A refresh keeps that folder selected while it exists. Language services attach independently. Without a launch address the manual Connect sheet remains available.
 
-File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
+File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh reads the current saved source after updating the tree. It applies external changes to the existing clean editor and retains any draft with its original save guard.
 
 Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
 
@@ -513,7 +513,7 @@ preserve the native editor and its view state.
             self.status = "\(path) · waiting for workspace permissions"
         }
     }
-    private func bindRequestedReading(_ buffer: DocumentBuffer, file: FileNode, acceptNewerSource: Bool = false) async {
+    private func bindRequestedReading(_ buffer: DocumentBuffer, file: FileNode) async {
         guard buffer.startupObservation != nil, let engine else { return }
         let scope = generation
         let before = buffer.text, root = sourceRootAddress, workspace = sourceWorkspaceID
@@ -524,7 +524,7 @@ preserve the native editor and its view state.
         }
         do {
             let text = try await engine.file(file)
-            if current() { acceptRequestedReading(text, in: buffer, file: file, engine: engine, acceptNewerSource: acceptNewerSource) }
+            if current() { acceptRequestedReading(text, in: buffer, file: file, engine: engine) }
         } catch {
             if current() && currentBuffer === buffer {
                 status = "\(error.localizedDescription) The file remains readable. Open it again in Files to retry permissions."
@@ -532,7 +532,7 @@ preserve the native editor and its view state.
         }
     }
     private func acceptRequestedReading(_ text: FileText, in buffer: DocumentBuffer, file: FileNode,
-                                        engine: Engine, acceptNewerSource: Bool = false) {
+                                        engine: Engine) {
         guard let reading = buffer.startupObservation else { return }
         func notice(_ message: String) { if currentBuffer === buffer { status = message } }
         let root = sourceRootAddress, workspace = sourceWorkspaceID
@@ -541,9 +541,14 @@ preserve the native editor and its view state.
             notice("Workspace identity changed while opening \(file.path). Reconnect to read its current source.")
             return
         }
-        guard exactUTF8(text.path, file.path), acceptNewerSource || exactUTF8(text.content, buffer.text) else {
-            notice("\(file.path) changed while opening. Open it again in Files to read the current revision.")
+        guard exactUTF8(text.path, file.path), !buffer.dirty else {
+            notice("Source identity changed while opening. Open the exact file in Files.")
             return
+        }
+        if let edit = reviewedSourceReplacement(buffer.text, text.content) {
+            buffer.selection = edit.reviewedSelection(buffer.sourceEditorState?()?.selection ?? buffer.selection)
+            buffer.base = text.content
+            buffer.text = text.content
         }
         guard file.generated_by != nil || text.save_guard?.isEmpty == false else {
             let reason = text.save_guard_reason ?? "Source permission is unconfirmed. Refresh Files to retry."
@@ -552,8 +557,6 @@ preserve the native editor and its view state.
             return
         }
         buffer.file = file
-        buffer.base = text.content
-        if !exactUTF8(buffer.text, text.content) { buffer.text = text.content }
         buffer.hash = text.hash
         buffer.savedGuard = text.save_guard
         buffer.saveGuardReason = text.save_guard_reason
@@ -616,6 +619,50 @@ preserve the native editor and its view state.
             return true
         } catch { status = error.localizedDescription; return false }
     }
+    @ObservationIgnored private var savedSourceRead = UUID()
+    func refreshCurrentSource() async {
+        guard let engine, let root = sourceRootAddress, let workspace = sourceWorkspaceID,
+              let buffer = currentBuffer, buffer.startupObservation == nil,
+              !buffer.saving, !buffer.resourceDeleted, !buffer.isUntitledDraft, buffer.gitComparison == nil,
+              let file = treeEntry(buffer.file.path, in: rootFiles)?.file, !file.dir,
+              file.doc_id == buffer.file.doc_id, file.generated_by == buffer.file.generated_by else { return }
+        let request = UUID(), scope = generation, revision = buffer.sourceEditIdentity
+        let base = buffer.base, guardToken = buffer.savedGuard
+        savedSourceRead = request
+        func current() -> Bool {
+            !Task.isCancelled && generation == scope && savedSourceRead == request
+                && exactUTF8(sourceRootAddress, root) && exactUTF8(sourceWorkspaceID, workspace)
+                && currentBuffer === buffer && buffers[file.path] === buffer
+                && buffer.sourceEditIdentity == revision && exactUTF8(buffer.base, base)
+                && exactUTF8(buffer.savedGuard, guardToken) && !buffer.saving && !buffer.resourceDeleted
+        }
+        do {
+            let saved = try await engine.file(file)
+            guard current(), exactUTF8(saved.path, file.path) else { return }
+            if buffer.dirty {
+                if !exactUTF8(saved.content, base) || !exactUTF8(saved.save_guard, guardToken) {
+                    status = "\(file.path) changed on disk. Your unsaved draft is still open."
+                }
+                return
+            }
+            if let change = reviewedSourceReplacement(base, saved.content) {
+                if let state = buffer.sourceEditorState?(), state.composing || !exactUTF8(state.source, base) { return }
+                if let adopt = buffer.adoptSourceDraft, !buffer.readOnly {
+                    guard adopt(base, saved.content, change) else { return }
+                } else {
+                    buffer.selection = change.reviewedSelection(buffer.sourceEditorState?()?.selection ?? buffer.selection)
+                    buffer.text = saved.content
+                }
+                status = "Reloaded \(file.path) from disk."
+            }
+            buffer.base = saved.content
+            buffer.hash = saved.hash
+            buffer.savedGuard = saved.save_guard
+            buffer.saveGuardReason = saved.save_guard_reason
+        } catch {
+            if current() { status = "Could not check \(file.path) on disk. \(error.localizedDescription)" }
+        }
+    }
     func refresh() async {
         guard let engine else { return }
         let current = generation
@@ -631,6 +678,8 @@ preserve the native editor and its view state.
             if !connecting, let buffer = buffers.values.first(where: { $0.startupObservation != nil }),
                let entry = treeEntry(buffer.file.path, in: rootFiles), !entry.file.dir {
                 await bindRequestedReading(buffer, file: entry.file)
+            } else {
+                await refreshCurrentSource()
             }
         }
         catch { if current == generation { status = error.localizedDescription } }
@@ -751,7 +800,7 @@ Foreground file opening and background intelligence share one acquisition path. 
             showSource(file.path)
             let interaction = paneInteraction
             if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
-            if existing.startupObservation != nil { await bindRequestedReading(existing, file: file, acceptNewerSource: true) }
+            if existing.startupObservation != nil { await bindRequestedReading(existing, file: file) }
             return isCurrent?() != false && paneInteraction == interaction && currentBuffer === existing
         }
         let current = generation

@@ -1551,7 +1551,14 @@ struct NativeEditor: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         if let editor = EditorCache.views[buffer.id] {
             if !exactUTF8(editor.text.string,buffer.text) {
+                let viewport = editor.scroll.contentView.bounds.origin
+                let length = buffer.text.utf16.count
+                let start = min(buffer.selection.location, length)
+                let selection = NSRange(location: start, length: min(buffer.selection.length, length - start))
                 editor.text.string = buffer.text
+                editor.text.setSelectedRange(selection)
+                editor.scroll.contentView.scroll(to: viewport)
+                editor.scroll.reflectScrolledClipView(editor.scroll.contentView)
                 editor.text.undoManager?.removeAllActions()
             }
             let editable = !(readOnly ?? buffer.readOnly)
@@ -2345,7 +2352,13 @@ struct NativeEditor: UIViewRepresentable {
                 editor.text.accessibilityLabel = buffer.file.path
             }
             if !exactUTF8(editor.text.text, buffer.text) {
+                let viewport = editor.text.contentOffset
+                let length = buffer.text.utf16.count
+                let start = min(buffer.selection.location, length)
+                let selection = NSRange(location: start, length: min(buffer.selection.length, length - start))
                 editor.text.text = buffer.text
+                editor.text.selectedRange = selection
+                editor.text.setContentOffset(viewport, animated: false)
                 editor.text.undoManager?.removeAllActions()
             }
             let editable = !(readOnly ?? buffer.readOnly)

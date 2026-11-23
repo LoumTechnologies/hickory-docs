@@ -83,9 +83,11 @@ class Engine(address: String) {
     suspend fun file(file: FileNode): FileText {
         if (file.docID != null) {
             val document = request("GET", "/api/docs/${file.docID}")
+            check(!document.has("path") || document.getString("path") == file.path) { "File reply names a different source." }
             return FileText(document.getString("source"), "",document.optional("save_guard"),document.optional("save_guard_reason"))
         }
         val response = request("GET", "/api/file?path=" + URLEncoder.encode(file.path, "UTF-8"))
+        check(!response.has("path") || response.getString("path") == file.path) { "File reply names a different source." }
         return FileText(response.getString("content"), response.getString("hash"),response.optional("save_guard"),response.optional("save_guard_reason"))
     }
     suspend fun save(file: FileNode, text: String, base: String, hash: String): String {

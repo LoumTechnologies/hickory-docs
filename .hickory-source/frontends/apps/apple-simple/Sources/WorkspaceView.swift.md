@@ -93,6 +93,7 @@ private struct TabDrag: Codable, Transferable {
 
 struct WorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable var workspace: Workspace
     var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
@@ -180,6 +181,9 @@ struct WorkspaceView: View {
             }.padding().presentationDetents([.height(200)])
         }
         #endif
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await workspace.refreshCurrentSource() } }
+        }
         .task{await workspace.editorRecovery.captureLoop(workspace)}
         .task(id: epoch.uuidString + String(observeAgent)) {
             guard observeAgent else { return }

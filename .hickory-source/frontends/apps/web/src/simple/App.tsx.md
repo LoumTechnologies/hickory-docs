@@ -19,7 +19,7 @@ Pane content classifies internal tab drags before embedded text controls can con
 
 Each tab accepts a drop before itself; the surrounding strip remains the append target. Stop tab-drop bubbling so its parent cannot append the same tab afterward. An absolutely positioned insertion mark does not change tab widths or move editor content. Only layout identities change.
 
-File commands act on the connected workspace: path entry opens a file or directory, New Tab (Ctrl+N or Cmd+N) keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
+File commands act on the connected workspace: path entry opens a file or directory, New Tab (Ctrl+N or Cmd+N) keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh updates the tree and checks the active source. Returning to the app checks the active source as well. These reads keep the same editor and report disk divergence when the active editor holds a draft.
 
 The browser may enter this same workspace at `simple.html?path=<encoded-path>`.
 Request raw text and the file tree independently. While the tree and guarded
@@ -306,6 +306,21 @@ export function App() {
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
   const active = currentGroup.active;
   const buffer = active ? bufferForTab(active) : undefined;
+  async function refreshCurrentSource() {
+    if (!buffer) return;
+    const current = () => {
+      const group = groups(liveLayout.current).find(item => item.id === recoveryFocus.current);
+      return !!group?.active && bufferForTab(group.active) === buffer && !editorForBuffer(buffer)?.view.composing;
+    };
+    if (!current()) return;
+    const message = await buffers.refreshSavedSource(buffer, current);
+    if (message && current()) setStatus(message);
+  }
+  useEffect(() => {
+    const refresh = () => { void refreshCurrentSource(); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [buffer, buffers]);
   agent.captureContext=()=>proposalEditorContext(buffers,buffer);
   function openAgentProposals(selection: ProposalSelection | null = null) {
     proposalRequest.current++;
@@ -544,7 +559,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
     "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
-    "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
+    "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{const recheck = buffer?.startupWorkspace === undefined; void loadFiles().then(() => { if (recheck) return refreshCurrentSource(); });},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
     "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),

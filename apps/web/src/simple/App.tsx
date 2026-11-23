@@ -263,6 +263,21 @@ export function App() {
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
   const active = currentGroup.active;
   const buffer = active ? bufferForTab(active) : undefined;
+  async function refreshCurrentSource() {
+    if (!buffer) return;
+    const current = () => {
+      const group = groups(liveLayout.current).find(item => item.id === recoveryFocus.current);
+      return !!group?.active && bufferForTab(group.active) === buffer && !editorForBuffer(buffer)?.view.composing;
+    };
+    if (!current()) return;
+    const message = await buffers.refreshSavedSource(buffer, current);
+    if (message && current()) setStatus(message);
+  }
+  useEffect(() => {
+    const refresh = () => { void refreshCurrentSource(); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [buffer, buffers]);
   agent.captureContext=()=>proposalEditorContext(buffers,buffer);
   function openAgentProposals(selection: ProposalSelection | null = null) {
     proposalRequest.current++;
@@ -494,7 +509,7 @@ export function App() {
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
     "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
-    "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
+    "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{const recheck = buffer?.startupWorkspace === undefined; void loadFiles().then(() => { if (recheck) return refreshCurrentSource(); });},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
     "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),

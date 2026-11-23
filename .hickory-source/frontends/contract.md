@@ -409,7 +409,13 @@ Receipts are `target/apple-startup-appkit-final-2026-11-18/appkit-startup-receip
 and `target/apple-startup-ios-gated-2026-11-18/startup-receipt.json`.
 
 The independent startup-source path mounts a read-only editor before Files
-and guarded source authority. Mounted AppKit and UIKit each passed held-tree
+and guarded source authority. A later read of the same workspace source
+updates that editor to the current saved bytes even if the file changed between
+reads. Returning to the app or choosing File → Refresh checks the active
+source again. A clean editor adopts newer saved text. A dirty editor retains
+its draft and original save baseline and reports a divergent disk revision.
+Replies acquired for a different buffer, workspace or intervening source
+edit cannot replace the current editor. Mounted AppKit and UIKit each passed held-tree
 confirmation and unavailable-tree replays against controlled endpoint
 responses. The original editor and its selection, source anchor and frame
 survived confirmation. The unavailable branch retained readable source without

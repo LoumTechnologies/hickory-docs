@@ -127,6 +127,10 @@ Confirmation of the same bytes also starts source-test discovery. The relay
 declines optional capabilities, and the witness checks the attempt and the
 retained editor state.
 
+A current file read advances a provisional buffer after an intervening disk
+write. The same refresh path preserves a draft and its original authority
+when a later disk revision arrives.
+
 <ui:copy id="source-identity-apple-tests">
 import XCTest
 #if os(macOS)
@@ -136,6 +140,61 @@ import SwiftUI
 @testable import HickorySimple
 final class NativeSourceIdentityTests:XCTestCase {
     let first="caf\u{e9}.py",second="cafe\u{301}.py"
+    @MainActor func testRefreshAdoptsCurrentDiskSourceAndRetainsDivergentDraft() async throws {
+        let session = URLSessionConfiguration.ephemeral
+        session.protocolClasses = [ResponseProtocol.self]
+        let engine = try Engine(address: "http://refresh.invalid", session: URLSession(configuration: session))
+        let workspace = Workspace()
+        let path = "notes.txt", root = "/owned", identity = String(repeating: "a", count: 32)
+        let file = FileNode(name: path, path: path, dir: false)
+        workspace.engine = engine
+        workspace.sourceRootAddress = root
+        workspace.sourceWorkspaceID = identity
+        let reading = StartupSourceObservation(origin: engine.origin, root: root, workspace: identity)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: path, content: "Early text", hash: ""),
+                                    startupObservation: reading)
+        workspace.buffers[path] = buffer
+        workspace.showSource(path)
+        defer {
+            ResponseProtocol.responsesByPath = [:]
+            buffer.language?.close()
+            workspace.sourceTestIndex?.stop()
+        }
+        let tree = try JSONSerialization.data(withJSONObject: [
+            "root": "owned", "root_path": root, "workspace_id": identity,
+            "tree": [["name": path, "path": path, "dir": false]],
+        ])
+        func setDisk(_ source: String, guardToken: String) throws {
+            ResponseProtocol.status = 200
+            ResponseProtocol.responsesByPath = [
+                "/api/files": tree,
+                "/api/file": try JSONEncoder().encode(["path": path, "content": source, "hash": source, "save_guard": guardToken]),
+            ]
+        }
+
+        try setDisk("Current text", guardToken: "current")
+        await workspace.refresh()
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertEqual(buffer.text, "Current text")
+        XCTAssertFalse(buffer.readOnly)
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertEqual(buffer.savedGuard, "current")
+
+        try setDisk("External update", guardToken: "external")
+        await workspace.refresh()
+        XCTAssertEqual(buffer.text, "External update")
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertEqual(buffer.savedGuard, "external")
+
+        buffer.text = "My draft"
+        try setDisk("Another update", guardToken: "another")
+        await workspace.refresh()
+        XCTAssertEqual(buffer.text, "My draft")
+        XCTAssertEqual(buffer.base, "External update")
+        XCTAssertEqual(buffer.savedGuard, "external")
+        XCTAssertTrue(workspace.status.contains("changed on disk"))
+    }
+
     func testMapKeepsExactNamesAndPendingReadIdentities(){
         XCTAssertEqual(first,second);XCTAssertNotEqual(NativeSourceKey(first),NativeSourceKey(second))
         var sources:NativeSourceMap<Int>=[:];sources[first]=1;sources[second]=2

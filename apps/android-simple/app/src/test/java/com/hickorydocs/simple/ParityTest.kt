@@ -11,7 +11,7 @@ import kotlinx.coroutines.withTimeout
 
 class ParityTest {
     @Test(timeout = 16000)
-    fun startupReadIsIndependentAndPromotesOnlySameConfirmedSource() = kotlinx.coroutines.runBlocking {
+    fun startupAndRefreshReadCurrentBytesWithoutReplacingTheEditor() = kotlinx.coroutines.runBlocking {
         val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
         val workers = java.util.concurrent.Executors.newFixedThreadPool(2)
         listener.executor = workers
@@ -78,20 +78,26 @@ class ParityTest {
             assertSame(early, workspace.currentBuffer)
             assertSame(state, early.state)
             assertSame(scroll, early.sourceScroll)
-            assertTrue(early.readOnly)
-            assertEquals(raw, early.text)
-            assertNull(early.saveGuard)
-            assertTrue(workspace.status.contains("changed during first open"))
-
-            confirmed.set(raw)
-            workspace.refresh()
-            assertSame(early, workspace.currentBuffer)
-            assertSame(state, early.state)
-            assertSame(scroll, early.sourceScroll)
+            assertEquals(changed, early.text)
+            assertEquals(changed, early.base)
+            assertFalse(early.dirty)
             assertEquals(120, early.sourceScroll.value)
             assertEquals(androidx.compose.ui.text.TextRange(2, 5), early.state.selection)
             assertFalse(early.readOnly)
             assertEquals("owned guard", early.saveGuard)
+
+            val revised = "$changed\nRefreshed copy."
+            confirmed.set(revised)
+            workspace.refresh()
+            assertEquals(revised, early.text)
+            assertFalse(early.dirty)
+            early.state.edit { replace(length, length, " My draft.") }
+            confirmed.set("External change")
+            workspace.refresh()
+            assertEquals("$revised My draft.", early.text)
+            assertEquals(revised, early.base)
+            assertEquals("owned guard", early.saveGuard)
+            assertTrue(workspace.status.contains("changed on disk"))
         } finally {
             filesReady.countDown()
             guardReady.countDown()

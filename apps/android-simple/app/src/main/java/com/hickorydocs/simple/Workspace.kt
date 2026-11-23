@@ -461,7 +461,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     private fun startupPermissionNotice(text: FileText) =
         text.saveGuardReason ?: "Source permission is unconfirmed. Refresh Files before editing."
 
-    private suspend fun confirmStartupPreview(file: FileNode, server: Engine, reopen: Boolean = false, response: FileText? = null) {
+    private suspend fun confirmStartupPreview(file: FileNode, server: Engine, response: FileText? = null) {
         val held = startupPreview?.takeIf { it.engine === server && it.source.path == file.path } ?: return
         val identity = server.sourceWorkspaceID
         val root = server.sourceRootAddress
@@ -471,20 +471,19 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             findFileNode(file.path, rootFiles) == file
         try {
             check(identity != null && root != null) { "Workspace identity is unconfirmed. Refresh Files and try again." }
-            if (!reopen) check(root == held.source.rootPath && (held.source.workspaceID == null || held.source.workspaceID == identity)) {
+            check(root == held.source.rootPath && (held.source.workspaceID == null || held.source.workspaceID == identity)) {
                 "The workspace changed while opening ${file.path}. Reopen it from Files to read the current source."
             }
             val loaded = response ?: server.file(file)
             if (!stillOwnsPreview()) return
+            val editor = held.editor
+            if (editor.dirty) return
+            adoptSavedText(editor, loaded.content)
+            editor.saveGuardReason = loaded.saveGuardReason
             check(file.generatedBy != null || !loaded.saveGuard.isNullOrEmpty()) {
                 startupPermissionNotice(loaded)
             }
-            val editor = if (held.source.content == loaded.content && held.editor.text == loaded.content) held.editor else {
-                check(reopen) { "${file.path} changed during first open. Reopen it from Files to read the current source." }
-                DocumentBuffer(file, loaded)
-            }
             editor.file = file
-            editor.base = loaded.content
             editor.hash = loaded.hash
             editor.saveGuard = loaded.saveGuard
             editor.saveGuardReason = loaded.saveGuardReason
@@ -568,13 +567,64 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         catch (failure: Exception) { status = "${failure.message} Check the workspace address and reconnect."; return false }
         finally { reading?.cancel(); connecting = false }
     }
+    private fun adoptSavedText(buffer: DocumentBuffer, source: String) {
+        val edit = reviewedSourceReplacement(buffer.text, source) ?: return
+        val selected = edit.reviewedSelection(buffer.state.selection)
+        buffer.state.edit {
+            replace(edit.from, edit.to, edit.text)
+            selection = selected
+        }
+        buffer.base = source
+        buffer.advanceSourceRevision()
+    }
+
+    private var savedSourceRead: Any? = null
+    suspend fun refreshCurrentSource() {
+        val server = engine ?: return
+        val root = server.sourceRootAddress ?: return
+        val workspace = server.sourceWorkspaceID ?: return
+        val buffer = currentBuffer ?: return
+        if (buffer.startupObservation || buffer.saving || buffer.isUntitledDraft || buffer.resourceDeleted || buffer.gitComparison != null) return
+        val file = findFileNode(buffer.file.path, rootFiles)?.takeUnless { it.dir } ?: return
+        if (file.docID != buffer.file.docID || file.generatedBy != buffer.file.generatedBy) return
+        val scope = generation
+        val request = Any()
+        savedSourceRead = request
+        val revision = buffer.sourceRevision
+        val base = buffer.base
+        val savedGuard = buffer.saveGuard
+        fun current() = savedSourceRead === request && generation == scope && engine === server &&
+            server.sourceRootAddress == root && server.sourceWorkspaceID == workspace && currentBuffer === buffer &&
+            buffers[file.path] === buffer && buffer.sourceRevision == revision && buffer.base == base &&
+            buffer.saveGuard == savedGuard && !buffer.saving && !buffer.resourceDeleted
+        try {
+            val saved = server.file(file)
+            if (!current()) return
+            if (buffer.dirty) {
+                if (saved.content != base || saved.saveGuard != savedGuard) {
+                    status = "${file.path} changed on disk. Your unsaved draft is still open."
+                }
+                return
+            }
+            if (buffer.state.composition != null) return
+            if (saved.content != base) {
+                adoptSavedText(buffer, saved.content)
+                status = "Reloaded ${file.path} from disk."
+            }
+            buffer.hash = saved.hash
+            buffer.saveGuard = saved.saveGuard
+            buffer.saveGuardReason = saved.saveGuardReason
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { if (current()) status = "Could not check ${file.path} on disk. ${failure.message}" }
+    }
     suspend fun refresh() {
         val current = generation; val server = engine ?: return
         try {
             val (root, tree) = server.files()
             if (generation == current) {
                 rootFiles = tree; files = scopedFiles(tree); status = root
-                startupPreview?.source?.path?.let { findFileNode(it, tree) }?.takeUnless { it.dir }?.let { confirmStartupPreview(it, server) }
+                val preview = startupPreview?.source?.path?.let { findFileNode(it, tree) }?.takeUnless { it.dir }
+                if (preview != null) confirmStartupPreview(preview, server) else refreshCurrentSource()
             }
         }
         catch (cancelled: CancellationException) { throw cancelled }
@@ -669,7 +719,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         if (file.path in buffers) {
             show(sourceTab(file.path))
             if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
-            if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it, reopen = true) }
+            if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it) }
             return true
         }
         val current = generation
