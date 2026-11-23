@@ -72,7 +72,7 @@ import { documentUri } from "../lsp/documentUri";
 import { utf16ToPosition } from "../lsp/positions";
 import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import buildStamp from "virtual:hickory-dev-build";
 import {EditorRecoveryModel} from "./EditorRecovery";
 import {captureEditorRecovery,editorRecoveryLease,restoreEditorRecovery} from "./EditorRecoveryAdapter";
@@ -86,7 +86,7 @@ import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
-import { Agent, AgentHistory, AgentSession } from "./Agent";
+import { Agent, AgentHistory, AgentSession, AgentStatus } from "./Agent";
 import {AgentProposalReview} from "./AgentProposalView";
 import {prepareRecordedPatch,proposalEditorContext,type ProposalSelection,type ReviewRecordedPatch} from "./AgentProposalAdapter";
 import { sourceTab, tabIdentity, activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -647,7 +647,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       opened.buffer.setGitComparison(comparison);return true;
     }} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{statusNotices ? `${statusNotices} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{active === "agent" ? <AgentStatus session={agent} /> : <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
@@ -738,6 +738,12 @@ above the existing status bar, including in the Linux and Windows webviews.
 <ui:copy id="dev-browser-status-view">
 
 type DevBuildReading = { backend: string; checkout: string; verdict: string };
+
+function EditorPosition({ buffer }: { buffer: Buffer }) {
+  useSyncExternalStore(buffer.subscribe, buffer.snapshot);
+  const { line, character } = utf16ToPosition(buffer.text, Math.min(buffer.caretOffset, buffer.text.length));
+  return <span aria-label="Editor position">Ln {line + 1}, Col {character + 1} · </span>;
+}
 
 function DevBuildStatus({ ui }: { ui: string }) {
   const [reading, setReading] = useState<DevBuildReading | null>();

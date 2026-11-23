@@ -253,11 +253,17 @@ button:active:not(:disabled), summary:active {
 .agent-message .simple-rail-resize, .agent-message .simple-debug-rail, .agent-composer .simple-rail-resize, .agent-composer .simple-debug-rail { display: none; }
 .agent-body .agent-composer { display: flex; flex-direction: column; gap: 8px; margin: 0 auto; width: min(820px, 100%); box-sizing: border-box; padding: 12px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 16px 16px 0 0; background: color-mix(in srgb, CanvasText 3%, Canvas); }
 .agent-composer > .document-body { height: clamp(100px, 20vh, 250px); flex: none; }
-.agent-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
-.agent-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; min-width: 0; }
-.agent-controls input { width: 140px; }
-.agent-controls select, .agent-controls input { max-width: 100%; box-sizing: border-box; border-radius: 7px; padding: 5px; background: Canvas; color: CanvasText; border: 1px solid GrayText; }
-.agent-send { display: flex; gap: 6px; margin-left: auto; }
-.agent-send button { padding: 7px 12px; border-radius: 9px; }
-.agent-send button:last-child { background: CanvasText; color: Canvas; }
+.agent-send { display: flex; justify-content: flex-end; }
+.agent-send button { width: 34px; height: 34px; border-radius: 50%; font-size: 18px; padding: 0; background: CanvasText; color: Canvas; }
+.agent-send button:disabled { opacity: .4; }
+.agent-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; color: GrayText; }
+.agent-progress span { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: agent-spin .8s linear infinite; }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .agent-progress span { animation: none; } }
+.agent-tool-calls { font-size: 12px; margin-bottom: 8px; }
+.agent-tool-calls details { padding-left: 12px; }
+.agent-tool-calls pre { overflow: auto; max-height: 160px; white-space: pre-wrap; }
+.agent-status-trigger { margin-inline: 4px; font: inherit; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; }
+.agent-settings { position: fixed; z-index: 100; width: min(288px, calc(100vw - 16px)); box-sizing: border-box; background: Canvas; color: CanvasText; box-shadow: 0 4px 20px #0003; border: 1px solid GrayText; border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.agent-settings label { display: grid; grid-template-columns: 85px minmax(0, 1fr); align-items: center; gap: 6px; font-size: 12px; }
 .agent-composer small { line-height: 1.4; }

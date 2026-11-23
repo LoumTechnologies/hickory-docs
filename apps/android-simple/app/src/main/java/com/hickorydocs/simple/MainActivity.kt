@@ -91,16 +91,20 @@ class MainActivity : ComponentActivity() {
             if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
                 DevBuildStatus(BuildConfig.DEV_BUILD_STAMP, workspace.engine)
             }
-            Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            if (workspace.active == "agent") AgentStatus(workspace.agent, workspace.engine, Modifier.weight(1f))
+            else Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
             Box {
-                Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.width(112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
+                Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.widthIn(max = 112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
                 DropdownMenu(expanded=workspace.showAnalysis,onDismissRequest={workspace.showAnalysis=false}) {WorkspaceAnalysisView(workspace)}
             }
             Box {
-                Text("Problems ${workspace.problems.size}", fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(min = 88.dp, max = 144.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { workspace.showProblems = !workspace.showProblems }.padding(horizontal = 4.dp))
+                Text("Problems ${workspace.problems.size}", fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(max = 144.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { workspace.showProblems = !workspace.showProblems }.padding(horizontal = 4.dp))
                 DropdownMenu(expanded = workspace.showProblems, onDismissRequest = { workspace.showProblems = false }) { WorkspaceProblemsView(workspace) }
             }
-            workspace.currentBuffer?.let { buffer -> Text(if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved", fontSize = 11.sp) }
+            workspace.currentBuffer?.let { buffer ->
+                val position = languagePosition(buffer.text, buffer.state.selection.end)
+                Text("Ln ${position.getInt("line") + 1}, Col ${position.getInt("character") + 1} · ", fontSize = 11.sp)
+                Text(if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved", fontSize = 11.sp) }
         }
     }
     if (workspace.fileCommand != null) AlertDialog(onDismissRequest = { workspace.fileCommand = null; workspace.savingAll = false }, title = { Text(workspace.fileCommand ?: "File") }, text = {

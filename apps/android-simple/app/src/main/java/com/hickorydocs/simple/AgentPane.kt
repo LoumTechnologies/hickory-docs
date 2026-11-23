@@ -1,6 +1,11 @@
 package com.hickorydocs.simple
 
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,7 +32,55 @@ data class AgentFenceReading(val turn: String, val side: String, val source: Str
     }
 }
 
+data class AgentTool(val name: String, val ok: Boolean? = null, val result: String? = null)
+data class AgentActivity(val phase: String = "Starting…", val answer: String? = null, val tools: List<AgentTool> = emptyList(), val tokens: Long = 0)
+
 class AgentSession {
+    var totals by mutableStateOf<AgentTotals?>(null)
+    val activity = mutableStateMapOf<String, AgentActivity>()
+    private val earlyEvents = mutableListOf<JSONObject>()
+    var stopPending by mutableStateOf(false)
+    val canStop get() = turns.any { it.status == "running" }
+
+    fun receive(message: JSONObject) {
+        val id = message.optString("run_id")
+        if (turns.none { it.id == id && it.status == "running" }) {
+            if (sending && earlyEvents.size < 128) earlyEvents.add(message)
+            return
+        }
+        val event = message.optJSONObject("event") ?: return
+        val previous = activity[id] ?: AgentActivity()
+        val name = event.optString("name")
+        val next = when (event.optString("kind")) {
+            "thinking" -> previous.copy(phase = "Waiting for the model…")
+            "token" -> previous.copy(phase = "Receiving model output…")
+            "response_complete" -> previous.copy(answer = event.optString("text"))
+            "turn_usage" -> {
+                val usage = event.optJSONObject("total_usage") ?: return
+                previous.copy(tokens = listOf("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens").sumOf { usage.optLong(it) })
+            }
+            "tool_started" -> previous.copy(phase = name, tools = previous.tools + AgentTool(name))
+            "tool_finished" -> {
+                val index = previous.tools.indexOfLast { it.name == name && it.ok == null }
+                val tools = previous.tools.toMutableList()
+                if (index >= 0) tools[index] = tools[index].copy(ok = event.optBoolean("ok"), result = event.optString("text").take(4000))
+                previous.copy(phase = "Preparing the next step…", tools = tools)
+            }
+            else -> return
+        }
+        if (previous != next) activity[id] = next
+    }
+
+    internal suspend fun stop(engine: Engine?) {
+        if (engine == null || !canStop || stopPending) return
+        stopPending = true
+        try { engine.stop() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            error = "${failure.message} Refresh history and try Stop again."
+            stopPending = false
+        }
+    }
     var turns by mutableStateOf<List<AgentTurn>>(emptyList())
     var provider by mutableStateOf("codex-subscription")
     var model by mutableStateOf("")
@@ -129,11 +182,13 @@ class AgentSession {
             val id = engine.send(submitted, parent, provider, model, effort, captureContext().put("live", true))
             liveTurn = id
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
+            earlyEvents.filter { it.optString("run_id") == id }.forEach(::receive)
             if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
             error = "${failure.message} The request was not retried. Refresh history before sending again."
         } finally {
+            earlyEvents.clear()
             sending = false
             mutation++
         }
@@ -267,13 +322,21 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     LaunchedEffect(engine, observing) {
         if (!observing) return@LaunchedEffect
         if (engine == null) { session.error = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
+        launch {
+            while (isActive && workspace.engine === engine) {
+                engine.agentEvents().collect { event -> if (workspace.engine === engine) session.receive(event) }
+                delay(2000)
+            }
+        }
         while (isActive) {
             try {
                 val mutation = session.mutation
-                val latest = engine.turns()
+                val (latest, totals) = engine.agentHistory()
                 if (workspace.engine !== engine) return@LaunchedEffect
                 if (mutation == session.mutation && !session.sending) {
                     session.turns = latest
+                    session.totals = totals
+                    if (!session.canStop) session.stopPending = false
                     val own = session.liveTurn
                     if (own != null && latest.any { it.id == own && it.status == "running" }) {
                         val state = engine.request("GET", "/api/docs/workspace/agent/python")
@@ -294,7 +357,6 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
     val scope = workspace.viewModelScope
     val running = session.running
@@ -312,8 +374,33 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                         AgentDocument(session, session.document("${turn.id}-user", turn.prompt), session.fenceReading(turn, false), workspace)
                     }
                 }
-                Text("Agent · ${turn.status}", style = MaterialTheme.typography.labelMedium)
-                AgentDocument(session, session.document("${turn.id}-agent", turn.answer ?: turn.error ?: if (turn.status == "running") "Working…" else ""), session.fenceReading(turn, true), workspace)
+                val activity = session.activity[turn.id]
+                Text(turn.model?.let { "Agent · $it" } ?: "Agent", style = MaterialTheme.typography.labelMedium)
+                if (activity != null && activity.tools.isNotEmpty()) {
+                    var expanded by remember { mutableStateOf(false) }
+                    TextButton(onClick = { expanded = !expanded }) { Text("Tool calls (${activity.tools.size})") }
+                    if (expanded) activity.tools.forEach { tool ->
+                        var detail by remember { mutableStateOf(false) }
+                        TextButton(onClick = { detail = !detail }) {
+                            Text(tool.name + " · " + when (tool.ok) {
+                                true -> "Completed"
+                                false -> "Failed"
+                                null -> if (turn.status == "running") "Running" else "Outcome unavailable"
+                            })
+                        }
+                        if (detail) tool.result?.let { SelectionContainer { Text(it, fontSize = 12.sp) } }
+                    }
+                }
+                if (turn.status == "running") Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Text(if (session.stopPending) "Stopping…" else activity?.phase ?: "Starting…", fontSize = 12.sp)
+                }
+                val answer = turn.answer ?: turn.error ?: activity?.answer
+                if (answer != null) {
+                    if (turn.status != "running" && listOf("```", "~~~", "xmlns:").any(answer::contains)) {
+                        AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
+                    } else AgentProse(answer)
+                }
             } }
         }
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
@@ -325,30 +412,37 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
             ) {
                 Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
                 LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
-                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AgentChoice("Provider", session.provider, listOf("codex-subscription" to "ChatGPT subscription", "claude-subscription" to "Claude Code subscription", "grok-subscription" to "Grok subscription"), !running) {
-                        session.provider = it; session.model = ""; session.effort = ""
-                    }
-                    AgentChoice("Effort", session.effort, listOf("" to "Default") + listOf("low", "medium", "high", "xhigh", "max").map { it to it }, !running && session.provider != "grok-subscription") { session.effort = it }
-                }
-                OutlinedTextField(session.model, { session.model = it }, enabled = !running, label = { Text("Model · provider default") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
-                if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                    session.send(engine) { simpleAgentContext(workspace) }
+                if (session.canStop) {
+                    FilledIconButton(enabled = !session.stopPending, onClick = { scope.launch { session.stop(engine) } }) {
+                        Text("■", Modifier.semantics { contentDescription = "Stop" })
+                    }
+                } else {
+                    FilledIconButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
+                        if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            session.send(engine) { simpleAgentContext(workspace) }
+                        }
+                    }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) }
                 }
-            }) { Text("Send") }
-            TextButton(enabled = running, onClick = { scope.launch {
-                try { engine?.stop() } catch (cancelled: CancellationException) { throw cancelled }
-                catch (failure: Exception) { session.error = "${failure.message} Refresh history and try Stop again." }
-            } }) { Text("Stop") }
             }
-            Text("Sign in on the workspace server with " + when (session.provider) { "claude-subscription" -> "claude auth login"; "grok-subscription" -> "grok login"; else -> "codex login" } + ". Uses your subscription; no API fallback.", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
 
+@Composable private fun AgentProse(text: String) {
+    val headingPattern = remember { Regex("^(#{1,6})[ \t]+(.+)$") }
+    SelectionContainer {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            text.lineSequence().forEach { row ->
+                val match = headingPattern.matchEntire(row)
+                if (match == null) Text(row)
+                else Text(match.groupValues[2], style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() })
+            }
+        }
+    }
+}
 @Composable private fun AgentDocument(session: AgentSession, buffer: DocumentBuffer, reading: AgentFenceReading?, workspace: Workspace) {
     key(buffer) {
         val engine = workspace.engine
@@ -381,6 +475,63 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
         )
     }
 }
+@Composable internal fun AgentStatus(session: AgentSession, engine: Engine?, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    var custom by remember { mutableStateOf(false) }
+    var codexModels by remember(engine) { mutableStateOf(listOf("gpt-6.1-sol")) }
+    LaunchedEffect(expanded, session.provider, engine) {
+        if (!expanded || session.provider != "codex-subscription" || engine == null) return@LaunchedEffect
+        try {
+            val models = engine.request("GET", "/api/agents/codex-subscription/models").getJSONArray("models")
+            if (models.length() > 0) {
+                codexModels = (0 until models.length()).map(models::getString)
+                if (session.model in codexModels) custom = false
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* The built-in choices remain available. */ }
+    }
+    val (icon, models, login) = when (session.provider) {
+        "claude-subscription" -> Triple("✳", listOf("sonnet", "opus", "haiku"), "claude auth login")
+        "grok-subscription" -> Triple("◈", listOf("grok-build"), "grok login")
+        else -> Triple("⌘", codexModels, "codex login")
+    }
+    val efforts = when (session.provider) {
+        "claude-subscription" -> listOf("low", "medium", "high", "xhigh", "max")
+        "grok-subscription" -> emptyList()
+        else -> listOf("low", "medium", "high", "xhigh", "max")
+    }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.weight(1f, fill = false)) {
+            Text("$icon ${session.model.ifEmpty { models.first() }} ◴ ${session.effort.ifEmpty { "Default" }}",
+                fontSize = 11.sp, maxLines = 1, modifier = Modifier.semantics { contentDescription = "Agent settings" }
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                        custom = session.model.isNotEmpty() && session.model !in models
+                        expanded = true
+                    })
+            DropdownMenu(expanded, { expanded = false }) {
+                Column(Modifier.widthIn(max = 280.dp).padding(12.dp)) {
+                    AgentChoice("Provider", session.provider, listOf("codex-subscription" to "Codex", "claude-subscription" to "Claude", "grok-subscription" to "Grok"), !session.running) {
+                        session.provider = it; session.model = ""; session.effort = ""; custom = false
+                    }
+                    AgentChoice("Model", if (custom) "custom" else session.model, listOf("" to "Default (${models.first()})") + models.map { it to it } + ("custom" to "Custom model…"), !session.running) {
+                        custom = it == "custom"
+                        if (!custom) session.model = it
+                    }
+                    if (custom) OutlinedTextField(session.model, { session.model = it }, enabled = !session.running, label = { Text("Custom model") }, singleLine = true)
+                    AgentChoice("Effort", session.effort, listOf("" to if (efforts.isEmpty()) "Managed by provider" else "Default") + efforts.map { it to it }, !session.running && efforts.isNotEmpty()) { session.effort = it }
+                    Text("Model presets depend on subscription access. Sign in on the workspace server with $login.", fontSize = 11.sp)
+                }
+            }
+        }
+        val totals = session.totals
+        val tokens = (totals?.tokens ?: 0L) + session.turns.filter { it.status == "running" }.sumOf { session.activity[it.id]?.tokens ?: 0L }
+        Text(if (tokens == 0L) "Tokens unavailable" else "${java.text.NumberFormat.getIntegerInstance().format(tokens)} tokens", fontSize = 11.sp, maxLines = 1)
+        if (tokens > 0) Text(
+            totals?.usd?.takeUnless { session.running }?.let { java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US).apply { minimumFractionDigits = 4; maximumFractionDigits = 4 }.format(it) } ?: "Cost unavailable",
+            fontSize = 11.sp, maxLines = 1)
+    }
+}
+
 @Composable private fun AgentChoice(label: String, selected: String, choices: List<Pair<String, String>>, enabled: Boolean, change: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {

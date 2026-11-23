@@ -324,10 +324,15 @@ export function Document({ buffer, current, renderTools }: {
         address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
         EditorView.updateListener.of(update => {
           if(update.selectionSet){const held=editors.get(buffer);if(held)held.interaction++;}
+          if (update.selectionSet || update.docChanged) {
+            const caret = authoredOffset(update.state, update.state.selection.main.head);
+            if (caret !== buffer.caretOffset) { buffer.caretOffset = caret; buffer.publish(); }
+          }
           if (update.docChanged||authoredSource(update.startState)!==authoredSource(update.state)) buffer.edit(authoredSource(update.state));
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
+      buffer.caretOffset = authoredOffset(view.state, view.state.selection.main.head); buffer.publish();
       cached = { view, language, prose, completion, address,permission,interaction:0 }; editors.set(buffer, cached);view.scrollDOM.addEventListener("scroll",()=>{const held=editors.get(buffer);if(held)held.interaction++;}); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
     cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});

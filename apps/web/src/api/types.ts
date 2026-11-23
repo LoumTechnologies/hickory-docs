@@ -117,6 +117,8 @@ export type { Run, RunStatus } from "./runs";
 export type AgentWsEvent =
   | { kind: "acp_update"; update: import("./acp").AcpUpdate }
   | { kind: "token"; data: string }
+  | { kind: "response_complete"; text: string }
+  | { kind: "turn_usage"; total_usage?: import("./agentTypes").AgentUsage; total_cost_usd?: number | null }
   | { kind: "reasoning"; data: string }
   | { kind: "script_started"; lang: string; data: string }
   | {
@@ -131,9 +133,7 @@ export type AgentWsEvent =
         | "session_started"
         | "user_message"
         | "thinking"
-        | "response_complete"
         | "reprompt"
-        | "turn_usage"
         | "done";
     };
 

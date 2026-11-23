@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.channels.awaitClose
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -25,7 +27,8 @@ import java.net.URLEncoder
 data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?, val language: String? = null)
 data class StartupSource(val path: String, val content: String, val rootPath: String, val workspaceID: String?)
 data class FileText(val content: String, val hash: String, val saveGuard:String?=null, val saveGuardReason:String?=null)
-data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String)
+data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String, val model: String? = null)
+data class AgentTotals(val tokens: Long, val usd: Double?)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 class Engine(address: String) {
@@ -97,8 +100,30 @@ class Engine(address: String) {
         }
         return request("PUT", "/api/file", JSONObject().put("path", file.path).put("content", text).put("base_hash", hash)).getString("hash")
     }
-    suspend fun turns(): List<AgentTurn> = request("GET", "/api/docs/workspace/agent/turns").getJSONArray("turns").objects().map {
-        AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"))
+    suspend fun turns(): List<AgentTurn> = agentHistory().first
+    suspend fun agentHistory(): Pair<List<AgentTurn>, AgentTotals?> {
+        val result = request("GET", "/api/docs/workspace/agent/turns")
+        val turns = result.getJSONArray("turns").objects().map {
+            AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"), it.optional("model"))
+        }
+        val totals = result.optJSONObject("totals")?.let {
+            AgentTotals(listOf("input", "output", "cache_read", "cache_write").sumOf { key -> it.optLong(key) },
+                if (it.isNull("usd") || it.optBoolean("subscription")) null else it.optDouble("usd").takeIf(Double::isFinite))
+        }
+        return turns to totals
+    }
+
+    fun agentEvents() = callbackFlow {
+        val socket = debugHTTP.newWebSocket(Request.Builder().url(debugURL).build(), object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (bytes.size < 2 || bytes[0] != 1.toByte()) return
+                val event = runCatching { JSONObject(bytes.substring(1).utf8()) }.getOrNull() ?: return
+                if (event.optString("exec_id") == "agent") trySend(event)
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { close() }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { close() }
+        })
+        awaitClose { socket.cancel() }
     }
     suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String, context:JSONObject?=null): String = request("POST", "/api/docs/workspace/agent",
         JSONObject().put("prompt", prompt).put("context",context ?: JSONObject()).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null })).getString("session_id")

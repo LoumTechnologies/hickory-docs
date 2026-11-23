@@ -80,7 +80,7 @@ struct StartupSourceObservation {
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     // Cursor round trips cannot revive a retired provider or template context.
     @ObservationIgnored var selectionIdentity=UUID()
-    @ObservationIgnored var selection = NSRange(location: 0, length: 0) {didSet{if selection != oldValue{selectionIdentity=UUID()}}}
+    var selection = NSRange(location: 0, length: 0) {didSet{if selection != oldValue{selectionIdentity=UUID()}}}
     @ObservationIgnored var receiptEngine: Engine?
     var receiptSource = "" { didSet { renderMarkup?() } }
     var terminalOutputRevision: UUID?
@@ -593,7 +593,7 @@ preserve the native editor and its view state.
             let requestedTabIsCurrent = startupIsCurrent()
             let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.
-            agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
+            agent.turns = []; agent.totals = nil; agent.activity = [:]; agent.stopPending = false; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil

@@ -45,8 +45,37 @@ struct AgentTurn: Decodable, Identifiable {
     var answer: String?
     var error: String?
     var status: String
+    var model: String? = nil
 }
-struct AgentHistory: Decodable { var turns: [AgentTurn] }
+struct AgentTotals: Decodable {
+    let subscription: Bool?
+    let usd: Double?
+    let input: Int
+    let output: Int
+    let cache_read: Int
+    let cache_write: Int
+    var tokens: Int { input + output + cache_read + cache_write }
+}
+struct AgentHistory: Decodable { var turns: [AgentTurn]; var totals: AgentTotals? }
+struct NativeAgentEvent: Decodable {
+    struct Event: Decodable {
+        let kind: String
+        let name: String?
+        let text: String?
+        let ok: Bool?
+        let total_usage: Usage?
+    }
+    struct Usage: Decodable {
+        let input_tokens: Int
+        let output_tokens: Int
+        let cache_read_input_tokens: Int
+        let cache_creation_input_tokens: Int
+        var tokens: Int { input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens }
+    }
+    let run_id: String
+    let exec_id: String
+    let event: Event
+}
 struct TerminalOpened: Decodable { var id: String }
 struct TerminalPage: Decodable { var bytes: [UInt8]; var next: Int?; var revision: String }
 struct TerminalOK: Decodable { var ok: Bool }

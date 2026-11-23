@@ -5,12 +5,88 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Agent state belongs to its pane and never drives document rendering. Poll the existing durable history independently, cancelling the loop when the pane disappears. This first slice shows completed answers rather than token streaming.
 
+The run channel provides immediate progress and usage. The history read still
+confirms the recorded answer before fence actions can use it. Frames that arrive
+before Send returns stay provisional until the server identifies the turn.
+
 <ui:copy id="simple-42e0887630-0">
 import SwiftUI
 import Observation
 
 @MainActor @Observable final class AgentSession {
     var turns: [AgentTurn] = []
+    var totals: AgentTotals?
+    var activity: [String: NativeAgentActivity] = [:]
+    @ObservationIgnored private var earlyEvents: [NativeAgentEvent] = []
+    var stopPending = false
+    var canStop: Bool { turns.contains { $0.status == "running" } }
+
+    func receive(_ message: NativeAgentEvent) {
+        guard message.exec_id == "agent" else { return }
+        guard turns.contains(where: { $0.id == message.run_id && $0.status == "running" }) else {
+            if sending && earlyEvents.count < 128 { earlyEvents.append(message) }
+            return
+        }
+        var value = activity[message.run_id] ?? NativeAgentActivity()
+        switch message.event.kind {
+        case "thinking": value.phase = "Waiting for the model…"
+        case "token":
+            guard value.phase != "Receiving model output…" else { return }
+            value.phase = "Receiving model output…"
+        case "response_complete": value.answer = message.event.text
+        case "turn_usage": value.tokens = message.event.total_usage?.tokens ?? 0
+        case "tool_started":
+            guard let name = message.event.name else { return }
+            value.phase = name
+            value.tools.append(.init(name: name))
+        case "tool_finished":
+            if let index = value.tools.lastIndex(where: { $0.name == message.event.name && $0.ok == nil }) {
+                value.tools[index].ok = message.event.ok
+                value.tools[index].result = message.event.text.map { String($0.prefix(4000)) }
+            }
+            value.phase = "Preparing the next step…"
+        default: return
+        }
+        activity[message.run_id] = value
+    }
+
+    func replayEarlyEvents(for turn: String) {
+        let events = earlyEvents
+        earlyEvents.removeAll()
+        for event in events where event.run_id == turn { receive(event) }
+    }
+
+    func observeActivity(_ engine: Engine, current: () -> Bool) async {
+        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"
+        url.path = "/api/ws"
+        url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
+        while !Task.isCancelled && current() {
+            let socket = engine.session.webSocketTask(with: url.url!)
+            socket.resume()
+            await withTaskCancellationHandler {
+                while !Task.isCancelled && current(), let frame = try? await socket.receive() {
+                    guard !Task.isCancelled, current() else { break }
+                    if case .data(let data) = frame, data.first == 1,
+                       let event = try? JSONDecoder().decode(NativeAgentEvent.self, from: Data(data.dropFirst())) {
+                        receive(event)
+                    }
+                }
+            } onCancel: { socket.cancel(with: .goingAway, reason: nil) }
+            socket.cancel(with: .goingAway, reason: nil)
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        }
+    }
+
+    func stop(_ engine: Engine?) async {
+        guard let engine, canStop, !stopPending else { return }
+        stopPending = true
+        do { try await engine.stop() }
+        catch {
+            self.error = "\(error.localizedDescription) Refresh history and try Stop again."
+            stopPending = false
+        }
+    }
     var provider = "codex-subscription"
     var model = ""
     var effort = ""
@@ -44,6 +120,8 @@ import Observation
                 guard !Task.isCancelled, current() else { return }
                 if mutation == self.mutation && !sending {
                     turns = history.turns
+                    totals = history.totals
+                    if !canStop { stopPending = false }
                     try await answerCapture(engine, mutation: mutation, current: current)
                 }
             } catch {
@@ -309,6 +387,138 @@ private func nativeConstructionDigest(_ text: String) -> Bool {
     }
 }
 
+struct NativeAgentActivity {
+    struct Tool {
+        let name: String
+        var ok: Bool?
+        var result: String?
+    }
+    var phase = "Starting…"
+    var answer: String?
+    var tools: [Tool] = []
+    var tokens = 0
+}
+
+struct NativeAgentStatus: View {
+    @Bindable var session: AgentSession
+    let engine: Engine?
+    @State private var codexModels = [String]()
+    @State private var open = false
+    @State private var custom = false
+    private var tokens: Int {
+        let live = session.turns.filter { $0.status == "running" }.reduce(0) { $0 + (session.activity[$1.id]?.tokens ?? 0) }
+        return (session.totals?.tokens ?? 0) + live
+    }
+    private var models: [String] {
+        switch session.provider {
+        case "claude-subscription": ["sonnet", "opus", "haiku"]
+        case "grok-subscription": ["grok-build"]
+        default: codexModels.isEmpty ? ["gpt-6.1-sol"] : codexModels
+        }
+    }
+    private var providerIcon: String {
+        switch session.provider {
+        case "claude-subscription": "asterisk"
+        case "grok-subscription": "diamond"
+        default: "command"
+        }
+    }
+    private var efforts: [String] {
+        switch session.provider {
+        case "claude-subscription": ["low", "medium", "high", "xhigh", "max"]
+        case "grok-subscription": []
+        default: ["low", "medium", "high", "xhigh", "max"]
+        }
+    }
+    private var login: String {
+        switch session.provider {
+        case "claude-subscription": "claude auth login"
+        case "grok-subscription": "grok login"
+        default: "codex login"
+        }
+    }
+
+    var body: some View {
+        Button {
+            custom = !session.model.isEmpty && !models.contains(session.model)
+            open.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: providerIcon)
+                Text(session.model.isEmpty ? models[0] : session.model).lineLimit(1)
+                Image(systemName: "speedometer")
+                Text(session.effort.isEmpty ? "Default" : session.effort)
+            }
+        }.accessibilityLabel("Agent settings")
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Provider", selection: $session.provider) {
+                        Text("Codex subscription").tag("codex-subscription")
+                        Text("Claude subscription").tag("claude-subscription")
+                        Text("Grok subscription").tag("grok-subscription")
+                    }.onChange(of: session.provider) { _, _ in session.model = ""; session.effort = ""; custom = false }
+                    Picker("Model", selection: Binding(get: { custom ? "custom" : session.model }, set: { value in
+                        custom = value == "custom"
+                        if !custom { session.model = value }
+                    })) {
+                        Text("Provider default (\(models[0]))").tag("")
+                        ForEach(models, id: \.self) { Text($0).tag($0) }
+                        Text("Custom model…").tag("custom")
+                    }
+                    if custom { TextField("Custom model", text: $session.model).textFieldStyle(.roundedBorder) }
+                    Picker("Effort", selection: $session.effort) {
+                        Text(efforts.isEmpty ? "Managed by provider" : "Default").tag("")
+                        ForEach(efforts, id: \.self) { Text($0).tag($0) }
+                    }.disabled(efforts.isEmpty)
+                    Text("Model presets depend on subscription access. Sign in on the workspace server with \(login).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.disabled(session.running).padding(12).frame(idealWidth: 320)
+                 .task(id: session.provider) {
+                     guard session.provider == "codex-subscription", let engine else { return }
+                     struct Catalog: Decodable { let models: [String] }
+                     if let catalog: Catalog = try? await engine.request("GET", "/api/agents/codex-subscription/models"),
+                        !Task.isCancelled, !catalog.models.isEmpty {
+                         codexModels = catalog.models
+                         if catalog.models.contains(session.model) { custom = false }
+                     }
+                 }
+                 #if os(iOS)
+                 .presentationCompactAdaptation(.popover)
+                 #endif
+            }
+        if tokens > 0 {
+            Text("\(tokens.formatted()) tokens").lineLimit(1)
+            if !session.running, let totals = session.totals, totals.subscription != true, let usd = totals.usd {
+                Text(usd.formatted(.currency(code: "USD").precision(.fractionLength(4))))
+            } else {
+                Text("Cost unavailable").lineLimit(1)
+            }
+        } else {
+            Text("Tokens unavailable").lineLimit(1)
+        }
+    }
+}
+
+private struct NativeAgentProse: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            let rows = text.components(separatedBy: .newlines)
+            ForEach(rows.indices, id: \.self) { index in
+                let row = rows[index]
+                let level = row.prefix { $0 == "#" }.count
+                let heading = (1...6).contains(level) && row.dropFirst(level).first == " "
+                let content = heading ? String(row.dropFirst(level + 1)) : row
+                Text((try? AttributedString(markdown: content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(content))
+                    .font(heading ? (level == 1 ? .title2 : .headline) : .body)
+                    .accessibilityAddTraits(heading ? .isHeader : [])
+            }
+        }.textSelection(.enabled)
+         .environment(\.openURL, OpenURLAction { _ in .discarded })
+    }
+}
+
 struct AgentPane: View {
     let engine: Engine?
     @Bindable var session: AgentSession
@@ -334,8 +544,31 @@ struct AgentPane: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("You").font(.caption).foregroundStyle(.secondary)
                             message(session.document("\(turn.id)-user", turn.prompt), turn: turn.id, side: .user).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 12)).padding(.leading, 24)
-                            Text("Agent · \(turn.status)").font(.caption).foregroundStyle(.secondary)
-                            message(session.document("\(turn.id)-agent", turn.answer ?? turn.error ?? (turn.status == "running" ? "Working…" : "")), turn: turn.id, side: .assistant)
+                            let activity = session.activity[turn.id]
+                            Text(turn.model.map { "Agent · \($0)" } ?? "Agent").font(.caption).foregroundStyle(.secondary)
+                            if let tools = activity?.tools, !tools.isEmpty {
+                                DisclosureGroup("Tool calls (\(tools.count))") {
+                                    ForEach(tools.indices, id: \.self) { index in
+                                        let tool = tools[index]
+                                        DisclosureGroup(tool.name + " · " + (tool.ok.map { $0 ? "Completed" : "Failed" } ?? (turn.status == "running" ? "Running" : "Outcome unavailable"))) {
+                                            if let result = tool.result { Text(result).font(.caption.monospaced()).textSelection(.enabled) }
+                                        }
+                                    }
+                                }.font(.caption)
+                            }
+                            if turn.status == "running" {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text(session.stopPending ? "Stopping…" : activity?.phase ?? "Starting…")
+                                }.font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let answer = turn.answer ?? turn.error ?? activity?.answer {
+                                if turn.status != "running" && (answer.contains("```") || answer.contains("~~~") || answer.contains("xmlns:")) {
+                                    message(session.document("\(turn.id)-agent", answer), turn: turn.id, side: .assistant)
+                                } else {
+                                    NativeAgentProse(text: answer)
+                                }
+                            }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }.padding(10)
@@ -345,15 +578,19 @@ struct AgentPane: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Your message · literate document").font(.caption).foregroundStyle(.secondary)
                 NativeEditor(buffer: session.draft).id(session.draft.id).frame(height: 140).accessibilityLabel("Message")
-                ViewThatFits(in: .horizontal) {
-                    HStack { choices }
-                    VStack(alignment: .leading) { choices }
-                }
                 HStack {
-                Button("Send") { Task { await send() } }.disabled(session.running || session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine == nil)
-                Button("Stop") { Task { do { try await engine?.stop() } catch { session.error = "\(error.localizedDescription) Refresh history and try Stop again." } } }.disabled(!session.running)
-                }
-                Text("Sign in on the workspace server with \(session.provider == "claude-subscription" ? "claude auth login" : session.provider == "grok-subscription" ? "grok login" : "codex login"). Uses your subscription; no API fallback.").font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    if session.canStop {
+                        Button { Task { await session.stop(engine) } } label: {
+                            Image(systemName: "stop.fill").frame(width: 24, height: 24)
+                        }.accessibilityLabel("Stop").disabled(session.stopPending)
+                    } else {
+                        Button { Task { await send() } } label: {
+                            Image(systemName: "arrow.up").frame(width: 24, height: 24)
+                        }.accessibilityLabel("Send")
+                            .disabled(session.running || session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine == nil)
+                    }
+                }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
         }
         #if os(iOS)
@@ -375,18 +612,6 @@ Capture the prompt before sending and clear it only if the user has not typed a 
 The iPhone inspector is owned by the Agent pane instead of its scrolling message row. When the keyboard takes vertical space, the selected recorded source keeps its inspector. If the recorded source or workspace closes, retire that presentation.
 
 <ui:copy id="simple-42e0887630-1">
-    @ViewBuilder private var choices: some View {
-        Picker("Provider", selection: $session.provider) {
-            Text("ChatGPT subscription").tag("codex-subscription")
-            Text("Claude Code subscription").tag("claude-subscription")
-            Text("Grok subscription").tag("grok-subscription")
-        }.onChange(of: session.provider) { _, _ in session.model = ""; session.effort = "" }.disabled(session.running)
-        TextField("Model · provider default", text: $session.model).textFieldStyle(.roundedBorder).disabled(session.running)
-        Picker("Effort", selection: $session.effort) {
-            Text("Default").tag("")
-            ForEach(["low", "medium", "high", "xhigh", "max"], id: \.self) { Text($0).tag($0) }
-        }.disabled(session.running || session.provider == "grok-subscription")
-    }
     private var presentRecordedInspection: ((NativeDebugInspector) -> Void)? {
         #if os(iOS)
         return { inspection in
@@ -416,7 +641,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
         let submittedDraft = session.draft.sourceEditIdentity
         #endif
         session.sending = true; session.error = ""; session.mutation += 1
-        defer { session.sending = false; session.mutation += 1 }
+        defer { session.replayEarlyEvents(for: ""); session.sending = false; session.mutation += 1 }
         do {
             var context = try session.captureContext?()
             context?["live"] = true
@@ -424,6 +649,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
             guard workspaceCurrent() else { return }
             session.liveTurn = context == nil ? nil : started.session_id
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
+            session.replayEarlyEvents(for: started.session_id)
             #if os(iOS)
             if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
                 session.prompt = ""

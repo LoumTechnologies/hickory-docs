@@ -8,6 +8,12 @@ retain their original limits; they do not narrow the required outcomes below.
 ## IDE parity required by the maintainer
 
 Development launches show the running UI's build commit in the status bar.
+The focused source tab shows its one-based line and column. The focused Agent
+tab shows the provider, model, effort and reported conversation usage. Selecting
+the Agent setting opens a floating picker. A manual model ID remains available
+when a subscription catalog omits a model. The Agent pane shows live host
+activity, accepted Markdown and collapsed tool calls. Costs are shown only when
+the engine knows the amount.
 Its disclosure shows full UI and engine hashes, each build's uncommitted
 state, and the engine source checkout's current hash and working-tree state.
 Latest requires clean matching builds at a clean local checkout HEAD. A

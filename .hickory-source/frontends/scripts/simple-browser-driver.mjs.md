@@ -503,7 +503,7 @@ try {
         case "proposal-editor-context":{
           await menu("View","Agent");const draft=page.locator(".agent-composer .cm-content");await draft.waitFor();await draft.focus();await page.keyboard.press(process.platform==="darwin"?"Meta+A":"Control+A");await page.keyboard.insertText("Capture the owned complete editor snapshot for the scripted proposal witness.");
           let captured;const pattern="**/api/docs/workspace/agent",handler=async route=>{captured=route.request().postDataJSON()?.context;await route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"Owned fixture captured this non-live editor snapshot; the controlled ACP tool is launched separately."})});};
-          await page.route(pattern,handler,{times:1});try{await page.getByRole("button",{name:"Send ↑",exact:true}).click();await page.locator(".agent-body [role=alert]").filter({hasText:"Owned fixture captured"}).waitFor();if(!captured||captured.live!==false)throw Error("Actual AgentSession did not send a non-live context snapshot");value=captured;}finally{await page.unroute(pattern,handler);}
+          await page.route(pattern,handler,{times:1});try{await page.getByRole("button",{name:"Send",exact:true}).click();await page.locator(".agent-body [role=alert]").filter({hasText:"Owned fixture captured"}).waitFor();if(!captured||captured.live!==false)throw Error("Actual AgentSession did not send a non-live context snapshot");value=captured;}finally{await page.unroute(pattern,handler);}
           await page.getByRole("button",{name:request.path,exact:true}).click();await editor(request.path).waitFor();break;
         }
         case "source-file-refresh":await menu("File","Refresh");break;
@@ -1060,6 +1060,10 @@ try {
           break;
         }
         case "agent-documents": {
+          const source = editor("source.md");
+          await source.press("Home");
+          await source.press("ArrowRight");
+          const sourcePosition = await page.getByLabel("Editor position", {exact: true}).innerText();
           await menu("View", "Agent");
           const draft = editor("conversation/draft.md");
           await draft.fill(request.text);
@@ -1070,17 +1074,30 @@ try {
           const readonly = await history.getAttribute("contenteditable") === "false" && await history.textContent() === before;
           await draft.click(); await page.keyboard.press("End");
           const caret = await draft.evaluate(node => window.getSelection()?.anchorOffset);
-          await page.getByLabel("Provider", { exact: true }).selectOption("claude-subscription");
-          await page.getByLabel("Model", { exact: true }).fill("unavailable-model");
-          await page.getByLabel("Effort", { exact: true }).selectOption("high");
+          const settings = page.getByRole("button", {name: "Agent settings", exact: true});
+          const dialog = page.getByRole("dialog", {name: "Agent settings", exact: true});
+          const quiet = await page.getByLabel("Editor position", {exact: true}).count() === 0
+            && await page.getByLabel("Provider", {exact: true}).count() === 0
+            && await page.getByRole("button", {name: "Stop", exact: true}).count() === 0
+            && await page.locator("footer").getByRole("button", {name: "Agent settings", exact: true}).count() === 1;
+          await settings.click();
+          await dialog.getByLabel("Provider", { exact: true }).selectOption("claude-subscription");
+          const model = dialog.getByLabel("Model", { exact: true });
+          await model.selectOption("sonnet");
+          const pickedModel = await settings.innerText();
+          await model.selectOption("custom");
+          await dialog.getByLabel("Custom model", { exact: true }).fill("unavailable-model");
+          await dialog.getByLabel("Effort", { exact: true }).selectOption("high");
+          await page.keyboard.press("Escape");
+          const closed = await dialog.count() === 0;
           const stable = await draft.evaluate(node => { window.agentDraft = node; return node.isConnected; });
           const sent = page.waitForRequest(req => req.method() === "POST" && req.url().endsWith("/api/docs/workspace/agent"));
-          await page.getByRole("button", { name: "Send ↑", exact: true }).click();
+          await page.getByRole("button", { name: "Send", exact: true }).click();
           const payload = (await sent).postDataJSON();
           await page.getByRole("alert").filter({ hasText: "not retried" }).waitFor();
           const retained = await draft.locator(".cm-line").allTextContents().then(lines => lines.join("\n"));
           await menu("View", "Files"); await menu("View", "Agent");
-          value = { readonly, payload, retained, stable: stable && await draft.evaluate(node => node === window.agentDraft), history: before };
+          value = { readonly, payload, retained, quiet, closed, pickedModel, sourcePosition, stable: stable && await draft.evaluate(node => node === window.agentDraft), history: before };
           break;
         }
         case "draft": await page.getByRole("textbox", { name: "Message", exact: true }).fill(request.text); break;

@@ -10,6 +10,8 @@ import type {AgentEditorContext} from "../api/agentTypes";
 import { Document, editorForBuffer } from "./Document";
 import { RichOwners } from "./RichInline";
 import { api, request } from "../api/client";
+import { getWorkspaceRealtime } from "../api/realtime";
+import type { RunWsMessage } from "../api/types";
 import { acpApi } from "../api/acp";
 import { parseHickDoc, proseCodeFences } from "../editor/hickDoc";
 import { useHickLangStatus } from "../editor/hickLang";
@@ -20,7 +22,7 @@ import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { useWorkspaceDebugger, type DebugSession } from "../debug/useDebugger";
 import { debugUTF8, type DebugSourceReading } from "../debug/SourceGuards";
-import type { AgentTurn } from "../api/agentTypes";
+import type { AgentTotals, AgentTurn, AgentUsage } from "../api/agentTypes";
 import type { TerminalSession } from "../api/types";
 import { simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
@@ -62,6 +64,54 @@ export class AgentSession {
   captureContext?:()=>AgentEditorContext;
   constructor() { this.draft.subscribe(() => this.publish()); }
   turns: AgentTurn[] = [];
+  totals?: AgentTotals;
+  // Activity is provisional and keyed to the server's run. The history
+  // response owns the final answer and the recorded message revision.
+  activity = new Map<string, { phase?: string; answer?: string; usage?: AgentUsage; usd?: number | null; tools: { name: string; result?: string; ok?: boolean }[] }>();
+  private early: RunWsMessage[] = [];
+  stopPending = false;
+
+  receive(message: RunWsMessage) {
+    if (!("run_id" in message && "event" in message) || message.exec_id !== "agent") return;
+    if (!this.turns.some(turn => turn.id === message.run_id && turn.status === "running")) {
+      if (this.busy && this.early.length < 128) this.early.push(message);
+      return;
+    }
+    const event = message.event;
+    const activity = this.activity.get(message.run_id) ?? { tools: [] };
+    switch (event.kind) {
+      case "thinking": activity.phase = "Waiting for the model…"; break;
+      case "token":
+        if (activity.phase === "Receiving model output…") return;
+        activity.phase = "Receiving model output…"; break;
+      case "response_complete": activity.answer = event.text; break;
+      case "turn_usage": activity.usage = event.total_usage; activity.usd = event.total_cost_usd; break;
+      case "tool_started":
+        activity.phase = event.name;
+        activity.tools.push({ name: event.name });
+        break;
+      case "tool_finished": {
+        const tool = [...activity.tools].reverse().find(tool => tool.name === event.name && tool.ok === undefined);
+        if (tool) { tool.ok = event.ok; tool.result = event.text.slice(0, 4000); }
+        activity.phase = "Preparing the next step…";
+        break;
+      }
+      default: return;
+    }
+    this.activity.set(message.run_id, activity);
+    this.publish();
+  }
+
+  get canStop() { return this.turns.some(turn => turn.status === "running"); }
+  async stop() {
+    if (!this.canStop || this.stopPending) return;
+    this.stopPending = true; this.publish();
+    try { await api.agentStop("workspace"); }
+    catch (reason) {
+      this.error = `${String(reason)} Refresh history and try Stop again.`;
+      this.stopPending = false; this.publish();
+    }
+  }
   provider = "codex-subscription";
   model = "";
   effort = "";
@@ -87,11 +137,12 @@ export class AgentSession {
     return buffer;
   }
   setTurns(turns: AgentTurn[]) {
+    if (!turns.some(turn => turn.status === "running")) this.stopPending = false;
     // Rebase observable document buffers before publishing the conversation.
     // Rendering an existing message must never dispatch editor transactions.
     for (const turn of turns) {
       this.document(`${turn.id}-user`, turn.prompt);
-      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? (turn.status === "running" ? "Working…" : ""));
+      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? "");
     }
     this.turns = turns;
   }
@@ -113,9 +164,12 @@ export class AgentSession {
       const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context && { ...context, live: true }, undefined, this.effort || undefined);
       this.liveTurn = context ? started.session_id : null;
       this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
+      const early = this.early;
+      this.early = [];
+      for (const message of early) if ("run_id" in message && message.run_id === started.session_id) this.receive(message);
       if (this.prompt === text) this.prompt = "";
     } catch (reason) { this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`; }
-    finally { this.busy = false; this.mutation++; this.publish(); }
+    finally { this.early = []; this.busy = false; this.mutation++; this.publish(); }
   }
 }
 export function AgentHistory({ session, visible }: { session: AgentSession; visible: boolean }) {
@@ -125,12 +179,14 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
     if (!observing) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    const unsubscribe = getWorkspaceRealtime()?.onRunEvent(message => session.receive(message));
     const refresh = async () => {
       const mutation = session.mutation;
       try {
         const response = await api.agentTurns("workspace");
         if (!cancelled && mutation === session.mutation && !session.busy) {
           const own = session.liveTurn;
+          session.totals = response.totals;
           session.setTurns(response.turns);
           session.publish();
           if (own && response.turns.some(turn => turn.id === own && turn.status === "running")) {
@@ -149,7 +205,7 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
       if (!cancelled) timer = setTimeout(refresh, 1000);
     };
     void refresh();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => { cancelled = true; clearTimeout(timer); unsubscribe?.(); };
   }, [session, observing]);
   return null;
 }
@@ -162,9 +218,10 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
   const following = useRef(true);
   const { turns, prompt, error } = session;
   const tail = turns.at(-1);
+  const liveAnswer = tail && session.activity.get(tail.id)?.answer;
   useEffect(() => {
     if (following.current && conversation.current) conversation.current.scrollTop = conversation.current.scrollHeight;
-  }, [tail?.id, tail?.answer, tail?.error]);
+  }, [tail?.id, tail?.answer, tail?.error, liveAnswer]);
   const running = session.running;
   const inlineRenderNotice = [...session.documents.values.values()].find(buffer => buffer.inlineRenderNotice)?.inlineRenderNotice;
   return <div className="agent-body">
@@ -172,29 +229,116 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
     <header className="agent-heading"><strong>Workspace agent</strong><span role="status" title={inlineRenderNotice}>{inlineRenderNotice ? "Inline rendering unavailable" : "Hickory · Python execution only"}</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
     <div ref={conversation} className="conversation" role="log" aria-label="Conversation" onScroll={event => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48; }}>
       {!turns.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
-      {turns.map(turn => <article key={turn.id}>
-        <section className="agent-message user-message"><p className="message-label">You</p><RecordedMessage turn={turn.id} side="user" reviewRecordedPatch={reviewRecordedPatch} buffer={session.document(`${turn.id}-user`, turn.prompt)} /></section>
-        <section className="agent-message"><p className="message-label">Agent · {turn.status}{turn.model && ` · ${turn.model}`}</p><RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.status !== "running" && turn.answer != null} buffer={session.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? (turn.status === "running" ? "Working…" : ""))} /></section>
-      </article>)}
+      {turns.map(turn => {
+        const activity = session.activity.get(turn.id);
+        const streaming = turn.status === "running";
+        const answer = turn.answer ?? turn.error ?? activity?.answer;
+        return <article key={turn.id}>
+          <section className="agent-message user-message"><p className="message-label">You</p><RecordedMessage turn={turn.id} side="user" reviewRecordedPatch={reviewRecordedPatch} buffer={session.document(`${turn.id}-user`, turn.prompt)} /></section>
+          <section className="agent-message">
+            <p className="message-label">Agent{turn.model && ` · ${turn.model}`}</p>
+            {!!activity?.tools.length && <details className="agent-tool-calls"><summary>Tool calls ({activity.tools.length})</summary>
+              {activity.tools.map((tool, index) => <details key={index}><summary>{tool.name} · {tool.ok === undefined ? streaming ? "Running" : "Outcome unavailable" : tool.ok ? "Completed" : "Failed"}</summary>{tool.result && <pre>{tool.result}</pre>}</details>)}
+            </details>}
+            {streaming && <div className="agent-progress" role="status"><span aria-hidden="true" />{session.stopPending ? "Stopping…" : activity?.phase ?? "Starting…"}</div>}
+            {answer && (streaming || !answer.includes('xmlns:') && !proseCodeFences(parseHickDoc(answer), answer).length
+              ? <MarkdownMessage text={answer} />
+              : <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />)}
+          </section>
+        </article>;
+      })}
     </div>
     {error && <div role="alert" className="notice">{error}</div>}
     <form className="agent-composer" onSubmit={event => { event.preventDefault(); void session.send(); }}>
       <label className="message-label">Your message · literate document</label>
       <Document buffer={session.draft} />
-      <div className="agent-controls">
-        <label>Provider<select aria-label="Provider" disabled={running} value={session.provider} onChange={event => { session.provider = event.target.value; session.model = ""; session.effort = ""; session.publish(); }}>
-          <option value="codex-subscription">ChatGPT subscription</option><option value="claude-subscription">Claude Code subscription</option><option value="grok-subscription">Grok subscription</option>
-        </select></label>
-        <label>Model<input aria-label="Model" disabled={running} value={session.model} placeholder="Provider default" onChange={event => { session.model = event.target.value; session.publish(); }} /></label>
-        <label>Effort<select aria-label="Effort" disabled={running || session.provider === "grok-subscription"} value={session.effort} onChange={event => { session.effort = event.target.value; session.publish(); }}>
-          <option value="">Default</option>{["low", "medium", "high", "xhigh", "max"].map(value => <option key={value}>{value}</option>)}
-        </select></label>
-        <div className="agent-send"><button type="button" disabled={!running} onClick={() => { void api.agentStop("workspace").catch(reason => { session.error = `${String(reason)} Refresh history and try Stop again.`; session.publish(); }); }}>Stop</button><button disabled={running || !prompt.trim()}>Send ↑</button></div>
+      <div className="agent-send">
+        {session.canStop
+          ? <button type="button" aria-label="Stop" title="Stop" disabled={session.stopPending} onClick={() => void session.stop()}>■</button>
+          : <button aria-label="Send" title="Send" disabled={running || !prompt.trim()}>↑</button>}
       </div>
-      <small>Uses the selected subscription on the workspace server. Sign in there with {session.provider === "claude-subscription" ? "claude auth login" : session.provider === "grok-subscription" ? "grok login" : "codex login"}. {session.provider === "grok-subscription" && "Grok manages effort."}</small>
     </form>
   </div>;
 }
+const subscriptionChoices = {
+  "codex-subscription": { name: "Codex", icon: "⌘", models: ["gpt-6.1-sol"], efforts: ["low", "medium", "high", "xhigh", "max"], login: "codex login" },
+  "claude-subscription": { name: "Claude", icon: "✳", models: ["sonnet", "opus", "haiku"], efforts: ["low", "medium", "high", "xhigh", "max"], login: "claude auth login" },
+  "grok-subscription": { name: "Grok", icon: "◈", models: ["grok-build"], efforts: [], login: "grok login" },
+};
+
+export function AgentStatus({ session }: { session: AgentSession }) {
+  useSyncExternalStore(session.subscribe, session.snapshot);
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const provider = session.provider as keyof typeof subscriptionChoices;
+  const choice = subscriptionChoices[provider];
+  const [codexModels, setCodexModels] = useState<string[]>([]);
+  const models = provider === "codex-subscription" && codexModels.length ? codexModels : choice.models;
+  useEffect(() => {
+    if (!open || provider !== "codex-subscription") return;
+    let current = true;
+    void request<{ models: string[] }>("GET", "/api/agents/codex-subscription/models").then(value => {
+      if (!current || !value?.models?.length) return;
+      setCodexModels(value.models);
+      if (value.models.includes(session.model)) setCustom(false);
+    }, () => undefined);
+    return () => { current = false; };
+  }, [open, provider, session]);
+  const change = (key: "model" | "effort", value: string) => { session[key] = value; session.publish(); };
+  const totals = session.totals;
+  const active = session.turns.find(turn => turn.status === "running");
+  const reported = active && session.activity.get(active.id);
+  const usage = reported?.usage;
+  const runningTokens = usage && usage.input_tokens + usage.output_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
+  const recordedTokens = totals && session.turns.some(turn => turn.usage) ? totals.input + totals.output + totals.cache_read + totals.cache_write : undefined;
+  const tokens = runningTokens ? (recordedTokens ?? 0) + runningTokens : recordedTokens;
+  const usd = !totals?.subscription && (!active || !active.provider.endsWith("-subscription"))
+    && totals?.usd != null && (!active || reported?.usd != null)
+    ? totals.usd + (reported?.usd ?? 0) : null;
+  const cost = usd == null ? "Cost unavailable" : `$${usd.toFixed(4)}`;
+  useEffect(() => {
+    if (!open) return;
+    panel.current?.querySelector("select")?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !panel.current?.contains(event.target) && !anchor.current?.contains(event.target)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setOpen(false); anchor.current?.focus(); }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  return <>
+    <button ref={anchor} className="agent-status-trigger" aria-label="Agent settings" aria-expanded={open} aria-haspopup="dialog"
+      title={`${choice.name} · ${session.model || choice.models[0]} · Effort ${session.effort || "default"}`}
+      onClick={() => { setCustom(!!session.model && !models.includes(session.model)); setOpen(!open); }}>
+      <span aria-hidden="true">{choice.icon}</span> {session.model || choice.models[0]} <span aria-hidden="true">◴</span> {session.effort || "Default"}
+    </button>
+    <span title={`Conversation usage · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
+    {open && createPortal(<div ref={panel} role="dialog" aria-label="Agent settings" className="agent-settings"
+      style={{ left: Math.max(8, Math.min(anchor.current?.getBoundingClientRect().left ?? 8, window.innerWidth - 298)), bottom: window.innerHeight - (anchor.current?.getBoundingClientRect().top ?? window.innerHeight) + 4 }}>
+      <label>Provider<select aria-label="Provider" disabled={session.running} value={provider} onChange={event => {
+        session.provider = event.target.value; session.model = ""; session.effort = ""; setCustom(false); session.publish();
+      }}>{Object.entries(subscriptionChoices).map(([id, option]) => <option key={id} value={id}>{option.name} subscription</option>)}</select></label>
+      <label>Model<select aria-label="Model" disabled={session.running} value={custom ? "custom" : session.model} onChange={event => {
+        setCustom(event.target.value === "custom");
+        if (event.target.value !== "custom") change("model", event.target.value);
+      }}><option value="">Provider default ({choice.models[0]})</option>
+        {models.map(model => <option key={model}>{model}</option>)}<option value="custom">Custom model…</option>
+      </select></label>
+      {custom && <label>Custom model<input aria-label="Custom model" disabled={session.running} value={session.model} onChange={event => change("model", event.target.value)} /></label>}
+      <label>Effort<select aria-label="Effort" disabled={session.running || !choice.efforts.length} value={session.effort} onChange={event => change("effort", event.target.value)}>
+        <option value="">{choice.efforts.length ? "Default" : "Managed by provider"}</option>
+        {choice.efforts.map(effort => <option key={effort} value={effort}>{effort}</option>)}
+      </select></label>
+      <small>Model presets depend on subscription access. Sign in on the workspace server with <code>{choice.login}</code>.</small>
+    </div>, document.body)}
+  </>;
+}
+
 type MessageSide = "user" | "assistant";
 type FenceCapture = {
   version: number; id: string; uri: string; program: string; workspace: string;

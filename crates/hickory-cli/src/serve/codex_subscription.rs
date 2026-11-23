@@ -499,8 +499,42 @@ async fn usage(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     }
     result.map_err(|_| ApiError::unavailable("Codex usage is unavailable. Check native Codex sign-in and update Codex CLI, then retry."))
 }
+fn listed_models(cache: &Value) -> Vec<String> {
+    let mut models = vec![DEFAULT_MODEL.to_owned()];
+    for model in cache["models"].as_array().into_iter().flatten() {
+        let Some(id) = model["slug"].as_str() else { continue };
+        if model["visibility"] == "list" && id.len() <= 128 && !id.is_empty()
+            && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+            && !models.iter().any(|known| known == id)
+        {
+            models.push(id.to_owned());
+        }
+        if models.len() == 100 { break; }
+    }
+    models
+}
+
+async fn models(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    use std::io::Read;
+    if state.private_prediction.is_some() {
+        return Err(ApiError::unavailable("Model choices are unavailable in private prediction mode."));
+    }
+    const LIMIT: u64 = 2 * 1024 * 1024;
+    let cache = tokio::task::spawn_blocking(|| {
+        let dir = std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".codex")))?;
+        let path = dir.join("models_cache.json");
+        let info = std::fs::symlink_metadata(&path).ok()?;
+        if !info.is_file() || info.len() > LIMIT { return None; }
+        let file = std::fs::File::open(path).ok()?;
+        serde_json::from_reader(file.take(LIMIT)).ok()
+    }).await.ok().flatten().unwrap_or(Value::Null);
+    Ok(Json(json!({"models": listed_models(&cache)})))
+}
+
 pub fn routes() -> axum::Router<LocalState> {
     axum::Router::new()
+        .route("/agents/codex-subscription/models", axum::routing::get(models))
         .route(
             "/agents/codex-subscription",
             axum::routing::get(status).post(login),
@@ -513,6 +547,19 @@ pub fn routes() -> axum::Router<LocalState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_choices_use_only_visible_unique_bounded_ids() {
+        let cache = json!({"models":[
+            {"slug":DEFAULT_MODEL,"visibility":"list"},
+            {"slug":"gpt-fixture","visibility":"list","description":"ignored"},
+            {"slug":"gpt-fixture","visibility":"list"},
+            {"slug":"private-model","visibility":"hide"},
+            {"slug":"bad model","visibility":"list"}
+        ]});
+        assert_eq!(listed_models(&cache), [DEFAULT_MODEL, "gpt-fixture"]);
+        assert_eq!(listed_models(&Value::Null), [DEFAULT_MODEL]);
+    }
     #[cfg(unix)]
     #[tokio::test]
     async fn selection_keeps_subscription_identity_and_refuses_private_inference_without_fallback()

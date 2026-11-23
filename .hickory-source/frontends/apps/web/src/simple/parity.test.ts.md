@@ -1374,6 +1374,36 @@ describe("simple literate subscription agent", () => {
     expect(session.prompt).toBe("Keep my draft"); expect(session.turns).toEqual([]);
     expect(session.error).toContain("not retried"); expect(api.agent).toHaveBeenCalledTimes(before + 1);
   });
+  it("shows live agent activity while keeping protocol output and tool details out of the answer", async () => {
+    const session = new AgentSession();
+    session.prompt = "First draft";
+    let accept!: (response: {session_id: string}) => void;
+    vi.mocked(api.agent).mockReturnValueOnce(new Promise(resolve => { accept = resolve; }));
+    const screen = render(createElement(Agent, { session }));
+    const pending = session.send();
+    const receive = (event: import("../api/types").AgentWsEvent, id = "live") =>
+      session.receive({run_id: id, exec_id: "agent", event});
+    receive({kind: "thinking"});
+    await act(async () => { accept({session_id: "live"}); await pending; });
+    expect(screen.getByText("Waiting for the model…")).toBeTruthy();
+    expect(screen.getByRole("button", {name: "Stop"})).toBeTruthy();
+    act(() => {
+      receive({kind: "token", data: "worker protocol"});
+      receive({kind: "tool_started", name: "read", data: "private invocation"});
+      receive({kind: "tool_finished", name: "read", ok: true, text: "tool receipt"});
+      receive({kind: "token", data: "other turn"}, "other");
+      session.prompt = "Next draft";
+    });
+    expect(screen.queryByText("worker protocol")).toBeNull();
+    expect(screen.getByText("Tool calls (1)").closest("details")?.open).toBe(false);
+    expect(screen.getByText("read · Completed").closest("details")?.open).toBe(false);
+    act(() => receive({kind: "response_complete", text: "## Result\n\n**Ready.**"}));
+    expect(screen.getByRole("heading", {name: "Result"})).toBeTruthy();
+    expect(session.prompt).toBe("Next draft");
+    act(() => { session.setTurns(session.turns.map(turn => ({...turn, status: "ok", answer: "## Result"}))); session.publish(); });
+    expect(screen.queryByRole("button", {name: "Stop"})).toBeNull();
+    expect(screen.getByRole("button", {name: "Send"})).toBeTruthy();
+  });
   it("opens Debug only on an explicit recorded fence click and retires a late capture", async () => {
     const prompt = "Question 😀\r\n```python\r\nvalue = 41\r\nprint(value + 1)\r\n```";
     const answer = "Answer\n\n~~~python\nprint(42)\n~~~";

@@ -922,13 +922,20 @@ def acceptance(driver, folder):
 def agent_acceptance(driver, folder):
     # Real retained session + real HTTP refusal: no live provider is invoked.
     text = "# Explain this\n\n```python\nprint('café 😀')\n```"
+    driver.act("open", path="source.md")
     state = driver.act("agent-documents", text=text)
-    assert state["readonly"] and state["stable"], state
+    assert state["readonly"] and state["stable"] and state["quiet"] and state["closed"], state
+    assert "sonnet" in state["pickedModel"], state
+    assert "Ln 1, Col 2" in state["sourcePosition"], state
     assert state["retained"] == text, state
-    assert state["payload"] == {"backend": "python", "prompt": text,
-        "parent_id": "agent-history", "provider": "claude-subscription",
-        "context": {"live": True, "buffers": []},
-        "model": "unavailable-model", "effort": "high"}, state
+    context = state["payload"]["context"]
+    assert context["live"] is True and len(context["buffers"]) == 1, context
+    source = context["buffers"][0]
+    assert source["path"] == "source.md" and source["content"] == (folder / "source.md").read_text(), source
+    assert {key: value for key, value in state["payload"].items() if key != "context"} == {
+        "backend": "python", "prompt": text, "parent_id": "agent-history",
+        "provider": "claude-subscription", "model": "unavailable-model", "effort": "high",
+    }, state
     assert "# Previous question" in state["history"], state
     driver.act("screenshot", path=str(ROOT / "target/simple-agent.png"))
 

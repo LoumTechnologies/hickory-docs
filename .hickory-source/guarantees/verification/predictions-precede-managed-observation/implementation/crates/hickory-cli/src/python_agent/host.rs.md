@@ -714,18 +714,13 @@ impl Host<'_> {
                     "python-completion",
                     &json!({"actor":"harness","model_summary":summary,"model_stopped":true,"verification":"source-output-equality-only","runtime_checks":if self.ui_checks_recorded {"See separately recorded document check receipts; changeset-wide coverage is not established"} else {"No completed runtime check recorded"},"unchecked_edits":self.unchecked_edits,"assumption_coverage":"Not established"}),
                 )?;
-                let checks = if self.ui_checks_recorded {
-                    "Document checks recorded separately; changeset-wide runtime coverage not established"
-                } else {
-                    "no completed runtime check recorded"
-                };
-                self.summary = format!(
-                    "{}\n\nSource-output equality verified; {checks}. Explanation accuracy is not certified.",
-                    artifact
-                        .sources
-                        .get(&artifact.entry)
-                        .context("Accepted artifact entry missing")?
-                );
+                // The receipt above owns verification evidence. The answer is exact
+                // document text so readers and recorded fence actions share one source.
+                self.summary = artifact
+                    .sources
+                    .get(&artifact.entry)
+                    .context("Accepted artifact entry missing")?
+                    .clone();
                 append(
                     &self.session,
                     SessionEvent::Assistant {

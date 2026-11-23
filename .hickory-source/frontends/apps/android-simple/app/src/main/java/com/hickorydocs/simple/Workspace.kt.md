@@ -633,7 +633,7 @@ cache after that selection is retired.
             launchFile = null
             directoryScope=""
             resourceChanges.reset();gitResolution.reset();sourceHistory.close();behaviorReading.close();retainedResourceTabs.clear()
-            agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
+            agent.turns = emptyList(); agent.totals = null; agent.activity.clear(); agent.stopPending = false; agent.error = ""; terminal.id = null; terminal.error = ""
             agent.debugger?.close()
             agent.debugger = NativeDebugger(next, workspaceScope, recordedMessages = true)
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)

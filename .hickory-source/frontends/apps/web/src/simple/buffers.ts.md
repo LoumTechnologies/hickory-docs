@@ -54,6 +54,7 @@ export class Buffer {
     this.inlineRenderNotice = value;
     this.shellChanged();
   }
+  caretOffset = 0;
   version = 0;
   sourceRevision=0;
   private listeners = new Set<() => void>();

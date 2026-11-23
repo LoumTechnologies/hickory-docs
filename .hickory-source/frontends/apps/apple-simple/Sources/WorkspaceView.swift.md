@@ -150,7 +150,11 @@ struct WorkspaceView: View {
                 }
                 Text(workspace.status).lineLimit(1).help(workspace.status)
                 Spacer(minLength: 8)
-                if let buffer = workspace.currentBuffer {
+                if workspace.activeTab == "agent" {
+                    NativeAgentStatus(session: workspace.agent, engine: workspace.engine).id(workspace.engine?.origin)
+                } else if let buffer = workspace.currentBuffer {
+                    let position = languagePosition(buffer.text, buffer.selection.location)
+                    Text("Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)").fixedSize()
                     if let language = buffer.language { Text(language.completionNotice.isEmpty ? language.status:language.completionNotice).lineLimit(1).frame(maxWidth: 310).help(language.completionNotice.isEmpty ? language.status:language.completionNotice) } else if !buffer.snippets.notice.isEmpty {Text(buffer.snippets.notice).lineLimit(1).frame(maxWidth:310).help(buffer.snippets.notice)}
                     Text(buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved")
                 }
@@ -197,6 +201,10 @@ struct WorkspaceView: View {
                 return
             }
             await workspace.agent.observe(engine) { workspace.sourceNavigationEpoch == epoch }
+        }
+        .task(id: epoch.uuidString + String(observeAgent)) {
+            guard observeAgent, let engine = workspace.engine else { return }
+            await workspace.agent.observeActivity(engine) { workspace.sourceNavigationEpoch == epoch }
         }
         .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
