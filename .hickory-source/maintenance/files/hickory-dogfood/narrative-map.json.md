@@ -134413,6 +134413,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "authored explanation beside maintained implementation and focused process witnesses"
     },
     {
+      "id": "codex-preview-queue",
+      "output": "scripts/codex-simple-dev.py",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "Queue the completed turn's checkout",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "codex-preview-worker",
+      "output": "scripts/codex-simple-dev.py",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "Refresh Simple Dev Apple in the login session",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "codex-preview-install",
+      "output": "scripts/codex-simple-dev.py",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "Install the Codex hook",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "simple-mobile-reload",
       "output": "crates/hickory-cli/examples/simple_dev/reload.rs",
       "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",

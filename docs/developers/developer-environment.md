@@ -11,6 +11,21 @@ rebuilds and relaunches that frontend when HEAD changes. Use `just dev-stop`
 to stop it, or `just dev-clean` to also remove this checkout's development
 scratch directory. Save or move any scratch edits you intend to keep first.
 
+### Refresh Simple Dev Apple when Codex finishes
+
+On macOS, run `just codex-simple-dev-install` from your main checkout, then
+review and trust the new Stop hook in Codex Settings → Hooks or with `/hooks`
+in the CLI. The hook queues the checkout used by the completed turn, including
+linked worktrees and uncommitted changes. The detached worker builds and opens
+Simple Dev Apple in the background. A new request during a build waits for the
+app to start, then uses the latest queued inputs. When those inputs match the
+running app, the agent keeps it open. A later turn can retry a failed build.
+
+Close a manually started dev session with `just dev-stop` before using the
+automatic preview in that checkout. The automatic preview also responds to
+`just dev-stop`. See build and launch output in
+`~/Library/Application Support/Hickory Docs/Codex Simple Dev/preview.log`.
+
 Run `just dev-site` to work on the public site and its embedded demonstrations.
 The site has separate development and build entry points.
 

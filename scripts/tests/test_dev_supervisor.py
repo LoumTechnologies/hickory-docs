@@ -1,13 +1,19 @@
 """Focused real-process witnesses; no app, GUI, downloads or target checkout commits."""
+import importlib.util
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+PREVIEW_SPEC = importlib.util.spec_from_file_location("codex_preview", ROOT / "scripts/codex-simple-dev.py")
+PREVIEW = importlib.util.module_from_spec(PREVIEW_SPEC)
+PREVIEW_SPEC.loader.exec_module(PREVIEW)
 
 class SupervisorTests(unittest.TestCase):
     @classmethod
@@ -57,6 +63,9 @@ def stop(*_):
 signal.signal(signal.SIGTERM, stop)
 time.sleep(float((root / 'delay').read_text()) if (root / 'delay').exists() else 0)
 log('ready')
+if (root / 'HickorySimple').exists():
+    app = subprocess.Popen([str(root / 'HickorySimple'), '300'], start_new_session=True)
+    app.wait()
 while True: time.sleep(.05)
 ''')
 
@@ -198,6 +207,61 @@ while True: time.sleep(.05)
         self.assertFalse(scratch.exists())
         with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
         self.assertEqual(self.process.wait(timeout=25), 0)
+
+    def test_codex_requests_wait_for_startup_and_coalesce(self):
+        self.commit()
+        shutil.copy('/bin/sleep', self.root / 'HickorySimple')
+        (self.root / 'delay').write_text('2')
+        target = self.root / 'target'
+        target.mkdir()
+        token = target / 'dev-desktop-request'
+        PREVIEW.publish(token, b'1 original')
+        self.process = subprocess.Popen(
+            [str(self.binary), '--desktop-request', os.sys.executable, str(self.child)],
+            cwd=self.root, stdout=self.log, stderr=self.log,
+        )
+        self.wait_for(lambda: self.starts() == 1)
+        self.commit()
+        time.sleep(.4)
+        self.assertEqual(self.starts(), 1)
+        PREVIEW.publish(token, b'2 queued')
+        PREVIEW.publish(token, b'3 latest')
+        time.sleep(.4)
+        self.assertEqual(self.starts(), 1)
+        self.wait_for(lambda: self.starts() == 2)
+        self.wait_for(lambda: self.events().count('ready') == 2)
+        PREVIEW.publish(token, b'4 latest')
+        self.commit()
+        time.sleep(.8)
+        self.assertEqual(self.starts(), 2)
+        self.assertNotIn('overlap', self.events())
+        self.assertEqual(self.events().count('ready'), 2)
+
+    def test_codex_queue_uses_the_linked_checkout_and_fingerprints_dirty_files(self):
+        self.commit()
+        other = self.root / 'linked'
+        self.git('worktree', 'add', '-qb', 'linked', str(other))
+        state = self.root / 'queue-state'
+        with patch.object(PREVIEW, 'start_worker') as start, patch.multiple(
+            PREVIEW, ROOT=self.root, STATE=state, QUEUE=state / 'pending'
+        ):
+            event = {'hook_event_name': 'Stop'}
+            self.assertEqual(PREVIEW.enqueue({**event, 'cwd': str(ROOT)}), {})
+            self.assertFalse(PREVIEW.QUEUE.exists())
+            self.assertEqual(PREVIEW.enqueue({**event, 'cwd': str(other)}), {})
+            queued, = PREVIEW.QUEUE.iterdir()
+            self.assertEqual(Path(os.fsdecode(queued.read_bytes())), other.resolve())
+            start.assert_called_once_with()
+        clean = PREVIEW.fingerprint(other)
+        (other / 'tracked').write_text('working edit')
+        dirty = PREVIEW.fingerprint(other)
+        self.assertNotEqual(clean, dirty)
+        new = other / 'new'
+        new.write_text('first')
+        added = PREVIEW.fingerprint(other)
+        self.assertNotEqual(dirty, added)
+        new.write_text('second')
+        self.assertNotEqual(added, PREVIEW.fingerprint(other))
 
 if __name__ == '__main__':
     unittest.main()

@@ -192,6 +192,7 @@ struct Process {
     group: i32,
     zombie: bool,
     birth: String,
+    executable: String,
 }
 #[cfg(unix)]
 fn owned_members(
@@ -231,7 +232,7 @@ fn processes() -> io::Result<Vec<Process>> {
     let output = Command::new("ps")
         .env("LC_ALL", "C")
         .env("TZ", "UTC")
-        .args(["-axo", "pid=,ppid=,pgid=,stat=,lstart="])
+        .args(["-axo", "pid=,ppid=,pgid=,stat=,lstart=,comm="])
         .output()?;
     if !output.status.success() {
         return Err(io::Error::other(
@@ -247,7 +248,8 @@ fn processes() -> io::Result<Vec<Process>> {
                 parent: fields.next()?.parse().ok()?,
                 group: fields.next()?.parse().ok()?,
                 zombie: fields.next()?.starts_with('Z'),
-                birth: fields.collect::<Vec<_>>().join(" "),
+                birth: fields.by_ref().take(5).collect::<Vec<_>>().join(" "),
+                executable: fields.collect::<Vec<_>>().join(" "),
             })
         })
         .collect())
@@ -261,6 +263,7 @@ fn ownership_rejects_recycled_ids_and_retains_orphans() {
         group,
         zombie: false,
         birth: birth.into(),
+        executable: String::new(),
     };
     let old = process(20, 10, 20, "old");
     assert!(
@@ -277,7 +280,53 @@ fn ownership_rejects_recycled_ids_and_retains_orphans() {
     assert_eq!(members.len(), 2);
 }
 
-fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
+const DESKTOP_STOP: &str = "target/dev-desktop-stop";
+#[cfg(unix)]
+const DESKTOP_REQUEST: &str = "target/dev-desktop-request";
+
+enum RestartOn {
+    Commit,
+    #[cfg(unix)]
+    AppleRequest,
+}
+
+impl RestartOn {
+    fn token(&self) -> io::Result<Option<String>> {
+        match self {
+            Self::Commit => revision(),
+            #[cfg(unix)]
+            Self::AppleRequest => std::fs::read_to_string(DESKTOP_REQUEST).map(Some),
+        }
+    }
+
+    fn can_restart(&self, _child: Option<&Owned>) -> bool {
+        match self {
+            Self::Commit => true,
+            #[cfg(unix)]
+            Self::AppleRequest => _child.is_none_or(|child| {
+                child.members.iter().any(|process| {
+                    !process.zombie
+                        && std::path::Path::new(&process.executable)
+                            .file_name()
+                            .is_some_and(|name| name == "HickorySimple")
+                })
+            }),
+        }
+    }
+
+    fn same_inputs(&self, before: Option<&str>, after: Option<&str>) -> bool {
+        match self {
+            Self::Commit => false,
+            #[cfg(unix)]
+            Self::AppleRequest => before
+                .and_then(|token| token.split_once(' '))
+                .zip(after.and_then(|token| token.split_once(' ')))
+                .is_some_and(|((_, old), (_, new))| old == new),
+        }
+    }
+}
+
+fn supervise(args: &[String], stop_file: Option<&str>, restart: RestartOn) -> io::Result<()> {
     let _desktop_lock =
         if stop_file.is_some() {
             let file = desktop_lock()?;
@@ -311,7 +360,7 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
     unsafe {
         SetConsoleCtrlHandler(interrupted, 1);
     }
-    let mut seen = revision()?;
+    let mut seen = restart.token()?;
     loop {
         if STOP.load(Ordering::SeqCst)
             || stop_file.map(|path| std::fs::read(path).ok()) != stop_token
@@ -325,7 +374,7 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
         let mut owned = match Owned::start(args) {
             Ok(child) => Some(child),
             Err(error) => {
-                eprintln!("Startup failed: {error}. Waiting for the next commit.");
+                eprintln!("Startup failed: {error}. Waiting for the next restart trigger.");
                 None
             }
         };
@@ -337,19 +386,25 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
                 if stop_file.map(|path| std::fs::read(path).ok()) != stop_token {
                     return Ok(false);
                 }
-                let now = revision()?;
-                if now != seen {
-                    return Ok(true);
-                }
+                let now = restart.token()?;
                 if let Some(child) = &mut owned {
                     #[cfg(unix)]
                     child.remember_groups()?;
+                }
+                if now != seen && restart.can_restart(owned.as_ref()) {
+                    if owned.is_some() && restart.same_inputs(seen.as_deref(), now.as_deref()) {
+                        seen = now.clone();
+                    } else {
+                        return Ok(true);
+                    }
+                }
+                if let Some(child) = &mut owned {
                     if let Some(status) = child.child.try_wait()? {
                         if status.success() {
-                            return Ok(false);
+                            return Ok(now != seen);
                         }
                         eprintln!(
-                            "Development command failed ({status}); waiting for the next commit."
+                            "Development command failed ({status}); waiting for the next restart trigger."
                         );
                         child.stop()?;
                         owned = None;
@@ -364,9 +419,9 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
         if !outcome? {
             return Ok(());
         }
-        // Read again after shutdown: several commits can collapse into one launch.
-        seen = revision()?;
-        eprintln!("Commit changed; restarting with current working-tree files.");
+        // Read again after shutdown so several changes can collapse into one launch.
+        seen = restart.token()?;
+        eprintln!("Restarting with current working-tree files.");
     }
 }
 
@@ -422,14 +477,15 @@ fn stop_desktop(args: &[String]) -> io::Result<()> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    let result = if args.first().is_some_and(|arg| arg == "--web-once") {
-        web_once(&args[1..])
-    } else if args.first().is_some_and(|arg| arg == "--desktop") {
-        supervise(&args[1..], Some("target/dev-desktop-stop"))
-    } else if args.first().is_some_and(|arg| arg == "--desktop-stop") {
-        stop_desktop(&args[1..])
-    } else {
-        supervise(&args, None)
+    let result = match args.first().map(String::as_str) {
+        Some("--web-once") => web_once(&args[1..]),
+        Some("--desktop") => supervise(&args[1..], Some(DESKTOP_STOP), RestartOn::Commit),
+        #[cfg(unix)]
+        Some("--desktop-request") => {
+            supervise(&args[1..], Some(DESKTOP_STOP), RestartOn::AppleRequest)
+        }
+        Some("--desktop-stop") => stop_desktop(&args[1..]),
+        _ => supervise(&args, None, RestartOn::Commit),
     };
     if let Err(error) = result {
         eprintln!("Development supervisor: {error}");

@@ -769,6 +769,10 @@ native-debug-smoke platform:
 simple-dev platform="browser": _dev-supervisor
     {{ if platform == "browser" { "target/dev-supervisor --desktop " } else if platform == "apple" { "target/dev-supervisor --desktop " } else if platform == "linux" { "target/dev-supervisor --desktop " } else if platform == "windows" { "target/dev-supervisor.exe --desktop " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 
+# Install the user-level Codex Stop hook for this repository on macOS.
+codex-simple-dev-install: _dev-supervisor
+    python3 scripts/codex-simple-dev.py install
+
 # Real native update/relaunch and app-data preservation on an explicitly selected device.
 simple-reload-test platform:
     python3 scripts/test-simple-mobile-reload.py {{quote(platform)}}

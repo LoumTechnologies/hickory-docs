@@ -61754,6 +61754,19 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-enter-fixtures"
       ]
     },
+    "scripts/codex-simple-dev.py": {
+      "source": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "codex-preview-queue",
+        "codex-preview-worker",
+        "codex-preview-install"
+      ],
+      "narrative_owner": "mechanism:dev-commit-restarts"
+    },
     "scripts/dev-supervisor.rs": {
       "source": ".hickory-source/mechanisms/dev-commit-restarts.md",
       "owner": "support",

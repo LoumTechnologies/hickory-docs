@@ -1,5 +1,5 @@
 <restart:doc xmlns:restart="http://www.hickorydocs.com/1.0">
-# Restart development sessions when this worktree commits
+# Restart development sessions on a commit or a Codex request
 
 For maintainers changing local launch behavior. This reading covers the shared supervisor and its harmless real-process witnesses, not app correctness or broad regression coverage. The [developer workflow](../../docs/developers/developer-environment.md) records eligible commands and mobile device ownership.
 
@@ -209,6 +209,7 @@ struct Process {
     group: i32,
     zombie: bool,
     birth: String,
+    executable: String,
 }
 #[cfg(unix)]
 fn owned_members(
@@ -248,7 +249,7 @@ fn processes() -> io::Result<Vec<Process>> {
     let output = Command::new("ps")
         .env("LC_ALL", "C")
         .env("TZ", "UTC")
-        .args(["-axo", "pid=,ppid=,pgid=,stat=,lstart="])
+        .args(["-axo", "pid=,ppid=,pgid=,stat=,lstart=,comm="])
         .output()?;
     if !output.status.success() {
         return Err(io::Error::other(
@@ -264,7 +265,8 @@ fn processes() -> io::Result<Vec<Process>> {
                 parent: fields.next()?.parse().ok()?,
                 group: fields.next()?.parse().ok()?,
                 zombie: fields.next()?.starts_with('Z'),
-                birth: fields.collect::<Vec<_>>().join(" "),
+                birth: fields.by_ref().take(5).collect::<Vec<_>>().join(" "),
+                executable: fields.collect::<Vec<_>>().join(" "),
             })
         })
         .collect())
@@ -278,6 +280,7 @@ fn ownership_rejects_recycled_ids_and_retains_orphans() {
         group,
         zombie: false,
         birth: birth.into(),
+        executable: String::new(),
     };
     let old = process(20, 10, 20, "old");
     assert!(
@@ -300,8 +303,56 @@ fn ownership_rejects_recycled_ids_and_retains_orphans() {
 
 The polling loop runs while the child prepares and builds. Check HEAD before examining child exit, then reread it after cleanup to coalesce changes. A worktree-local stop token also lets `dev-stop` and `dev-clean` end the supervisor without PID-file reuse risks. An OS lifetime lock makes cleanup wait until child teardown finishes and refuses overlapping desktop sessions; stale files cannot retain a lock after a crash. Successful window closure exits normally; a failed revision remains visible and waits for a new commit. Working files and environment are never reset.
 
+For Codex requests, read the worktree's request token instead of HEAD. Wait for the owned Apple app process to appear before replacing a successful build. This also works in older worktrees because the native launcher already executes the bundled binary as a child. A new request with the same input fingerprint preserves the running app. A failed child can retry on the next request, even if the inputs stayed the same.
+
 <restart:copy id="restart-loop">
-fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
+const DESKTOP_STOP: &str = "target/dev-desktop-stop";
+#[cfg(unix)]
+const DESKTOP_REQUEST: &str = "target/dev-desktop-request";
+
+enum RestartOn {
+    Commit,
+    #[cfg(unix)]
+    AppleRequest,
+}
+
+impl RestartOn {
+    fn token(&self) -> io::Result<Option<String>> {
+        match self {
+            Self::Commit => revision(),
+            #[cfg(unix)]
+            Self::AppleRequest => std::fs::read_to_string(DESKTOP_REQUEST).map(Some),
+        }
+    }
+
+    fn can_restart(&self, _child: Option<&Owned>) -> bool {
+        match self {
+            Self::Commit => true,
+            #[cfg(unix)]
+            Self::AppleRequest => _child.is_none_or(|child| {
+                child.members.iter().any(|process| {
+                    !process.zombie
+                        && std::path::Path::new(&process.executable)
+                            .file_name()
+                            .is_some_and(|name| name == "HickorySimple")
+                })
+            }),
+        }
+    }
+
+    fn same_inputs(&self, before: Option<&str>, after: Option<&str>) -> bool {
+        match self {
+            Self::Commit => false,
+            #[cfg(unix)]
+            Self::AppleRequest => before
+                .and_then(|token| token.split_once(' '))
+                .zip(after.and_then(|token| token.split_once(' ')))
+                .is_some_and(|((_, old), (_, new))| old == new),
+        }
+    }
+}
+
+fn supervise(args: &[String], stop_file: Option<&str>, restart: RestartOn) -> io::Result<()> {
     let _desktop_lock =
         if stop_file.is_some() {
             let file = desktop_lock()?;
@@ -335,7 +386,7 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
     unsafe {
         SetConsoleCtrlHandler(interrupted, 1);
     }
-    let mut seen = revision()?;
+    let mut seen = restart.token()?;
     loop {
         if STOP.load(Ordering::SeqCst)
             || stop_file.map(|path| std::fs::read(path).ok()) != stop_token
@@ -349,7 +400,7 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
         let mut owned = match Owned::start(args) {
             Ok(child) => Some(child),
             Err(error) => {
-                eprintln!("Startup failed: {error}. Waiting for the next commit.");
+                eprintln!("Startup failed: {error}. Waiting for the next restart trigger.");
                 None
             }
         };
@@ -361,19 +412,25 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
                 if stop_file.map(|path| std::fs::read(path).ok()) != stop_token {
                     return Ok(false);
                 }
-                let now = revision()?;
-                if now != seen {
-                    return Ok(true);
-                }
+                let now = restart.token()?;
                 if let Some(child) = &mut owned {
                     #[cfg(unix)]
                     child.remember_groups()?;
+                }
+                if now != seen && restart.can_restart(owned.as_ref()) {
+                    if owned.is_some() && restart.same_inputs(seen.as_deref(), now.as_deref()) {
+                        seen = now.clone();
+                    } else {
+                        return Ok(true);
+                    }
+                }
+                if let Some(child) = &mut owned {
                     if let Some(status) = child.child.try_wait()? {
                         if status.success() {
-                            return Ok(false);
+                            return Ok(now != seen);
                         }
                         eprintln!(
-                            "Development command failed ({status}); waiting for the next commit."
+                            "Development command failed ({status}); waiting for the next restart trigger."
                         );
                         child.stop()?;
                         owned = None;
@@ -388,9 +445,9 @@ fn supervise(args: &[String], stop_file: Option<&str>) -> io::Result<()> {
         if !outcome? {
             return Ok(());
         }
-        // Read again after shutdown: several commits can collapse into one launch.
-        seen = revision()?;
-        eprintln!("Commit changed; restarting with current working-tree files.");
+        // Read again after shutdown so several changes can collapse into one launch.
+        seen = restart.token()?;
+        eprintln!("Restarting with current working-tree files.");
     }
 }
 
@@ -446,14 +503,15 @@ fn stop_desktop(args: &[String]) -> io::Result<()> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    let result = if args.first().is_some_and(|arg| arg == "--web-once") {
-        web_once(&args[1..])
-    } else if args.first().is_some_and(|arg| arg == "--desktop") {
-        supervise(&args[1..], Some("target/dev-desktop-stop"))
-    } else if args.first().is_some_and(|arg| arg == "--desktop-stop") {
-        stop_desktop(&args[1..])
-    } else {
-        supervise(&args, None)
+    let result = match args.first().map(String::as_str) {
+        Some("--web-once") => web_once(&args[1..]),
+        Some("--desktop") => supervise(&args[1..], Some(DESKTOP_STOP), RestartOn::Commit),
+        #[cfg(unix)]
+        Some("--desktop-request") => {
+            supervise(&args[1..], Some(DESKTOP_STOP), RestartOn::AppleRequest)
+        }
+        Some("--desktop-stop") => stop_desktop(&args[1..]),
+        _ => supervise(&args, None, RestartOn::Commit),
     };
     if let Err(error) = result {
         eprintln!("Development supervisor: {error}");
@@ -499,21 +557,249 @@ fn web_once(args: &[String]) -> io::Result<()> {
 
 <restart:file path="scripts/dev-supervisor.rs"><restart:paste select="#signals-and-revisions"/><restart:paste select="#owned-process-tree"/><restart:paste select="#restart-loop"/><restart:paste select="#frontend-preparation"/></restart:file>
 
+## Hand completed Codex turns to a detached worker
+
+The hook matches the checkout's common Git directory. Linked worktrees share
+that directory and retain their own checkout path. The hook atomically queues
+a request and returns empty JSON so Codex can finish while the worker builds.
+Starting the worker from the hook also gives it the calling application's normal
+macOS access to a checkout in Documents.
+
+<restart:copy id="codex-preview-queue">
+"""Refresh Simple Dev Apple from local Codex Stop events."""
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parents[1]
+STATE = Path.home() / "Library/Application Support/Hickory Docs/Codex Simple Dev"
+QUEUE = STATE / "pending"
+LOG = STATE / "preview.log"
+
+
+def git(cwd, *args):
+    return subprocess.check_output(["git", "-C", cwd, *args], stderr=subprocess.DEVNULL)
+
+
+def git_path(cwd, option):
+    path = git(cwd, "rev-parse", "--path-format=absolute", option).removesuffix(b"\n")
+    return Path(os.fsdecode(path)).resolve()
+
+
+def checkout(cwd):
+    try:
+        if git_path(cwd, "--git-common-dir") == git_path(ROOT, "--git-common-dir"):
+            return git_path(cwd, "--show-toplevel")
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return None
+
+
+def publish(path, data, scratch=None):
+    with tempfile.NamedTemporaryFile(dir=scratch or path.parent, delete=False) as handle:
+        staged = Path(handle.name)
+        try:
+            handle.write(data)
+            handle.close()
+            staged.replace(path)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def start_worker():
+    # Codex launched from the Dock may have a smaller PATH than the install shell.
+    build_path = (STATE / "build-path").read_text()
+    environment = {**os.environ, "PATH": build_path + os.pathsep + os.environ.get("PATH", "")}
+    with LOG.open("ab") as log:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "serve"],
+            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=environment,
+        )
+
+
+def enqueue(event):
+    if event.get("hook_event_name") != "Stop" or not isinstance(event.get("cwd"), str):
+        return {}
+    root = checkout(event["cwd"])
+    if root is not None:
+        QUEUE.mkdir(parents=True, exist_ok=True)
+        # Stage outside the queue so the worker sees only complete requests.
+        publish(QUEUE / uuid.uuid4().hex, os.fsencode(root), STATE)
+        start_worker()
+    return {}
+
+
+</restart:copy>
+
+The worker batches arrivals by checkout. The committed tree, tracked
+working changes and untracked files identify the inputs. A unique request ID
+allows retry after failure. The fingerprint also lets the supervisor preserve
+a running app when another turn finishes with the same inputs.
+
+<restart:copy id="codex-preview-worker">
+def fingerprint(root):
+    digest = hashlib.sha256(git(root, "rev-parse", "HEAD^{tree}"))
+    digest.update(git(root, "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"))
+    untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z")
+    for name in sorted(filter(None, untracked.split(b"\0"))):
+        path = root / os.fsdecode(name)
+        try:
+            mode = path.lstat().st_mode
+            content = hashlib.sha256()
+            if stat.S_ISLNK(mode):
+                content.update(os.fsencode(os.readlink(path)))
+            elif stat.S_ISREG(mode):
+                with path.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(128 * 1024), b""):
+                        content.update(chunk)
+            digest.update(name + b"\0" + str(mode).encode() + b"\0" + content.digest())
+        except FileNotFoundError:
+            # Another turn can remove a file while we read the snapshot.
+            continue
+    return digest.hexdigest()
+
+
+def request_preview(root, supervisor):
+    token = f"{uuid.uuid4().hex} {fingerprint(root)}"
+    target = root / "target"
+    target.mkdir(exist_ok=True)
+    publish(target / "dev-desktop-request", token.encode())
+    if supervisor is not None and supervisor.poll() is None:
+        return supervisor
+    return subprocess.Popen(
+        [ROOT / "target/dev-supervisor", "--desktop-request",
+         "cargo", "run", "--quiet", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
+        cwd=root,
+        stdin=subprocess.DEVNULL,
+    )
+
+
+def run_requests(should_stop):
+    supervisors = {}
+    try:
+        while not should_stop():
+            supervisors = {root: proc for root, proc in supervisors.items() if proc.poll() is None}
+            pending = {}
+            for path in QUEUE.iterdir():
+                root = Path(os.fsdecode(path.read_bytes()))
+                pending.setdefault(root, []).append(path)
+            if not supervisors and not pending:
+                return
+            for root, paths in pending.items():
+                try:
+                    if checkout(root) == root:
+                        supervisors[root] = request_preview(root, supervisors.get(root))
+                        print(f"Queued Apple preview for {root}", flush=True)
+                except (OSError, subprocess.CalledProcessError) as error:
+                    print(f"Could not queue Apple preview for {root}: {error}", file=sys.stderr, flush=True)
+                finally:
+                    for path in paths:
+                        path.unlink(missing_ok=True)
+            time.sleep(0.5)
+    finally:
+        for supervisor in supervisors.values():
+            if supervisor.poll() is None:
+                supervisor.terminate()
+        for supervisor in supervisors.values():
+            supervisor.wait()
+
+
+def serve():
+    stopping = False
+
+    def stop(*_):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, stop)
+    with (STATE / "worker.lock").open("a") as lock:
+        while not stopping:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return
+            try:
+                run_requests(lambda: stopping)
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            # A hook may queue work while the previous worker is exiting.
+            # Recheck after unlocking so either this worker or the new one sees it.
+            if not any(QUEUE.iterdir()):
+                return
+
+
+</restart:copy>
+
+Installation adds a hook to the user's existing definitions and backs up that
+file. Codex provides the review and trust controls for the new command.
+
+<restart:copy id="codex-preview-install">
+def install():
+    if sys.platform != "darwin":
+        raise SystemExit("Codex Simple Dev installation requires macOS.")
+    STATE.mkdir(parents=True, exist_ok=True)
+    publish(STATE / "build-path", os.environ["PATH"].encode())
+    hooks_path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "hooks.json"
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    original = hooks_path.read_bytes() if hooks_path.exists() else None
+    config = json.loads(original) if original is not None else {}
+    command = shlex.join([sys.executable, str(Path(__file__).resolve()), "enqueue"])
+    entries = config.setdefault("hooks", {}).setdefault("Stop", [])
+    if not any(hook.get("command") == command for entry in entries for hook in entry["hooks"]):
+        entries.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
+        if original is not None:
+            publish(hooks_path.with_name(f"hooks.json.before-hickory-{time.time_ns()}"), original)
+        publish(hooks_path, (json.dumps(config, indent=2) + "\n").encode())
+    print("Review the Hickory Stop hook in Codex Settings > Hooks or in the CLI with /hooks.")
+    print(f"Preview log: {LOG}")
+
+
+if __name__ == "__main__":
+    action = sys.argv[1]
+    if action == "enqueue":
+        print(json.dumps(enqueue(json.load(sys.stdin))))
+    elif action == "serve":
+        serve()
+    elif action == "install":
+        install()
+</restart:copy>
+
+<restart:file path="scripts/codex-simple-dev.py"><restart:paste select="#codex-preview-queue"/><restart:paste select="#codex-preview-worker"/><restart:paste select="#codex-preview-install"/></restart:file>
+
 ## Exercise commit changes without touching the product checkout
 
 The witness creates disposable repositories and a long-running child with a grandchild in a separate session. Its event log checks save-only stability, first commit, amend, rapid commits during startup, failure recovery, argument/environment preservation and Ctrl-C cleanup. The linked-worktree case advances another checkout without restarting this one, then exercises packed refs, detached HEAD and reset. These are process witnesses on the executing host; GUI and Windows acceptance remain separate.
 
 <restart:copy id="restart-witnesses">
 """Focused real-process witnesses; no app, GUI, downloads or target checkout commits."""
+import importlib.util
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+PREVIEW_SPEC = importlib.util.spec_from_file_location("codex_preview", ROOT / "scripts/codex-simple-dev.py")
+PREVIEW = importlib.util.module_from_spec(PREVIEW_SPEC)
+PREVIEW_SPEC.loader.exec_module(PREVIEW)
 
 class SupervisorTests(unittest.TestCase):
     @classmethod
@@ -563,6 +849,9 @@ def stop(*_):
 signal.signal(signal.SIGTERM, stop)
 time.sleep(float((root / 'delay').read_text()) if (root / 'delay').exists() else 0)
 log('ready')
+if (root / 'HickorySimple').exists():
+    app = subprocess.Popen([str(root / 'HickorySimple'), '300'], start_new_session=True)
+    app.wait()
 while True: time.sleep(.05)
 ''')
 
@@ -704,6 +993,61 @@ while True: time.sleep(.05)
         self.assertFalse(scratch.exists())
         with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
         self.assertEqual(self.process.wait(timeout=25), 0)
+
+    def test_codex_requests_wait_for_startup_and_coalesce(self):
+        self.commit()
+        shutil.copy('/bin/sleep', self.root / 'HickorySimple')
+        (self.root / 'delay').write_text('2')
+        target = self.root / 'target'
+        target.mkdir()
+        token = target / 'dev-desktop-request'
+        PREVIEW.publish(token, b'1 original')
+        self.process = subprocess.Popen(
+            [str(self.binary), '--desktop-request', os.sys.executable, str(self.child)],
+            cwd=self.root, stdout=self.log, stderr=self.log,
+        )
+        self.wait_for(lambda: self.starts() == 1)
+        self.commit()
+        time.sleep(.4)
+        self.assertEqual(self.starts(), 1)
+        PREVIEW.publish(token, b'2 queued')
+        PREVIEW.publish(token, b'3 latest')
+        time.sleep(.4)
+        self.assertEqual(self.starts(), 1)
+        self.wait_for(lambda: self.starts() == 2)
+        self.wait_for(lambda: self.events().count('ready') == 2)
+        PREVIEW.publish(token, b'4 latest')
+        self.commit()
+        time.sleep(.8)
+        self.assertEqual(self.starts(), 2)
+        self.assertNotIn('overlap', self.events())
+        self.assertEqual(self.events().count('ready'), 2)
+
+    def test_codex_queue_uses_the_linked_checkout_and_fingerprints_dirty_files(self):
+        self.commit()
+        other = self.root / 'linked'
+        self.git('worktree', 'add', '-qb', 'linked', str(other))
+        state = self.root / 'queue-state'
+        with patch.object(PREVIEW, 'start_worker') as start, patch.multiple(
+            PREVIEW, ROOT=self.root, STATE=state, QUEUE=state / 'pending'
+        ):
+            event = {'hook_event_name': 'Stop'}
+            self.assertEqual(PREVIEW.enqueue({**event, 'cwd': str(ROOT)}), {})
+            self.assertFalse(PREVIEW.QUEUE.exists())
+            self.assertEqual(PREVIEW.enqueue({**event, 'cwd': str(other)}), {})
+            queued, = PREVIEW.QUEUE.iterdir()
+            self.assertEqual(Path(os.fsdecode(queued.read_bytes())), other.resolve())
+            start.assert_called_once_with()
+        clean = PREVIEW.fingerprint(other)
+        (other / 'tracked').write_text('working edit')
+        dirty = PREVIEW.fingerprint(other)
+        self.assertNotEqual(clean, dirty)
+        new = other / 'new'
+        new.write_text('first')
+        added = PREVIEW.fingerprint(other)
+        self.assertNotEqual(dirty, added)
+        new.write_text('second')
+        self.assertNotEqual(added, PREVIEW.fingerprint(other))
 
 if __name__ == '__main__':
     unittest.main()
