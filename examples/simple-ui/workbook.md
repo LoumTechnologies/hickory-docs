@@ -138,14 +138,10 @@ the graph, then restore its preview. Native previews also support Mermaid.
 {"topology":{"nodes":[{"id":"catalog"},{"id":"order"},{"id":"receipt"}],"edges":[{"from":"catalog","to":"order"},{"from":"order","to":"receipt"}]},"layout":{"catalog":{"x":20,"y":20,"w":130,"h":50},"order":{"x":200,"y":20,"w":130,"h":50},"receipt":{"x":380,"y":20,"w":130,"h":50}}}
 </h:diagram>
 
-## Architecture from the code model
+## Architecture from the TypeScript code model
 
-This diagram reads the saved Python files beside the workbook. The arrows
-show name-resolved references. Select a file node to open it at its first
-definition, or refresh after saving changes to the code.
-
-<h:diagram renderer="architecture">
-</h:diagram>
+Open [architecture.md](architecture.md) to follow the repository’s diagram
+script from its GraphQL query to the clickable nodes.
 
 ## Literal content stays literal
 

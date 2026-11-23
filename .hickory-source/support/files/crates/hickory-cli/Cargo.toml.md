@@ -12,6 +12,8 @@ The comparison launcher is an example executable so it shares the real engine de
 
 Resource snapshot acquisition holds a portable directory handle independently of editor startup. The existing same-file package supplies platform file-identity comparisons; acquiring that capability must not gate raw text opening.
 
+Model-driven diagram bodies run in a bounded JavaScript context. The runtime exposes data to the script and does not install filesystem, process or network modules.
+
 <book:entry path="crates/hickory-cli/Cargo.toml">
 [package]
 name = "hickory-cli"
@@ -38,6 +40,7 @@ name = "hickory_cli"
 path = "src/lib.rs"
 
 [dependencies]
+rquickjs = "0.11"
 toml = "0.5"
 hick-coverage = { path = "../hick-coverage" }
 hick-profile = { path = "../hick-profile" }

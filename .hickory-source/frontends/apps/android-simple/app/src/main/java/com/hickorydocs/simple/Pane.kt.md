@@ -1327,22 +1327,37 @@ first source lines and their accessibility bounds stay visible.
                     val follow: (String) -> Unit = { href ->
                         if (buffer.text == source && buffer.inlineMarkup.source == source) buffer.followWorkspaceLink?.invoke(href)
                     }
-                    if (diagram.renderer == "architecture") {
+                    if (diagram.renderer == "code-model") {
                         var refresh by remember(buffer, diagram.from) { mutableStateOf(0) }
                         val path = buffer.file.path
-                        val architecture by produceState<Pair<String?, String>>(null to "Reading the code model…", buffer, path, refresh) {
-                            try {
-                                val engine = buffer.receiptEngine ?: error("Reconnect to the workspace and refresh.")
-                                val scene = engine.request("POST", "/api/architecture", org.json.JSONObject().put("uri", languageURI(path)))
-                                if (buffer.file.path == path && buffer.text == source) value = scene.toString() to ""
-                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                            catch (failure: Exception) { value = null to (failure.message ?: "Architecture unavailable. Refresh to retry.") }
+                        val architecture by produceState<Pair<String?, String>>(null to "Reading the code model…", buffer, path, refresh, diagram.body) {
+                            var revision: String? = null
+                            value = null to "Reading the code model…"
+                            do {
+                                try {
+                                    val engine = buffer.receiptEngine ?: error("Reconnect to the workspace and refresh.")
+                                    val body = org.json.JSONObject().put("uri", languageURI(path))
+                                        .put("script", diagram.body).put("revision", revision)
+                                    val result = engine.request("POST", "/api/diagram/model", body)
+                                    if (buffer.file.path != path || buffer.text != source) return@produceState
+                                    val scene = result.optJSONObject("scene")
+                                    if (scene != null) {
+                                        revision = result.getString("revision")
+                                        value = scene.toString() to ""
+                                    }
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                                catch (failure: Exception) {
+                                    revision = null
+                                    value = null to (failure.message ?: "Architecture unavailable.")
+                                }
+                                kotlinx.coroutines.delay(2500)
+                            } while (buffer.file.path == path && buffer.text == source)
                         }
                         Box(Modifier.fillMaxWidth().weight(1f)) {
                             val scene = architecture.first
                             if (scene == null) Text(architecture.second)
                             else NativeMathView(scene, Modifier.fillMaxSize(), diagramRenderer = "graph", onLink = follow)
-                            TextButton(onClick = { refresh++ }, modifier = Modifier.align(Alignment.TopEnd)) { Text("↻", Modifier.semantics { contentDescription = "Refresh architecture" }) }
+                            TextButton(onClick = { refresh++ }, modifier = Modifier.align(Alignment.TopEnd)) { Text("↻", Modifier.semantics { contentDescription = "Refresh diagram" }) }
                         }
                     } else NativeMathView(diagram.body, Modifier.fillMaxWidth().weight(1f), diagramRenderer = diagram.renderer, onLink = follow)
                 }

@@ -587,7 +587,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .merge(changeset_drafts::routes())
         .route("/elements", get(api::elements))
         .route("/dataset", get(dataset::preview))
-        .route("/architecture", post(crate::diagram::workspace_architecture))
+        .route("/diagram/model", post(crate::diagram::workspace_model_diagram))
         .route("/revision-projects", post(revision_projects::capture))
         .route("/launch-profiles", post(launch_profiles::list))
         .route("/launch-profiles/run", post(launch_profiles::run))

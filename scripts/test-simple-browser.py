@@ -649,6 +649,17 @@ def debug_thread_acceptance(driver, folder):
     driver.act("debug-stop");eventually(lambda:not any("paused" in state for state in driver.act("debug-state")),True)
     assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
 
+def model_diagram_acceptance(driver, folder):
+    """Read the repository script and observe an edge update without a refresh click."""
+    path = "workbook-demo/architecture.md"
+    driver.act("browser-surface", url=driver.url + "?" + urlencode({"path": path}))
+    driver.act("architecture-preview", path=path, edge_count=1, inspect_source=True)
+    receipt = folder / "workbook-demo/shop/receipt.ts"
+    receipt.write_text('export const receiptTotalCents = (quantity: number) => 800 * quantity;\n')
+    driver.act("architecture-preview", path=path, edge_count=0)
+    assert driver.act("architecture-link", path="workbook-demo/shop/receipt.ts") == 0
+
+
 def workbook_acceptance(driver, folder):
     """The same saved sample exercises links, context breakpoints and an ordinary fence."""
     demo = folder / "workbook-demo"
@@ -664,10 +675,6 @@ def workbook_acceptance(driver, folder):
     driver.act("browser-surface", url=driver.url + "?" + urlencode({"path": "workbook-demo/project.md"}))
     driver.act("workbook-link", path="workbook-demo/project.md")
     assert driver.act("construction-source", path=path) == source
-    reveal(rows.index("## Architecture from the code model") + 1)
-    linked = driver.act("architecture-link", path="workbook-demo/orders.py")
-    assert linked > 0, "The file node should reveal a code definition"
-    driver.act("source-tab", label="workbook.md")
     context = next(i for i, row in enumerate(rows, 1) if row.startswith("     total ="))
     reveal(context)
     driver.act("debug-breakpoint", line=context)
@@ -1279,11 +1286,13 @@ if __name__ == "__main__":
             debug_path="%2F λ?#.py" if "--debug-literal" in sys.argv else "thread_debug.py"
             (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":debug_path,"default":True}]}))
             (folder/debug_path).write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
-        if {"--workbook-only", "--workbook-apple-only"}.intersection(sys.argv):
+        if {"--model-diagram-only", "--workbook-only", "--workbook-apple-only"}.intersection(sys.argv):
             demo = folder / "workbook-demo"
             demo.mkdir()
-            for name in ("project.md", "workbook.md", "orders.py", "prepare.py", "test_orders.py"):
+            for name in ("project.md", "workbook.md", "orders.py", "prepare.py", "test_orders.py", "architecture.md"):
                 shutil.copyfile(ROOT / "examples/simple-ui" / name, demo / name)
+            shutil.copytree(ROOT / "examples/simple-ui/shop", demo / "shop")
+        if {"--workbook-only", "--workbook-apple-only"}.intersection(sys.argv):
             venv = Path(os.environ.get("HICKORY_THREAD_TEST_VENV", str(ROOT / "target/thread-debug-env"))).resolve()
             if not (venv / "bin/python").exists():
                 raise RuntimeError("Prepare the explicit debugpy test virtualenv first: " + str(venv))
@@ -1455,9 +1464,12 @@ raise RuntimeError('wrong assistant fence')
             elif "--debug-threads-only" in sys.argv:
                 debug_thread_acceptance(driver,folder)
                 print("Browser: actual debugpy thread read/selection, selected-frame watches, unchanged editor identity/geometry/source and explicit stop passed")
+            elif "--model-diagram-only" in sys.argv:
+                model_diagram_acceptance(driver, folder)
+                print("Browser: repository diagram source, automatic saved dependency update and file navigation passed")
             elif "--workbook-only" in sys.argv:
                 workbook_acceptance(driver, folder)
-                print("Browser workbook: deliberate link, code architecture, context and fence breakpoints, stdout and stderr passed")
+                print("Browser workbook: deliberate link, context and fence breakpoints, stdout and stderr passed")
             elif "--debug-only" in sys.argv:
                 debug_acceptance(driver)
                 print("Browser: inline DAP pause, moved session, step values and stop passed")

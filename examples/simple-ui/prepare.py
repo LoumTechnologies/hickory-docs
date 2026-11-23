@@ -21,6 +21,12 @@ def main():
         parser.error(f"Preserving existing workspace: {destination}. Choose a new --dest.")
     if source == destination or source in destination.parents:
         parser.error("Choose a destination outside the maintained fixture folder.")
+    provider = root / "code-models/typescript"
+    if not (provider / "node_modules/ts-morph").is_dir():
+        subprocess.run([
+            "npm.cmd" if os.name == "nt" else "npm", "ci", "--prefix", str(provider),
+            "--no-fund", "--no-audit",
+        ], check=True)
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns(
         "__pycache__", ".git", ".hick-cache", ".hick-journal", ".hick-lsp.json", "generated", "sessions",
     ))
