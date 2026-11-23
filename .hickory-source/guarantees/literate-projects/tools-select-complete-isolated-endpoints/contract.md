@@ -727,8 +727,8 @@ The selections below preserve the original byte order. Narrative reading order d
 - [crates/hick-lsp/src/project.rs](../../../mechanisms/crates/hick-lsp/src/project.rs.md#output-144d2ea0027d)
 - [crates/hick-lsp/src/project_contexts.rs](../../../mechanisms/crates/hick-lsp/src/project_contexts.rs.md#output-3058901b5b2e)
 - [crates/hick-lsp/src/project_positions.rs](../../../mechanisms/crates/hick-lsp/src/project_positions.rs.md#output-6f96a89d99eb)
-- [crates/hickory-cli/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
-- [crates/hickory-cli/src/project_documents.rs](../../../mechanisms/crates/hickory-cli/src/project_documents.rs.md#output-7cd7736e0d32)
+- [crates/hick-debug/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
+- [crates/hick-debug/src/debug_documents.rs](../../../mechanisms/crates/hickory-cli/src/project_documents.rs.md#debug-document-launch)
 
 ### Tests and fixtures
 

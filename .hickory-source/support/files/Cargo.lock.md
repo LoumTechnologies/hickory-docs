@@ -3200,6 +3200,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-debug"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.3.4",
+ "hick-dap",
+ "hick-lang",
+ "hick-lsp",
+ "hick-observe",
+ "hick-plugins",
+ "hick-project-env",
+ "ignore",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tower-lsp",
+ "tracing",
+]
+
+[[package]]
 name = "hick-exec"
 version = "0.1.0"
 dependencies = [
@@ -3611,6 +3634,7 @@ dependencies = [
  "hick-context-store",
  "hick-coverage",
  "hick-dap",
+ "hick-debug",
  "hick-exec",
  "hick-formula",
  "hick-lang",

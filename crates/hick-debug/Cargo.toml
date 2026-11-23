@@ -1,0 +1,25 @@
+[package]
+name = "hick-debug"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+getrandom = "0.3"
+hick-dap = { path = "../hick-dap" }
+hick-lang = { workspace = true, features = ["serde"] }
+hick-lsp = { path = "../hick-lsp" }
+hick-observe = { path = "../hick-observe" }
+hick-plugins = { path = "../hick-plugins" }
+hick-project-env = { path = "../hick-project-env" }
+ignore = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+tower-lsp = "0.20"
+tracing = "0.1"

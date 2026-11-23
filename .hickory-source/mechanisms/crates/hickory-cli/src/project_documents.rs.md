@@ -114,12 +114,18 @@ pub(crate) fn write(run: &DocRun, out_dir: Option<&Path>) -> Result<WrittenOutpu
         ignored: vec![],
     })
 }
-
 </storycode:copy>
 <a id="f-7cd7736e0d32-debug_state_at"></a>
-### `debug_state_at`
+### Map the selected project into a debug runtime
+
+Document launches resolve their source closure before starting an adapter. The
+debugger crate owns that resolution and the source mapping into scratch files.
+The CLI still owns the separate run, check, and write operations above.
 
 <storycode:copy id="f-7cd7736e0d32-debug_state_at">
+use anyhow::{Context, Result};
+use std::{collections::BTreeMap, path::Path};
+
 pub(crate) fn debug_state_at(
     document: &Path,
     source: &str,
@@ -308,6 +314,9 @@ mod workbook_debug_tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/project_documents.rs"><storycode:paste select="#f-7cd7736e0d32-run"/><storycode:paste select="#f-7cd7736e0d32-check"/><storycode:paste select="#f-7cd7736e0d32-write"/><storycode:paste select="#f-7cd7736e0d32-debug_state_at"/><storycode:paste select="#f-7cd7736e0d32-state_at"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/project_documents.rs"><storycode:paste select="#f-7cd7736e0d32-run"/><storycode:paste select="#f-7cd7736e0d32-check"/><storycode:paste select="#f-7cd7736e0d32-write"/></storycode:file>
+
+<a id="debug-document-launch"></a>
+<storycode:file path="crates/hick-debug/src/debug_documents.rs"><storycode:paste select="#f-7cd7736e0d32-debug_state_at"/><storycode:paste select="#f-7cd7736e0d32-state_at"/></storycode:file>
 
 </storycode:doc>

@@ -913,7 +913,7 @@ The selections below preserve the original byte order. Narrative reading order d
 - [crates/hick-plugins/src/dap_discovery.rs](../../../mechanisms/crates/hick-plugins/src/dap_discovery.rs.md#output-72962e7f25e2)
 - [crates/hick-plugins/src/routing.rs](../../../mechanisms/crates/hick-plugins/src/routing.rs.md#output-007f87027669)
 - [crates/hickory-cli/src/dap_install.rs](../../../mechanisms/crates/hickory-cli/src/dap_install.rs.md#output-a1687642fec0)
-- [crates/hickory-cli/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
+- [crates/hick-debug/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
 - [crates/hickory-cli/src/mcp.rs](../../../mechanisms/crates/hickory-cli/src/mcp.rs.md#output-5cbce5960257)
 - [crates/hickory-cli/src/serve/debug_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md#output-b6fc115ecefd)
 

@@ -673,9 +673,10 @@ async fn handle_inner(
                     source_test: admitted.binding.clone(),
                 }));
                 test_binding = Some(admitted.binding);
-                registry
-                    .start_test_with_sources(admitted.launch, &sources, &mut on_build)
-                    .await
+                crate::test_debug_sessions::start_test_with_sources(
+                    registry, admitted.launch, &sources, &mut on_build,
+                )
+                .await
             } else if let Some(profile) = profile {
                 let context = registry
                     .launch_context(

@@ -56,7 +56,7 @@ pub struct Plan {
 pub(crate) struct Admission {
     pub plan: Plan,
     pub binding: Binding,
-    pub launch: crate::debug_sessions::TestLaunch,
+    pub launch: crate::test_debug_sessions::TestLaunch,
 }
 </ui:copy>
 
@@ -140,7 +140,7 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
         name,
         notices,
     };
-    let launch = crate::debug_sessions::TestLaunch {
+    let launch = crate::test_debug_sessions::TestLaunch {
         workspace_id:scan.workspace_id.clone(),
         rust_manifest,
         target_line:candidate.target.line,

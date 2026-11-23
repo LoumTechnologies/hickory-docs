@@ -34,7 +34,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ### Implementation
 
 - [crates/hick-dap/src/capture.rs](../../../mechanisms/crates/hick-dap/src/capture.rs.md#output-9b1310a1716d)
-- [crates/hickory-cli/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
+- [crates/hick-debug/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
 - [crates/hickory-cli/src/serve/debug_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md#output-b6fc115ecefd)
 
 ### Tests and fixtures

@@ -191,7 +191,7 @@ impl Registry {
                     identity: Identity::Fence(path, source),
                 });
             }
-            let (project_root, state) = crate::project_documents::debug_launch_state(root, &path, &source, &endpoint)?;
+            let (project_root, state) = crate::debug_documents::debug_launch_state(root, &path, &source, &endpoint)?;
             let mut tree = state.selected_project.clone().unwrap_or_default();
             if state.selected_project.is_none() {
                 for file in &state.virtual_files {
@@ -385,7 +385,7 @@ impl Registry {
         let mut extra =
             serde_json::json!({"args":profile.definition.args,"env":profile.definition.env});
         if adapter.hosted {
-            extra["args"] = serde_json::json!(crate::java_debug::launch_arguments(&profile.definition.args));
+            extra["args"] = serde_json::json!(hick_plugins::java_debug::launch_arguments(&profile.definition.args));
         }
         if hick_dap::language_of(&entry) == Some("python")
             && let Some(python) = hick_project_env::python_interpreter(&context.root, &context.root)
@@ -419,7 +419,7 @@ impl Registry {
         self.register(session, scratch, statuses).await
     }
 }
-pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
+pub fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
     if source.starts_with("hick-project:///") {
         return Ok(PathBuf::from(source));
     }
@@ -468,7 +468,7 @@ pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
     );
     Ok(path)
 }
-pub(crate) fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf> {
+pub fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = root.join(relative).canonicalize().with_context(|| {
         format!(
             "Working directory {relative} does not exist in this project. Fix the launch profile."

@@ -708,8 +708,8 @@ fn generated_code_selection_uses_displayed_bytes_instead_of_the_previous_file_co
 - [crates/hick-lang/src/project/evaluate.rs](../../../mechanisms/crates/hick-lang/src/project/evaluate.rs.md#output-4957ad4b2f9a)
 - [crates/hick-lsp/src/document.rs](../../../mechanisms/crates/hick-lsp/src/document.rs.md#output-7017743f2a99)
 - [crates/hick-lsp/src/project.rs](../../../mechanisms/crates/hick-lsp/src/project.rs.md#output-144d2ea0027d)
-- [crates/hickory-cli/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
-- [crates/hickory-cli/src/project_documents.rs](../../../mechanisms/crates/hickory-cli/src/project_documents.rs.md#output-7cd7736e0d32)
+- [crates/hick-debug/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
+- [crates/hick-debug/src/debug_documents.rs](../../../mechanisms/crates/hickory-cli/src/project_documents.rs.md#debug-document-launch)
 
 ### Tests and fixtures
 

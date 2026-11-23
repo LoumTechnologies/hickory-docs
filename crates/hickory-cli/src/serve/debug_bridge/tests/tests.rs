@@ -950,7 +950,7 @@ while line := sys.stdin.buffer.readline():
     .await
     .unwrap();
     let registry = Arc::new(Registry::new());
-    let (id, _) = registry.register_test_session(session).await.unwrap();
+    let (id, _, _) = registry.register(session, None, vec![]).await.unwrap();
 
     async fn event(registry: &Arc<Registry>, root: &std::path::Path, request: Value, kind: &str) -> Value {
         let responses = handle(registry, root, serde_json::from_value(request).unwrap())

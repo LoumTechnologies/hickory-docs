@@ -45,7 +45,7 @@ Follow the named module below to its maintained code, original rationale and rel
 <storycode:include file="src/coverage/store.rs.md" />
 - [`crates/hickory-cli/src/dap_install.rs`](src/dap_install.rs.md)
 <storycode:include file="src/dap_install.rs.md" />
-- [`crates/hickory-cli/src/debug_sessions.rs`](src/debug_sessions.rs.md)
+- [`crates/hick-debug/src/debug_sessions.rs`](src/debug_sessions.rs.md)
 <storycode:include file="src/debug_sessions.rs.md" />
 - [`crates/hickory-cli/src/diagnostics.rs`](src/diagnostics.rs.md)
 <storycode:include file="src/diagnostics.rs.md" />

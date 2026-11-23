@@ -1,12 +1,12 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hickory-cli/src/debug_sessions.rs
+# Maintain crates/hick-debug/src/debug_sessions.rs
 
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
 <a id="output-24a9413a429b"></a>
-## `crates/hickory-cli/src/debug_sessions.rs`
+## `crates/hick-debug/src/debug_sessions.rs`
 
 Related contracts: [Launch the artifact built from the selected compiled project](../../../../guarantees/debugging/a-compiled-language-launches-what-a-build-produced/contract.md), [A Plain File Has The Same Debugger A Document Has](../../../../guarantees/debugging/a-plain-file-has-the-same-debugger/contract.md), [Debug the latest atomic project that still contains the displayed bytes](../../../../guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code/contract.md), [Debugging A Document Never Writes To The Project](../../../../guarantees/debugging/debugging-never-writes-to-the-project/contract.md), [Keep language tools and debug launches tied to their captured project](../../../../guarantees/literate-projects/tools-select-complete-isolated-endpoints/contract.md).
 
@@ -67,7 +67,7 @@ mod reading;
 ### `use_declaration`
 
 <storycode:copy id="f-24a9413a429b-use_declaration">
-pub(crate) use profiles::{safe_cwd, source_document};
+pub use profiles::{safe_cwd, source_document};
 </storycode:copy>
 <a id="f-24a9413a429b-use_declaration-2"></a>
 ### `use_declaration`
@@ -103,7 +103,7 @@ pub struct BreakpointIntent {
     pub source_hash: String,
 }
 
-pub(crate) struct PublishedStack {
+pub struct PublishedStack {
     pub stop: u64,
     pub thread: i64,
     pub frame_ids: Vec<i64>,
@@ -111,7 +111,7 @@ pub(crate) struct PublishedStack {
 
 pub struct Live {
     /// Exact frames from the last interactive stopped response.
-    pub(crate) published_stack: Mutex<Option<PublishedStack>>,
+    pub published_stack: Mutex<Option<PublishedStack>>,
     /// Positive references actually reported in the current stopped stack.
     pub adapter_sources: Mutex<HashMap<(u64, i64, i64), i64>>,
     pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
@@ -240,7 +240,8 @@ frontends continue treating the entire identifier as opaque.
 
 <storycode:copy id="debug-session-identity">
 impl Registry {
-    fn ensure_session_namespace(&self) -> Result<&str> {
+    /// Check that a new session can be identified before preparing its runtime.
+    pub fn ensure_session_namespace(&self) -> Result<&str> {
         let value=self.session_namespace.get_or_init(|| {
             let mut nonce=[0u8;16];
             getrandom::fill(&mut nonce).map_err(|error|format!("Cannot allocate a debugger identity: {error}. Restart the engine when system randomness is available."))?;
@@ -426,7 +427,7 @@ impl Registry {
 
         let scratch = tempfile::tempdir().context("making a scratch directory for the session")?;
         let (mapping, files, selected_program) =
-            crate::project_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
+            crate::debug_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
         // Which file to run, when the document generates more than one.
         //
         // Guessing was the old behaviour and it is only right by accident: a
@@ -581,13 +582,8 @@ impl Registry {
         Session::start_with_sources(launch, mapping, breakpoints, sources).await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn register_test_session(&self, session: Session) -> Result<(String, Arc<Live>)> {
-        let (id, live, _) = self.register(session, None, vec![]).await?;
-        Ok((id, live))
-    }
-
-    async fn register(
+    /// Retain an adapter session and the scratch directory owned by its launch.
+    pub async fn register(
         &self,
         session: Session,
         scratch: Option<tempfile::TempDir>,
@@ -985,22 +981,57 @@ class Program
 }
 </storycode:copy>
 
-### Assemble `crates/hickory-cli/src/debug_sessions.rs`
+### Assemble `crates/hick-debug/src/debug_sessions.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
 
-## Connect source-test preparation to the existing session registry
+<storycode:file path="crates/hick-debug/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#debug-reference-provenance"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#debug-session-identity"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
 
-The separate launcher owns runtime assembly and provider configuration. It calls
-the same registry registration and session lifecycle, so test launches do not
-create a parallel debugger or bypass source/stop authority.
+## Compile the debugger separately
 
-<storycode:copy id="source-test-debug-launcher-module">
-#[path = "test_debug_sessions.rs"]
-mod test_launcher;
-pub(crate) use test_launcher::TestLaunch;
-</storycode:copy>
-<storycode:file path="crates/hickory-cli/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#source-test-debug-launcher-module"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#debug-reference-provenance"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#debug-session-identity"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
+Build launch discovery, document mapping, and session lifetime in one library.
+Its dependencies point toward the language and adapter crates. HTTP, MCP, and
+workspace admission stay in the host, which can register an already admitted
+test session with the same registry. Launch fingerprints serialize byte
+origins, so this package enables that language feature for standalone builds.
+The existing session identity witness
+above still checks that an earlier engine lifetime cannot name a new session.
+
+<storycode:entry path="crates/hick-debug/Cargo.toml">
+[package]
+name = "hick-debug"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+getrandom = "0.3"
+hick-dap = { path = "../hick-dap" }
+hick-lang = { workspace = true, features = ["serde"] }
+hick-lsp = { path = "../hick-lsp" }
+hick-observe = { path = "../hick-observe" }
+hick-plugins = { path = "../hick-plugins" }
+hick-project-env = { path = "../hick-project-env" }
+ignore = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+tower-lsp = "0.20"
+tracing = "0.1"
+</storycode:entry>
+
+<storycode:entry path="crates/hick-debug/src/lib.rs">
+//! Launch planning and live debugger sessions shared by Hickory hosts.
+
+mod debug_documents;
+pub mod debug_sessions;
+pub mod launch_profiles;
+</storycode:entry>
 
 </storycode:doc>

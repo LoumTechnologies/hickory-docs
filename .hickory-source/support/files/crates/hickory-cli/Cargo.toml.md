@@ -80,6 +80,7 @@ hick-lsp = { path = "../hick-lsp" }
 hick-project-env = { path = "../hick-project-env" }
 # Breakpoints and stepping, for the app's debugger and the MCP tools.
 hick-dap = { path = "../hick-dap" }
+hick-debug = { path = "../hick-debug" }
 # A debug session runs the debuggee in a scratch clone that is deleted with
 # it — which is what makes "a session cannot touch the file" true.
 tempfile = "3"

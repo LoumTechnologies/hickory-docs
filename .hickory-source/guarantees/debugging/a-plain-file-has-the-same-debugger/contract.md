@@ -1431,7 +1431,7 @@ The selections below preserve the original byte order. Narrative reading order d
 - [crates/hick-dap/src/build.rs](../../../mechanisms/crates/hick-dap/src/build.rs.md#output-0fdc81f45247)
 - [crates/hick-dap/src/session.rs](../../../mechanisms/crates/hick-dap/src/session.rs.md#output-3c41c22e0551)
 - [crates/hick-plugins/src/build.rs](contract.md#output-a283ca144066)
-- [crates/hickory-cli/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
+- [crates/hick-debug/src/debug_sessions.rs](../../../mechanisms/crates/hickory-cli/src/debug_sessions.rs.md#output-24a9413a429b)
 - [crates/hickory-cli/src/serve/debug_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md#output-b6fc115ecefd)
 - [crates/hickory-cli/src/serve/socket.rs](../../../mechanisms/crates/hickory-cli/src/serve/socket.rs.md#output-ce0f0e119d3c)
 

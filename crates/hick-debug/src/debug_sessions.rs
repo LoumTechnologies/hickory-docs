@@ -26,13 +26,10 @@ use tokio::sync::Mutex;
 
 #[path = "debug_profiles.rs"]
 mod profiles;
-#[path = "test_debug_sessions.rs"]
-mod test_launcher;
-pub(crate) use test_launcher::TestLaunch;
 #[path = "debug_reading.rs"]
 mod reading;
 pub use profiles::{LaunchContext, ProfileSelection};
-pub(crate) use profiles::{safe_cwd, source_document};
+pub use profiles::{safe_cwd, source_document};
 /// How long a session may sit untouched before it is ended for us.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// A started session, plus what a caller needs to keep talking to it.
@@ -42,7 +39,7 @@ pub struct BreakpointIntent {
     pub source_hash: String,
 }
 
-pub(crate) struct PublishedStack {
+pub struct PublishedStack {
     pub stop: u64,
     pub thread: i64,
     pub frame_ids: Vec<i64>,
@@ -50,7 +47,7 @@ pub(crate) struct PublishedStack {
 
 pub struct Live {
     /// Exact frames from the last interactive stopped response.
-    pub(crate) published_stack: Mutex<Option<PublishedStack>>,
+    pub published_stack: Mutex<Option<PublishedStack>>,
     /// Positive references actually reported in the current stopped stack.
     pub adapter_sources: Mutex<HashMap<(u64, i64, i64), i64>>,
     pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
@@ -148,7 +145,8 @@ pub struct Registry {
     host_root: Option<PathBuf>,
 }
 impl Registry {
-    fn ensure_session_namespace(&self) -> Result<&str> {
+    /// Check that a new session can be identified before preparing its runtime.
+    pub fn ensure_session_namespace(&self) -> Result<&str> {
         let value=self.session_namespace.get_or_init(|| {
             let mut nonce=[0u8;16];
             getrandom::fill(&mut nonce).map_err(|error|format!("Cannot allocate a debugger identity: {error}. Restart the engine when system randomness is available."))?;
@@ -322,7 +320,7 @@ impl Registry {
 
         let scratch = tempfile::tempdir().context("making a scratch directory for the session")?;
         let (mapping, files, selected_program) =
-            crate::project_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
+            crate::debug_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
         // Which file to run, when the document generates more than one.
         //
         // Guessing was the old behaviour and it is only right by accident: a
@@ -477,13 +475,8 @@ impl Registry {
         Session::start_with_sources(launch, mapping, breakpoints, sources).await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn register_test_session(&self, session: Session) -> Result<(String, Arc<Live>)> {
-        let (id, live, _) = self.register(session, None, vec![]).await?;
-        Ok((id, live))
-    }
-
-    async fn register(
+    /// Retain an adapter session and the scratch directory owned by its launch.
+    pub async fn register(
         &self,
         session: Session,
         scratch: Option<tempfile::TempDir>,

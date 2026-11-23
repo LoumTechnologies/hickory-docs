@@ -178,7 +178,7 @@ impl Live {
 
     // The interactive bridge already owns the published stack under its
     // operation lock. Reading it again could replace the adapter's frame IDs.
-    pub(crate) async fn resolve_location_at_frame(
+    pub async fn resolve_location_at_frame(
         &self,
         location: &str,
         scope: &hick_observe::reading::Scope,

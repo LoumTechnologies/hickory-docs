@@ -8790,7 +8790,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "crates/hick-plugins/src/routing.rs",
         "crates/hick-term/tests/full_screen_apps.rs",
         "crates/hickory-cli/src/dap_install.rs",
-        "crates/hickory-cli/src/debug_sessions.rs",
+        "crates/hick-debug/src/debug_sessions.rs",
         "crates/hickory-cli/src/mcp.rs",
         "crates/hickory-cli/src/serve/debug_bridge.rs"
       ],
@@ -9014,7 +9014,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "crates/hick-dap/src/session.rs",
         "crates/hick-dap/src/session/tests/tests.rs",
         "crates/hick-plugins/src/build.rs",
-        "crates/hickory-cli/src/debug_sessions.rs",
+        "crates/hick-debug/src/debug_sessions.rs",
         "crates/hickory-cli/src/serve/debug_bridge.rs",
         "crates/hickory-cli/src/serve/socket.rs",
         "crates/hickory-cli/tests/debug_desktop.rs"
@@ -9422,8 +9422,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "crates/hick-lsp/src/document.rs",
         "crates/hick-lsp/src/project.rs",
         "crates/hick-lsp/tests/project.rs",
-        "crates/hickory-cli/src/debug_sessions.rs",
-        "crates/hickory-cli/src/project_documents.rs"
+        "crates/hick-debug/src/debug_sessions.rs",
+        "crates/hick-debug/src/debug_documents.rs"
       ],
       "unresolved_references": [],
       "flags": [],
@@ -9482,7 +9482,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "reference_resolution": [
         {
           "citation": "debug_sessions.rs",
-          "path": "crates/hickory-cli/src/debug_sessions.rs",
+          "path": "crates/hick-debug/src/debug_sessions.rs",
           "basis": "unique captured suffix; not semantic coverage"
         },
         {
@@ -9516,7 +9516,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "references": [
         "crates/hick-dap/src/capture.rs",
         "crates/hick-dap/tests/live_capture.rs",
-        "crates/hickory-cli/src/debug_sessions.rs",
+        "crates/hick-debug/src/debug_sessions.rs",
         "crates/hickory-cli/src/serve/debug_bridge.rs",
         "crates/hickory-cli/tests/capture_run.rs",
         "crates/hickory-cli/tests/debug_desktop.rs"
@@ -9559,8 +9559,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm",
         "crates/hick-lang/src/project/evaluate.rs",
         "crates/hick-lang/tests/project_debug.rs",
-        "crates/hickory-cli/src/debug_profiles.rs",
-        "crates/hickory-cli/src/launch_profiles.rs",
+        "crates/hick-debug/src/debug_profiles.rs",
+        "crates/hick-debug/src/launch_profiles.rs",
         "crates/hickory-cli/src/serve/launch_profiles.rs",
         "crates/hickory-cli/tests/launch_profiles.rs"
       ],
@@ -9573,8 +9573,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "apps/web/src/debug/plainDebugHosts.test.tsx",
         "apps/web/src/debug/plainDebugHosts.tsx",
         "apps/web/src/debug/projectDebugSurface.tsx",
-        "crates/hickory-cli/src/debug_profiles.rs",
-        "crates/hickory-cli/src/launch_profiles.rs",
+        "crates/hick-debug/src/debug_profiles.rs",
+        "crates/hick-debug/src/launch_profiles.rs",
         "crates/hickory-cli/src/serve/launch_profiles.rs",
         "crates/hickory-cli/tests/launch_profiles.rs"
       ],
@@ -9656,7 +9656,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "apps/web/src/views/WorkspaceChat.tsx",
         "crates/hick-dap/src/mapping.rs",
         "crates/hick-observe/src/reading.rs",
-        "crates/hickory-cli/src/debug_reading.rs",
+        "crates/hick-debug/src/debug_reading.rs",
         "crates/hickory-cli/src/python_agent.rs",
         "crates/hickory-cli/src/serve/debug_bridge.rs",
         "crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs"
@@ -9673,7 +9673,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "apps/web/src/debug/observations.ts",
         "apps/web/src/debug/providerObservations.test.ts",
         "crates/hick-observe/src/reading.rs",
-        "crates/hickory-cli/src/debug_reading.rs",
+        "crates/hick-debug/src/debug_reading.rs",
         "crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs"
       ],
       "annotations": [
@@ -15392,8 +15392,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "crates/hick-lsp/src/project_contexts.rs",
         "crates/hick-lsp/src/project_positions.rs",
         "crates/hick-lsp/tests/project.rs",
-        "crates/hickory-cli/src/debug_sessions.rs",
-        "crates/hickory-cli/src/project_documents.rs",
+        "crates/hick-debug/src/debug_sessions.rs",
+        "crates/hick-debug/src/debug_documents.rs",
         "crates/hickory-cli/tests/literate_agent_projects.rs",
         "crates/hickory-cli/tests/literate_project_csharp.rs",
         "docs/specs/freeform/literate-changesets.md"
@@ -15467,7 +15467,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "reference_resolution": [
         {
           "citation": "debug_sessions.rs",
-          "path": "crates/hickory-cli/src/debug_sessions.rs",
+          "path": "crates/hick-debug/src/debug_sessions.rs",
           "basis": "unique captured suffix; not semantic coverage"
         },
         {
@@ -44518,7 +44518,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "anchor": "output-a1687642fec0",
       "narrative_owner": "mechanism:crates/hickory-cli"
     },
-    "crates/hickory-cli/src/debug_profiles.rs": {
+    "crates/hick-debug/src/debug_profiles.rs": {
       "source": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md",
       "used_by": [
@@ -44540,7 +44540,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "anchor": "output-05e2104e1cc1",
       "narrative_owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md"
     },
-    "crates/hickory-cli/src/debug_reading.rs": {
+    "crates/hick-debug/src/debug_reading.rs": {
       "source": ".hickory-source/guarantees/debugging/source-anchored-observation-reading/contract.md",
       "owner": "debugging/source-anchored-observation-reading.md",
       "used_by": [
@@ -44555,7 +44555,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "anchor": "output-d5f4bc355f22",
       "narrative_owner": "debugging/source-anchored-observation-reading.md"
     },
-    "crates/hickory-cli/src/debug_sessions.rs": {
+    "crates/hick-debug/src/debug_sessions.rs": {
       "source": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "owner": "shared",
       "used_by": [
@@ -44570,7 +44570,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-24a9413a429b-profiles",
-        "source-test-debug-launcher-module",
         "f-24a9413a429b-reading",
         "f-24a9413a429b-use_declaration-2",
         "f-24a9413a429b-use_declaration",
@@ -45384,7 +45383,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "anchor": "output-3bcda72be8eb",
       "narrative_owner": "mechanism:crates/hickory-cli"
     },
-    "crates/hickory-cli/src/launch_profiles.rs": {
+    "crates/hick-debug/src/launch_profiles.rs": {
       "source": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md",
       "used_by": [
@@ -46220,9 +46219,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "f-7cd7736e0d32-run",
         "f-7cd7736e0d32-check",
-        "f-7cd7736e0d32-write",
-        "f-7cd7736e0d32-debug_state_at",
-        "f-7cd7736e0d32-state_at"
+        "f-7cd7736e0d32-write"
       ],
       "anchor": "output-7cd7736e0d32",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -64629,7 +64626,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-editor-mounts-browser-tests"
       ]
     },
-    "crates/hickory-cli/src/launch_inventory.rs": {
+    "crates/hick-debug/src/launch_inventory.rs": {
       "source": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "owner": "shared",
       "used_by": [],
@@ -67835,6 +67832,26 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "windows-window-smoke"
       ]
+    },
+    "crates/hick-debug/src/debug_documents.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/project_documents.rs.md",
+      "anchor": "debug-document-launch",
+      "fragments": [
+        "f-7cd7736e0d32-debug_state_at",
+        "f-7cd7736e0d32-state_at"
+      ],
+      "owner": "shared",
+      "used_by": [
+        "debugging/debug-uses-the-latest-project-containing-the-displayed-code.md",
+        "literate-projects/tools-select-complete-isolated-endpoints.md"
+      ],
+      "construction": "fragments"
+    },
+    "crates/hick-debug/Cargo.toml": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md"
+    },
+    "crates/hick-debug/src/lib.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md"
     }
   },
   "evidence_records": [

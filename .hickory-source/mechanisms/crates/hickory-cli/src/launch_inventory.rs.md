@@ -207,5 +207,5 @@ mod tests {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hickory-cli/src/launch_inventory.rs"><storycode:paste select="#launch-inventory-interface"/><storycode:paste select="#physical-launch-source-inventory"/><storycode:paste select="#physical-launch-path-policy"/><storycode:paste select="#launch-input-domains"/><storycode:paste select="#launch-inventory-domain-tests"/></storycode:file>
+<storycode:file path="crates/hick-debug/src/launch_inventory.rs"><storycode:paste select="#launch-inventory-interface"/><storycode:paste select="#physical-launch-source-inventory"/><storycode:paste select="#physical-launch-path-policy"/><storycode:paste select="#launch-input-domains"/><storycode:paste select="#launch-inventory-domain-tests"/></storycode:file>
 </storycode:doc>

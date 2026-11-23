@@ -88755,7 +88755,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-ProfileSelection",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "ProfileSelection",
       "basis": "existing-source-comment",
@@ -88766,7 +88766,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-LaunchContext",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "LaunchContext",
       "basis": "needs-explanation",
@@ -88777,7 +88777,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-Identity",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Identity",
       "basis": "needs-explanation",
@@ -88788,7 +88788,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-impl-LaunchContext",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-LaunchContext",
       "basis": "needs-explanation",
@@ -88799,7 +88799,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-impl-Registry",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-Registry",
       "basis": "needs-explanation",
@@ -88810,7 +88810,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-safe_cwd",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "safe_cwd",
       "basis": "needs-explanation",
@@ -88821,7 +88821,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-05e2104e1cc1-run_build",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "run_build",
       "basis": "needs-explanation",
@@ -88832,7 +88832,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-d5f4bc355f22-impl-Live",
-      "output": "crates/hickory-cli/src/debug_reading.rs",
+      "output": "crates/hick-debug/src/debug_reading.rs",
       "page": ".hickory-source/guarantees/debugging/source-anchored-observation-reading/contract.md",
       "symbol": "impl-Live",
       "basis": "existing-source-comment",
@@ -88843,7 +88843,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-profiles",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "profiles",
       "basis": "existing-source-comment",
@@ -88854,7 +88854,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-reading",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "reading",
       "basis": "needs-explanation",
@@ -88865,7 +88865,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-use_declaration",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "use_declaration",
       "basis": "needs-explanation",
@@ -88876,7 +88876,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-use_declaration-2",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "use_declaration",
       "basis": "needs-explanation",
@@ -88887,7 +88887,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-IDLE_TIMEOUT",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "IDLE_TIMEOUT",
       "basis": "existing-source-comment",
@@ -88898,7 +88898,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-Live",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "Live",
       "basis": "existing-source-comment",
@@ -88909,7 +88909,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-impl-Live",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "impl-Live",
       "basis": "needs-explanation",
@@ -88920,7 +88920,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-Registry",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "Registry",
       "basis": "needs-explanation",
@@ -88931,7 +88931,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-impl-Registry",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "impl-Registry",
       "basis": "needs-explanation",
@@ -88942,7 +88942,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-tracing_adapter",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "tracing_adapter",
       "basis": "needs-explanation",
@@ -88953,7 +88953,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-is_document",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "is_document",
       "basis": "existing-source-comment",
@@ -88964,7 +88964,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-repository_of",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "repository_of",
       "basis": "existing-source-comment",
@@ -88975,7 +88975,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-project_dir_of",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "project_dir_of",
       "basis": "existing-source-comment",
@@ -88986,7 +88986,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-24a9413a429b-tests",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "tests",
       "basis": "needs-explanation",
@@ -92572,7 +92572,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-CONFIG",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "CONFIG",
       "basis": "existing-source-comment",
@@ -92583,7 +92583,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-Definition",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Definition",
       "basis": "needs-explanation",
@@ -92594,7 +92594,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-root",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "root",
       "basis": "needs-explanation",
@@ -92605,7 +92605,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-Profile",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Profile",
       "basis": "needs-explanation",
@@ -92616,7 +92616,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-Config",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Config",
       "basis": "needs-explanation",
@@ -92627,7 +92627,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-Provider",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Provider",
       "basis": "existing-source-comment",
@@ -92638,7 +92638,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-Applications",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Applications",
       "basis": "needs-explanation",
@@ -92649,7 +92649,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-PackageScripts",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "PackageScripts",
       "basis": "needs-explanation",
@@ -92660,7 +92660,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-PythonTests",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "PythonTests",
       "basis": "needs-explanation",
@@ -92671,7 +92671,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-profile",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "profile",
       "basis": "needs-explanation",
@@ -92682,7 +92682,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-command_profile",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "command_profile",
       "basis": "existing-source-comment",
@@ -92693,7 +92693,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-text",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "text",
       "basis": "needs-explanation",
@@ -92704,7 +92704,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-impl-Provider-for-Applications",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-Provider for Applications",
       "basis": "existing-source-comment",
@@ -92715,7 +92715,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-impl-Provider-for-PackageScripts",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-Provider for PackageScripts",
       "basis": "needs-explanation",
@@ -92726,7 +92726,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-impl-Provider-for-PythonTests",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-Provider for PythonTests",
       "basis": "needs-explanation",
@@ -92737,7 +92737,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-discover_with",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "discover_with",
       "basis": "needs-explanation",
@@ -92748,7 +92748,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-discover",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "discover",
       "basis": "needs-explanation",
@@ -92759,7 +92759,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-select",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "select",
       "basis": "needs-explanation",
@@ -92770,7 +92770,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-validate",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "validate",
       "basis": "needs-explanation",
@@ -92781,7 +92781,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-01e001976095-impl-Profile",
-      "output": "crates/hickory-cli/src/launch_profiles.rs",
+      "output": "crates/hick-debug/src/launch_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "impl-Profile",
       "basis": "needs-explanation",
@@ -97412,7 +97412,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-7cd7736e0d32-debug_state_at",
-      "output": "crates/hickory-cli/src/project_documents.rs",
+      "output": "crates/hick-debug/src/debug_documents.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/project_documents.rs.md",
       "symbol": "debug_state_at",
       "basis": "needs-explanation",
@@ -97423,7 +97423,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-7cd7736e0d32-state_at",
-      "output": "crates/hickory-cli/src/project_documents.rs",
+      "output": "crates/hick-debug/src/debug_documents.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/project_documents.rs.md",
       "symbol": "state_at",
       "basis": "existing-source-comment",
@@ -138048,7 +138048,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "debug-source-document-identity",
-      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "output": "crates/hick-debug/src/debug_profiles.rs",
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "Decode source identities once and confine physical paths",
       "basis": "explained-behavior"
@@ -138083,7 +138083,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "debug-reference-provenance",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "Bound composite references to their observed frame",
       "basis": "explained-behavior"
@@ -138132,35 +138132,35 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "launch-inventory-interface",
-      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "output": "crates/hick-debug/src/launch_inventory.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "symbol": "launch inventory interface",
       "basis": "explained-behavior"
     },
     {
       "id": "physical-launch-source-inventory",
-      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "output": "crates/hick-debug/src/launch_inventory.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "symbol": "physical launch source inventory",
       "basis": "explained-behavior"
     },
     {
       "id": "physical-launch-path-policy",
-      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "output": "crates/hick-debug/src/launch_inventory.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "symbol": "physical launch path policy",
       "basis": "explained-behavior"
     },
     {
       "id": "launch-input-domains",
-      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "output": "crates/hick-debug/src/launch_inventory.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "symbol": "launch input domains",
       "basis": "explained-behavior"
     },
     {
       "id": "launch-inventory-domain-tests",
-      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "output": "crates/hick-debug/src/launch_inventory.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
       "symbol": "launch inventory domain tests",
       "basis": "explained-behavior"
@@ -138223,7 +138223,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "debug-session-identity",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "output": "crates/hick-debug/src/debug_sessions.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
       "symbol": "debug session identity",
       "basis": "explained-behavior"
@@ -138310,13 +138310,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/src/test_debug_sessions.rs",
       "page": ".hickory-source/mechanisms/test-debug-session.md",
       "symbol": "test debug session launch",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "source-test-debug-launcher-module",
-      "output": "crates/hickory-cli/src/debug_sessions.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
-      "symbol": "source test debug launcher module",
       "basis": "explained-behavior"
     },
     {
@@ -149291,7 +149284,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "install",
       "tests"
     ],
-    "crates/hickory-cli/src/debug_profiles.rs": [
+    "crates/hick-debug/src/debug_profiles.rs": [
       "LaunchContext",
       "Identity",
       "impl-LaunchContext",
@@ -149299,7 +149292,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "safe_cwd",
       "run_build"
     ],
-    "crates/hickory-cli/src/debug_sessions.rs": [
+    "crates/hick-debug/src/debug_sessions.rs": [
       "reading",
       "use_declaration",
       "use_declaration",
@@ -149542,7 +149535,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "next_step",
       "tests"
     ],
-    "crates/hickory-cli/src/launch_profiles.rs": [
+    "crates/hick-debug/src/launch_profiles.rs": [
       "Definition",
       "root",
       "Profile",

@@ -1114,7 +1114,7 @@ The selections below preserve the original byte order. Narrative reading order d
 <storycode:file path="crates/hick-observe/src/reading.rs"><storycode:paste select="#f-a6f0ea9e8feb-Scope"/><storycode:paste select="#f-a6f0ea9e8feb-DebugAnnotation"/><storycode:paste select="#f-a6f0ea9e8feb-Annotation"/><storycode:paste select="#f-a6f0ea9e8feb-LocationRef"/><storycode:paste select="#f-a6f0ea9e8feb-Reading"/><storycode:paste select="#f-a6f0ea9e8feb-impl-Reading"/><storycode:paste select="#f-a6f0ea9e8feb-EvidenceOrigin"/><storycode:paste select="#f-a6f0ea9e8feb-ProviderAnnotation"/><storycode:paste select="#f-a6f0ea9e8feb-tests"/><storycode:paste select="#f-a6f0ea9e8feb-impl-Reading-2"/><storycode:paste select="#f-a6f0ea9e8feb-impl-Run"/><storycode:paste select="#f-a6f0ea9e8feb-shared_fixture_tests"/><storycode:paste select="#f-a6f0ea9e8feb-provider_projection_tests"/></storycode:file>
 
 <a id="output-d5f4bc355f22"></a>
-## `crates/hickory-cli/src/debug_reading.rs`
+## `crates/hick-debug/src/debug_reading.rs`
 
 Related contracts: [Observations read beside their captured source](contract.md).
 
@@ -1304,7 +1304,7 @@ impl Live {
 
     // The interactive bridge already owns the published stack under its
     // operation lock. Reading it again could replace the adapter's frame IDs.
-    pub(crate) async fn resolve_location_at_frame(
+    pub async fn resolve_location_at_frame(
         &self,
         location: &str,
         scope: &hick_observe::reading::Scope,
@@ -1324,11 +1324,11 @@ impl Live {
 }
 </storycode:copy>
 
-### Assemble `crates/hickory-cli/src/debug_reading.rs`
+### Assemble `crates/hick-debug/src/debug_reading.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/debug_reading.rs"><storycode:paste select="#f-d5f4bc355f22-impl-Live"/></storycode:file>
+<storycode:file path="crates/hick-debug/src/debug_reading.rs"><storycode:paste select="#f-d5f4bc355f22-impl-Live"/></storycode:file>
 
 <a id="output-83c29f05f862"></a>
 ## `crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs`
@@ -2387,7 +2387,7 @@ while line := sys.stdin.buffer.readline():
     .await
     .unwrap();
     let registry = Arc::new(Registry::new());
-    let (id, _) = registry.register_test_session(session).await.unwrap();
+    let (id, _, _) = registry.register(session, None, vec![]).await.unwrap();
 
     async fn event(registry: &Arc<Registry>, root: &std::path::Path, request: Value, kind: &str) -> Value {
         let responses = handle(registry, root, serde_json::from_value(request).unwrap())
@@ -2467,7 +2467,7 @@ while line := sys.stdin.buffer.readline():
 - [apps/web/src/views/WorkspaceChat.tsx](../../agent/unsent-responses-survive-restart/contract.md#output-c910953d9e7f)
 - [crates/hick-dap/src/mapping.rs](../../../mechanisms/crates/hick-dap/src/mapping.rs.md#output-32f353d4cad8)
 - [crates/hick-observe/src/reading.rs](contract.md#output-a6f0ea9e8feb)
-- [crates/hickory-cli/src/debug_reading.rs](contract.md#output-d5f4bc355f22)
+- [crates/hick-debug/src/debug_reading.rs](contract.md#output-d5f4bc355f22)
 - [crates/hickory-cli/src/python_agent.rs](../../../mechanisms/crates/hickory-cli/src/python_agent.rs.md#output-609d98dd1fad)
 - [crates/hickory-cli/src/serve/debug_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md#output-b6fc115ecefd)
 

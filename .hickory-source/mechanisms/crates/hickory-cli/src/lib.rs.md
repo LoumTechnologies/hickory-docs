@@ -96,7 +96,8 @@ pub mod dap_install;
 ### `debug_sessions`
 
 <storycode:copy id="f-056f6a618871-debug_sessions">
-pub mod debug_sessions;
+pub use hick_debug::debug_sessions;
+mod test_debug_sessions;
 </storycode:copy>
 <a id="f-056f6a618871-diagram"></a>
 ### `diagram`
@@ -198,7 +199,7 @@ pub mod language_tier;
 ### `launch_profiles`
 
 <storycode:copy id="f-056f6a618871-launch_profiles">
-pub mod launch_profiles;
+pub use hick_debug::launch_profiles;
 </storycode:copy>
 <a id="f-056f6a618871-lsp_install"></a>
 ### `lsp_install`

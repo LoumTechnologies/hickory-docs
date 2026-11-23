@@ -799,7 +799,7 @@ fn atomic_scope_never_exposes_a_new_caller_with_the_old_library() {
 </storycode:copy>
 
 <a id="output-05e2104e1cc1"></a>
-## `crates/hickory-cli/src/debug_profiles.rs`
+## `crates/hick-debug/src/debug_profiles.rs`
 
 Related contracts: [Launch profiles choose targets within the viewed project](contract.md).
 
@@ -1027,7 +1027,7 @@ impl Registry {
                     identity: Identity::Fence(path, source),
                 });
             }
-            let (project_root, state) = crate::project_documents::debug_launch_state(root, &path, &source, &endpoint)?;
+            let (project_root, state) = crate::debug_documents::debug_launch_state(root, &path, &source, &endpoint)?;
             let mut tree = state.selected_project.clone().unwrap_or_default();
             if state.selected_project.is_none() {
                 for file in &state.virtual_files {
@@ -1221,7 +1221,7 @@ impl Registry {
         let mut extra =
             serde_json::json!({"args":profile.definition.args,"env":profile.definition.env});
         if adapter.hosted {
-            extra["args"] = serde_json::json!(crate::java_debug::launch_arguments(&profile.definition.args));
+            extra["args"] = serde_json::json!(hick_plugins::java_debug::launch_arguments(&profile.definition.args));
         }
         if hick_dap::language_of(&entry) == Some("python")
             && let Some(python) = hick_project_env::python_interpreter(&context.root, &context.root)
@@ -1266,7 +1266,7 @@ using the same resolver for profile discovery, launch and live breakpoints.
 Captured-project URIs remain owned by the immutable session mapping.
 
 <storycode:copy id="debug-source-document-identity">
-pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
+pub fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
     if source.starts_with("hick-project:///") {
         return Ok(PathBuf::from(source));
     }
@@ -1321,7 +1321,7 @@ pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
 ### `safe_cwd`
 
 <storycode:copy id="f-05e2104e1cc1-safe_cwd">
-pub(crate) fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf> {
+pub fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = root.join(relative).canonicalize().with_context(|| {
         format!(
             "Working directory {relative} does not exist in this project. Fix the launch profile."
@@ -1376,14 +1376,14 @@ async fn run_build(
 }
 </storycode:copy>
 
-### Assemble `crates/hickory-cli/src/debug_profiles.rs`
+### Assemble `crates/hick-debug/src/debug_profiles.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/debug_profiles.rs"><storycode:paste select="#f-05e2104e1cc1-ProfileSelection"/><storycode:paste select="#f-05e2104e1cc1-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-Identity"/><storycode:paste select="#f-05e2104e1cc1-impl-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-impl-Registry"/><storycode:paste select="#debug-source-document-identity"/><storycode:paste select="#f-05e2104e1cc1-safe_cwd"/><storycode:paste select="#f-05e2104e1cc1-run_build"/></storycode:file>
+<storycode:file path="crates/hick-debug/src/debug_profiles.rs"><storycode:paste select="#f-05e2104e1cc1-ProfileSelection"/><storycode:paste select="#f-05e2104e1cc1-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-Identity"/><storycode:paste select="#f-05e2104e1cc1-impl-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-impl-Registry"/><storycode:paste select="#debug-source-document-identity"/><storycode:paste select="#f-05e2104e1cc1-safe_cwd"/><storycode:paste select="#f-05e2104e1cc1-run_build"/></storycode:file>
 
 <a id="output-01e001976095"></a>
-## `crates/hickory-cli/src/launch_profiles.rs`
+## `crates/hick-debug/src/launch_profiles.rs`
 
 Related contracts: [Launch profiles choose targets within the viewed project](contract.md).
 
@@ -1981,11 +1981,11 @@ impl Profile {
 }
 </storycode:copy>
 
-### Assemble `crates/hickory-cli/src/launch_profiles.rs`
+### Assemble `crates/hick-debug/src/launch_profiles.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/launch_profiles.rs"><storycode:paste select="#f-01e001976095-CONFIG"/><storycode:paste select="#f-01e001976095-Definition"/><storycode:paste select="#f-01e001976095-root"/><storycode:paste select="#f-01e001976095-Profile"/><storycode:paste select="#f-01e001976095-Config"/><storycode:paste select="#f-01e001976095-Provider"/><storycode:paste select="#f-01e001976095-Applications"/><storycode:paste select="#f-01e001976095-PackageScripts"/><storycode:paste select="#f-01e001976095-PythonTests"/><storycode:paste select="#f-01e001976095-profile"/><storycode:paste select="#f-01e001976095-command_profile"/><storycode:paste select="#f-01e001976095-text"/><storycode:paste select="#f-01e001976095-impl-Provider-for-Applications"/><storycode:paste select="#f-01e001976095-impl-Provider-for-PackageScripts"/><storycode:paste select="#f-01e001976095-impl-Provider-for-PythonTests"/><storycode:paste select="#f-01e001976095-discover_with"/><storycode:paste select="#f-01e001976095-discover"/><storycode:paste select="#f-01e001976095-select"/><storycode:paste select="#f-01e001976095-validate"/><storycode:paste select="#f-01e001976095-impl-Profile"/></storycode:file>
+<storycode:file path="crates/hick-debug/src/launch_profiles.rs"><storycode:paste select="#f-01e001976095-CONFIG"/><storycode:paste select="#f-01e001976095-Definition"/><storycode:paste select="#f-01e001976095-root"/><storycode:paste select="#f-01e001976095-Profile"/><storycode:paste select="#f-01e001976095-Config"/><storycode:paste select="#f-01e001976095-Provider"/><storycode:paste select="#f-01e001976095-Applications"/><storycode:paste select="#f-01e001976095-PackageScripts"/><storycode:paste select="#f-01e001976095-PythonTests"/><storycode:paste select="#f-01e001976095-profile"/><storycode:paste select="#f-01e001976095-command_profile"/><storycode:paste select="#f-01e001976095-text"/><storycode:paste select="#f-01e001976095-impl-Provider-for-Applications"/><storycode:paste select="#f-01e001976095-impl-Provider-for-PackageScripts"/><storycode:paste select="#f-01e001976095-impl-Provider-for-PythonTests"/><storycode:paste select="#f-01e001976095-discover_with"/><storycode:paste select="#f-01e001976095-discover"/><storycode:paste select="#f-01e001976095-select"/><storycode:paste select="#f-01e001976095-validate"/><storycode:paste select="#f-01e001976095-impl-Profile"/></storycode:file>
 
 <a id="output-97a426cc0869"></a>
 ## `crates/hickory-cli/src/serve/launch_profiles.rs`
@@ -2510,8 +2510,8 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/debug/projectDebugSurface.tsx](contract.md#output-75fab5522700)
 - [apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm](../../../shared/files/apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm.md)
 - [crates/hick-lang/src/project/evaluate.rs](../../../mechanisms/crates/hick-lang/src/project/evaluate.rs.md#output-4957ad4b2f9a)
-- [crates/hickory-cli/src/debug_profiles.rs](contract.md#output-05e2104e1cc1)
-- [crates/hickory-cli/src/launch_profiles.rs](contract.md#output-01e001976095)
+- [crates/hick-debug/src/debug_profiles.rs](contract.md#output-05e2104e1cc1)
+- [crates/hick-debug/src/launch_profiles.rs](contract.md#output-01e001976095)
 - [crates/hickory-cli/src/serve/launch_profiles.rs](contract.md#output-97a426cc0869)
 
 ### Tests and fixtures

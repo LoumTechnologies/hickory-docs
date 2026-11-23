@@ -46,7 +46,7 @@ pub struct Plan {
 pub(crate) struct Admission {
     pub plan: Plan,
     pub binding: Binding,
-    pub launch: crate::debug_sessions::TestLaunch,
+    pub launch: crate::test_debug_sessions::TestLaunch,
 }
 fn constructed_rust_test_manifest(root:&Path,target:&str,state:&hick_lsp::document::HickDocumentState,entry:&Path)->Result<(String,String),String>{
  let host=root.join(target);let runtime=host.strip_prefix(entry.parent().unwrap_or(root)).map_err(|_|"Constructed Rust target escaped its compiler root")?;let mut dir=runtime.parent().ok_or("Rust test target has no parent")?;
@@ -121,7 +121,7 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
         name,
         notices,
     };
-    let launch = crate::debug_sessions::TestLaunch {
+    let launch = crate::test_debug_sessions::TestLaunch {
         workspace_id:scan.workspace_id.clone(),
         rust_manifest,
         target_line:candidate.target.line,

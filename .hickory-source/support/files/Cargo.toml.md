@@ -51,7 +51,7 @@ patch; do not edit or rehash the captured package.
 <book:patch id="compose-hickory-workspace" after="workspace-scaffold">
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -1,6 +1,90 @@
+@@ -1,6 +1,91 @@
 -[package]
 -name = "hickory_docs"
 -version = "0.1.0"
@@ -79,6 +79,7 @@ patch; do not edit or rehash the captured package.
 +    "crates/hick-lang-wasm",
 +    "crates/hick-blocks",
 +    "crates/hick-dap",
++    "crates/hick-debug",
 +    "crates/hick-observe",
 +    "crates/hick-lsp",
 +    "crates/hick-project-env",
