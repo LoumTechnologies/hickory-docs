@@ -974,7 +974,7 @@ describe("simple workspace search", () => {
       location({path: file.path, line, character, expectedSource: owner.text});
       return true;
     };
-    const screen = render(createElement(WorkspaceSearch, { visible: true, close, buffers, files: [file], navigate }));
+    const screen = render(createElement(WorkspaceSearch, { visible: true, close, buffers, files: [file], navigate, workspaceCurrent: () => true }));
     try {
       const input = screen.getByRole("textbox", { name: "Workspace search query" });
       fireEvent.change(input, { target: { value: "old" } }); fireEvent.click(screen.getByRole("button", { name: "Search" }));
@@ -988,10 +988,54 @@ describe("simple workspace search", () => {
       buffer.edit(source + " changed"); hash.mockResolvedValue("different");
       fireEvent.click(result); await screen.findByText(/Search source changed/); expect(close).not.toHaveBeenCalled();
       expect(buffer.text).toBe(source + " changed");
-      buffer.edit(source); hash.mockResolvedValue("abc"); fireEvent.click(result);
+      buffer.edit(source); hash.mockResolvedValue("abc");
+      vi.mocked(api.file).mockResolvedValueOnce({ path: file.path, content: "external\n" + source, hash: "disk", language: "text" });
+      fireEvent.click(result); await screen.findByText(/changed on disk/);
+      expect(close).not.toHaveBeenCalled(); expect(buffer.text).toBe(source);
+      vi.mocked(api.file).mockResolvedValueOnce({ path: file.path, content: source, hash: "disk", language: "text" });
+      fireEvent.click(result);
       await waitFor(() => expect(close).toHaveBeenCalledOnce());
       expect(location).toHaveBeenCalledWith(expect.objectContaining({ path: file.path, line: 1, character: 4, expectedSource: source }));
     } finally { screen.unmount(); hash.mockRestore(); }
+  });
+
+  // A same-name workspace can replace the file tree while search is visible.
+  // Keep a same-workspace refresh in place and reject late replies from its predecessor.
+  it("keeps same-workspace search and retires a prior checkout's results", async () => {
+    let workspaceId = "first";
+    const file = { name: "HtmlExporter.kt", path: "HtmlExporter.kt", dir: false };
+    const result = { files: [{ path: file.path, matches: [{ line: 20, text: "old export branch", at: [{ column: 0, length: 3 }] }] }], truncated: false };
+    const listing = () => ({ root: "Laura", root_path: "/owned/" + workspaceId + "/Laura", workspace_id: workspaceId, tree: [file] });
+    vi.mocked(api.files).mockImplementation(async () => listing());
+    vi.mocked(api.find).mockResolvedValueOnce(result);
+    const screen = render(createElement(App));
+    const refresh = () => {
+      const menu = screen.getByText("File", { selector: "summary" });
+      fireEvent.click(menu);
+      fireEvent.click(within(menu.parentElement!).getByRole("button", { name: "Refresh" }));
+    };
+    try {
+      await screen.findByRole("button", { name: file.name });
+      fireEvent.click(screen.getByText("Edit", { selector: "summary" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find in workspace" }));
+      const panel = () => within(screen.getByRole("dialog", { name: "Find in workspace" }));
+      const query = () => panel().getByRole<HTMLInputElement>("textbox", { name: "Workspace search query" });
+      const run = () => fireEvent.click(panel().getByRole("button", { name: "Search" }));
+      fireEvent.change(query(), { target: { value: "old" } }); run();
+      await panel().findByRole("button", { name: /old export branch/ });
+      await act(async () => refresh());
+      expect(query().value).toBe("old");
+      expect(panel().getByRole("button", { name: /old export branch/ })).toBeTruthy();
+
+      let reply!: (value: typeof result) => void;
+      vi.mocked(api.find).mockImplementationOnce(() => new Promise(done => { reply = done; }));
+      run();
+      workspaceId = "second";
+      await act(async () => refresh());
+      expect(query().value).toBe("");
+      await act(async () => reply(result));
+      expect(panel().queryByRole("button", { name: /old export branch/ })).toBeNull();
+    } finally { screen.unmount(); }
   });
 });
 describe("simple workspace overlays", () => {

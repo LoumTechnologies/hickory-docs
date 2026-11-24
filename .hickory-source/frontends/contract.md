@@ -3184,6 +3184,10 @@ process writes the file. The search stays open with a retry message when
 the saved bytes differ. The user can refresh the source and rerun the
 query without losing an unsaved editor.
 
+A Files refresh within the same workspace keeps the current search.
+Switching checkout identity clears the old hits and retires pending
+searches and reveals. A shared display name does not identify a checkout.
+
 ## Project refactoring proposals remain whole
 
 The shared language bridge projects each writable range through exact compiler provenance. A range crossing contributors or discontinuous segments refuses the proposal. All mapped targets are retained; repeated identical copies collapse to one authored replacement, and conflicting overlaps refuse. An unmappable rename target returns a visible error. Each code action is independent, so an incomplete action is disabled with its reason while its valid siblings remain available. Provider resolve data and command arguments remain opaque. Virtual version counters do not become authored-buffer versions.

@@ -5,6 +5,10 @@ For maintainers changing workspace services independently of the editor renderer
 
 Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary. Editors use UTF-16, so a character before the match may occupy two units. Match the editor against the result hash, then read the saved file again before revealing the position. An external edit can leave the search result and cached editor in agreement with each other while both are stale. Reject the hit without replacing the editor or moving its caret. Submit a query through the exhaustive find endpoint with literal or regex, case and whole-word options. Hand the match to the tab owner before reading its bytes so a later tab selection can retire the read, hash check and reveal together. Pagination bounds rendered rows. Dismissal restores editor focus.
 
+Bind the overlay to the workspace path and engine identity. A Files refresh
+within one workspace preserves the search. A new workspace retires its
+rows and pending reads even when the two workspaces have the same name.
+
 <ui:copy id="simple-browser-workspace-search">
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,24 +17,28 @@ import type { FileNode, FindOptions, FindResponse } from "../api/types";
 import type { Buffer, Buffers } from "./buffers";
 import { sha256 } from "../lib/reviews";
 import { searchCharacter } from "./Intelligence";
-export function WorkspaceSearch({visible, close, buffers, files, navigate}: {
+export function WorkspaceSearch({visible, close, buffers, files, navigate, workspaceCurrent}: {
   visible: boolean; close: (restoreFocus: boolean) => void; buffers: Buffers; files: FileNode[];
+  workspaceCurrent: () => boolean;
   navigate: (file: FileNode, line: number, character: number, current: () => boolean, verify: (buffer: Buffer) => Promise<void>) => Promise<boolean>;
 }) {
   const [query, setQuery] = useState(""), [options, setOptions] = useState<FindOptions>({});
   const [result, setResult] = useState<FindResponse | null>(null), [notice, setNotice] = useState(""), [page, setPage] = useState(0);
   const ticket = useRef(0), input = useRef<HTMLInputElement>(null);
   const invalidate = () => { ticket.current++; setResult(null); setNotice(""); setPage(0); };
-  useEffect(() => { if (visible) { ticket.current++; input.current?.focus(); } }, [visible]);
+  useEffect(() => { ticket.current++; if (visible) input.current?.focus(); }, [visible]);
   useEffect(() => () => { ticket.current++; }, []);
   const hits = result?.files.flatMap(file => file.matches.flatMap(match => match.at.map(at => ({ file, match, at })))) ?? [];
   async function run() {
-    const current = ++ticket.current; setResult(null); setNotice("Searching saved workspace text…"); setPage(0);
-    try { const answer = await api.find(query, options); if (current === ticket.current) { setResult(answer); setNotice(""); } }
-    catch (error) { if (current === ticket.current) setNotice(`${String(error)} Check the query and retry.`); }
+    if (!workspaceCurrent()) return;
+    const request = ++ticket.current, current = () => request === ticket.current && workspaceCurrent();
+    setResult(null); setNotice("Searching saved workspace text…"); setPage(0);
+    try { const answer = await api.find(query, options); if (current()) { setResult(answer); setNotice(""); } }
+    catch (error) { if (current()) setNotice(`${String(error)} Check the query and retry.`); }
   }
   async function reveal(hit: typeof hits[number]) {
-    const current = ++ticket.current;
+    if (!workspaceCurrent()) return;
+    const request = ++ticket.current, current = () => request === ticket.current && workspaceCurrent();
     try {
       function find(nodes: FileNode[]): FileNode | undefined { for (const node of nodes) { if (node.path === hit.file.path) return node; const child = find(node.children ?? []); if (child) return child; } }
       const file = buffers.values.get(hit.file.path)?.file ?? find(files);
@@ -38,15 +46,16 @@ export function WorkspaceSearch({visible, close, buffers, files, navigate}: {
       const character = searchCharacter(hit.match.text, hit.at.column);
       const stale = () => new Error("Search source changed or its revision is unknown. Compare the editor with disk and search again.");
       if (character === null) throw stale();
-      if (await navigate(file, hit.match.line, character, () => current === ticket.current, async buffer => {
+      if (await navigate(file, hit.match.line, character, current, async buffer => {
+        if (buffer.namespace !== buffers.workspace) throw new Error("This editor belongs to a previous workspace. Preserve any draft, then reconnect to the current workspace.");
         const source = buffer.text, hash = await sha256(source);
         if (!hit.file.source_hash || hash !== hit.file.source_hash.replace(/^sha256:/, "").toLowerCase()
           || buffer.text !== source || source.split("\n")[hit.match.line - 1]?.replace(/\r$/, "") !== hit.match.text.replace(/\r$/, "")) throw stale();
         const saved = await api.file(file.path);
         if (saved.path !== file.path || saved.content !== source) throw new Error("The search source changed on disk. Search again before opening this result.");
         if (buffer.text !== source) throw stale();
-      })) close(false);
-    } catch (error) { if (current === ticket.current) setNotice(String(error)); }
+      }) && current()) close(false);
+    } catch (error) { if (current()) setNotice(String(error)); }
   }
   if (!visible) return null;
   const dismiss = () => { ticket.current++; close(true); };

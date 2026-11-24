@@ -51,6 +51,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P1 | Render repository-controlled text safely in terminal search results. | The CLI now escapes control characters in result paths and excerpts. The formatter test and an isolated run of `cmd_search` checked non-ASCII text, whitespace, a path with a newline, and terminal controls. The indexed source and source line numbers are retained. Check the packaged CLI after a full rebuild. |
 | P2 | Rank and group ordinary source with its captured reading. | Lexical search keeps a window when it adds a matching line for that file. Still verify grouping using an explicit relationship between Kotlin and its reading, and evaluate the first page with embeddings enabled. |
 | P1 | A saved search result and an open editor could both match stale Kotlin after another process changed the file. Browser, Apple and Android now compare the hit against a new saved-source read before moving the caret. | A real-engine browser run refused line 20 of FloJo's exporter after an external edit moved the match to line 21. Repeating the search after the editor refreshed opened line 21. Three focused Apple tests and three Android JVM tests passed. Installed iOS, Android, KDE and Windows shell acceptance remains open. |
+| P1 | Browser workspace search kept results when Files began showing a different checkout with the same display name. The panel now binds rows and pending replies to the workspace path and engine identity. | The browser kept FloJo’s exporter hit on a same-workspace refresh. With a controlled replacement Files response, the existing browser retained one old hit and the rebuilt browser cleared it. A focused component test also delivered a late reply from the earlier checkout. Actual cross-checkout switching in the installed KDE and Windows shells remains open. |
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
 | P2 | Keep the distinction between zero diagnostics and incomplete coverage visible. Problems now shows the active file, its language and whether the current text has received source-bound diagnostics. A version-bound empty report gets its own message. | Simple Browser opened Laura’s `TimestampUtils.kt` and showed that the current Kotlin text had no source-bound report. Verify provider installation and index coverage independently. Verify that test receipts reflect tests that actually ran. |
@@ -174,6 +175,16 @@ left the old editor text intact. After a focus refresh read the saved
 file, a repeated search revealed line 21 without altering the disk bytes.
 The Apple and Android tests exercised the same stale-hit boundary with a
 retained editor and a separate file response. [Workspace search contract](../frontends/contract.md#find-saved-workspace-text).
+
+The checkout-identity follow-up used the same disposable FloJo exporter.
+The real browser host served the search. The test supplied a different
+root path and workspace ID in the Files response while retaining the
+display name `Laura`. Refresh under the original identity kept the
+query and hit. The rebuilt panel cleared both after the replacement
+response and did not alter the Kotlin bytes. Three focused browser
+tests passed, including a delayed search reply from the prior identity.
+The live FloJo branch ref remained unreadable, so the separate scan-row
+patch is still pending there.
 
 In the rebuilt browser at a 402-pixel viewport, the `02-persistence.md`
 label wrapped over three lines in the same 87-pixel Files pane. The earlier
