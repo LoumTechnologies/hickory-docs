@@ -1290,7 +1290,7 @@ final class ParityTests: XCTestCase {
         for _ in 0..<200 { if measured != nil { break }; try await Task.sleep(for: .milliseconds(25)) }
         let size = try XCTUnwrap(measured)
         XCTAssertLessThan(size.height, 150); XCTAssertGreaterThan(size.width, 100)
-        _ = try await view.evaluateJavaScript("document.querySelector('svg g').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
+        _ = try await view.evaluateJavaScript("document.querySelector('svg g[role=link]').dispatchEvent(new MouseEvent('click',{bubbles:true}))")
         for _ in 0..<40 { if opened != nil { break }; try await Task.sleep(for: .milliseconds(25)) }
         XCTAssertEqual(opened, "src/main.swift")
     }

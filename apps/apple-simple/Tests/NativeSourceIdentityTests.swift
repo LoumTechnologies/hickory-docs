@@ -2,6 +2,7 @@ import XCTest
 #if os(macOS)
 import AppKit
 import SwiftUI
+import WebKit
 #endif
 @testable import HickorySimple
 final class NativeSourceIdentityTests:XCTestCase {
@@ -371,6 +372,91 @@ final class NativeSourceIdentityTests:XCTestCase {
         XCTAssertTrue(workspace.currentBuffer === target)
         XCTAssertEqual(origin.selection, selection)
         XCTAssertEqual(origin.text, "# Audit draft")
+    }
+
+    @MainActor func testMountedDiagramLinkRejectsUnsafeTargetAndFollowsWorkspaceFile() async throws {
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else {
+            throw XCTSkip("Enable the focused native WebKit witness explicitly")
+        }
+        _ = NSApplication.shared
+        let workspace = Workspace()
+        let engine = try Engine(address: "http://127.0.0.1:1")
+        let entry = FileNode(name: "audit.md", path: "docs/audit.md", dir: false)
+        let chapter = FileNode(name: "export boundary.md", path: "export boundary.md", dir: false)
+        let saved = """
+        # Audit workspace
+
+        <h:diagram renderer="graph">
+        {"nodes":[{"id":"refused","label":"Outside","href":"../../outside.md"},{"id":"allowed","label":"Export","href":"../export%20boundary.md"},{"id":"ref","label":"Reference"}],"edges":[]}
+        </h:diagram>
+        """
+        let origin = workspace.retainBuffer(entry, text: FileText(path: entry.path, content: saved, hash: "saved"), engine: engine)
+        let target = workspace.retainBuffer(chapter, text: FileText(path: chapter.path, content: "# Export boundary", hash: "target"), engine: engine)
+        workspace.rootFiles = [entry, chapter]
+        workspace.showSource(entry.path)
+        origin.text = saved + "\nUnsaved observations."
+        origin.inlineMarkup = computeInlineMarkup(origin.text, path: entry.path)
+        let host = NSHostingView(rootView: WorkspaceView(workspace: workspace))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 560),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderFront(nil)
+        defer {
+            origin.language?.close()
+            target.language?.close()
+            workspace.sourceTestIndex?.stop()
+            window.orderOut(nil)
+        }
+        func find<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+            (view as? T) ?? view.subviews.lazy.compactMap { find(type, in: $0) }.first
+        }
+        var linkedPreview: WKWebView?
+        for _ in 0..<160 {
+            host.layoutSubtreeIfNeeded()
+            if let preview = find(WKWebView.self, in: host),
+               let count = try? await preview.evaluateJavaScript("document.querySelectorAll('#formula svg g[role=link]').length"),
+               count as? Int == 2 {
+                linkedPreview = preview
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let preview = try XCTUnwrap(linkedPreview)
+        let editor = try XCTUnwrap(find(SimpleMacTextView.self, in: host))
+        let selection = NSRange(location: 2, length: 4)
+        editor.setSelectedRange(selection)
+        let draft = editor.string
+        let reference = try await preview.evaluateJavaScript("document.querySelector('#formula svg g title').textContent") as? String
+        XCTAssertEqual(reference, "No workspace destination")
+
+        _ = try await preview.evaluateJavaScript("""
+            document.querySelector('[aria-label="Open Outside"]')
+                .dispatchEvent(new MouseEvent('click', {bubbles:true}));
+            """)
+        for _ in 0..<80 {
+            if workspace.status == "This link must point to a file in the workspace." { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(workspace.status, "This link must point to a file in the workspace.")
+        XCTAssertTrue(workspace.currentBuffer === origin)
+        XCTAssertEqual(editor.selectedRange(), selection)
+        XCTAssertEqual(draft, saved + "\nUnsaved observations.")
+        XCTAssertEqual(editor.string, draft)
+
+        _ = try await preview.evaluateJavaScript("""
+            document.querySelector('[aria-label="Open Export"]')
+                .dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+            """)
+        for _ in 0..<80 {
+            host.layoutSubtreeIfNeeded()
+            if workspace.currentBuffer === target,
+               find(SimpleMacTextView.self, in: host)?.string == "# Export boundary" { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertTrue(workspace.currentBuffer === target)
+        XCTAssertEqual(find(SimpleMacTextView.self, in: host)?.string, "# Export boundary")
+        XCTAssertEqual(origin.text, draft)
+        XCTAssertEqual(origin.selection, selection)
     }
 
     @MainActor func testReservedPhysicalNamesMountCodeAndKeepUtilityTabsReachable()async throws {
