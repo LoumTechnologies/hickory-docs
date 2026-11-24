@@ -7,6 +7,10 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The host launcher supplies `HICKORY_API_ORIGIN` for the initial connection and can name a file with `HICKORY_OPEN_FILE`. Race the independent source read and file tree. If source arrives first, mount a read-only buffer with its observed root identity. Only the exact tree entry and ordinary guarded source read can attach editing authority. The guarded read may find a newer revision after the preview mounted. When workspace and path match, update the same buffer before attaching editing authority. A failed or differently addressed read leaves the preview readable. Show the file's containing folder in Files while keeping the full root available to navigation, including relative diagram links that leave the displayed folder. A refresh keeps that folder selected while it exists. Language services attach independently. Without a launch address the manual Connect sheet remains available.
 
+An activated diagram link reports unsafe or missing destinations in the
+existing workspace status. Hold the original buffer and source revision
+through acquisition, including file-only links that leave the caret alone.
+
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh reads the current saved source after updating the tree. It applies external changes to the existing clean editor and retains any draft with its original save guard.
 
 Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
@@ -773,7 +777,11 @@ exercise these decisions.
         buffer.confirmSourceAddress()
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
-            guard let self, let buffer, let target = workspaceLinkTarget(href, relativeTo: buffer.file.path) else { return }
+            guard let self, let buffer, self.buffers[buffer.file.path] === buffer else { return }
+            guard let target = workspaceLinkTarget(href, relativeTo: buffer.file.path) else {
+                self.status = "This link must point to a file in the workspace."
+                return
+            }
             let path = target.path, scope = self.generation, revision = buffer.sourceEditIdentity
             Task {
                 if self.treeEntry(path, in: self.rootFiles) == nil { await self.refresh() }
@@ -787,7 +795,7 @@ exercise these decisions.
                 }
                 if let line = target.line {
                     await self.openSemanticLocation(SemanticLocation(uri: nativeDebugURI(path), line: line, character: 0), allowDirty: true, isCurrent: current)
-                } else { await self.open(file) }
+                } else { _ = await self.activateFile(file, recordNavigation: true, isCurrent: current) }
             }
         }
         buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }

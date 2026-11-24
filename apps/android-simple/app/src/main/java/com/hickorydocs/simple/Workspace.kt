@@ -693,7 +693,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.followWorkspaceLink = follow@{ href ->
-            val target = workspaceLinkTarget(href, buffer.file.path) ?: return@follow
+            if (buffers[buffer.file.path] !== buffer) return@follow
+            val target = workspaceLinkTarget(href, buffer.file.path) ?: run {
+                status = "This link must point to a file in the workspace."
+                return@follow
+            }
             val scope = generation
             val revision = buffer.sourceRevision
             workspaceScope.launch {

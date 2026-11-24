@@ -689,7 +689,11 @@ struct StartupSourceObservation {
         buffer.confirmSourceAddress()
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
-            guard let self, let buffer, let target = workspaceLinkTarget(href, relativeTo: buffer.file.path) else { return }
+            guard let self, let buffer, self.buffers[buffer.file.path] === buffer else { return }
+            guard let target = workspaceLinkTarget(href, relativeTo: buffer.file.path) else {
+                self.status = "This link must point to a file in the workspace."
+                return
+            }
             let path = target.path, scope = self.generation, revision = buffer.sourceEditIdentity
             Task {
                 if self.treeEntry(path, in: self.rootFiles) == nil { await self.refresh() }
@@ -703,7 +707,7 @@ struct StartupSourceObservation {
                 }
                 if let line = target.line {
                     await self.openSemanticLocation(SemanticLocation(uri: nativeDebugURI(path), line: line, character: 0), allowDirty: true, isCurrent: current)
-                } else { await self.open(file) }
+                } else { _ = await self.activateFile(file, recordNavigation: true, isCurrent: current) }
             }
         }
         buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }

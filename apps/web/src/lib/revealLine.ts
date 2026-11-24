@@ -146,6 +146,16 @@ export function openLocation(path: string, line: number, character?: number, rec
   );
 }
 
+/** Keep a diagram's source current through the workspace's asynchronous open. */
+export function openDiagramLocation(href: string, source: string, originCurrent: () => boolean): void {
+  if (!originCurrent()) return;
+  const target = workspaceLinkTarget(href, source);
+  if (!target) return;
+  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {
+    detail: { ...target, originCurrent },
+  }));
+}
+
 /** Carry the source lease and any exact provider name until the host checks the target. */
 export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean, providerName?: string): void {
   if (!originCurrent()) return;

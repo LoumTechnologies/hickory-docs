@@ -7,6 +7,9 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
 
+When an activated link has no admitted workspace path, keep the editor
+selection and show the reason in the existing workspace status.
+
 The editor observes test discovery and coverage attachment separately. Startup
 can promote the same buffer at the same address and text revision, so an
 attachment must be observable before its first source-bound read can run.
@@ -800,7 +803,11 @@ Open the destination before checking a cross-file provider name. If the current 
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.followWorkspaceLink = follow@{ href ->
-            val target = workspaceLinkTarget(href, buffer.file.path) ?: return@follow
+            if (buffers[buffer.file.path] !== buffer) return@follow
+            val target = workspaceLinkTarget(href, buffer.file.path) ?: run {
+                status = "This link must point to a file in the workspace."
+                return@follow
+            }
             val scope = generation
             val revision = buffer.sourceRevision
             workspaceScope.launch {

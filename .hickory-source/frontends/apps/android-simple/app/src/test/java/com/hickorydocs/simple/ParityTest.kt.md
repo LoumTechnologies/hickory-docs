@@ -1252,6 +1252,29 @@ class ParityTest {
         assertNull(workspaceLinkTarget("%2e%2e/%2e%2e/private", "sample/workbook.md"))
     }
 
+    @org.junit.Test fun refusedWorkspaceLinkReportsStatusWithoutMovingTheDraft() = kotlinx.coroutines.runBlocking {
+        val workspace = Workspace(this)
+        val engine = Engine("http://127.0.0.1:1")
+        val file = FileNode("audit.md", "nested/audit.md", false, emptyList(), null, null)
+        val origin = workspace.retainBuffer(file, FileText("# Audit", "saved"), engine)
+        origin.language?.close()
+        workspace.show(sourceTab(file.path))
+        val range = androidx.compose.ui.text.TextRange(2, 6)
+        origin.state.edit { append(" draft"); selection = range }
+        val layout = workspace.layout
+        val history = workspace.navigationTrail
+
+        checkNotNull(origin.followWorkspaceLink)("../../outside.md")
+
+        assertEquals("This link must point to a file in the workspace.", workspace.status)
+        assertSame(origin, workspace.buffers[file.path])
+        assertEquals(sourceTab(file.path), workspace.active)
+        assertEquals(layout, workspace.layout)
+        assertEquals(history, workspace.navigationTrail)
+        assertEquals(range, origin.state.selection)
+        assertEquals("# Audit draft", origin.text)
+    }
+
     @org.junit.Test fun localMarkdownLinkCaretRequiresCurrentSource() {
         val source = "😀 [Open source](../../code.kt) next\n`[literal](ignored.kt)`"
         val snapshot = computeInlineMarkup(source, "docs/literate/audit.md")

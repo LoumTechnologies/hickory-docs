@@ -104,11 +104,24 @@ describe("shared frontend layout contract", () => {
   }, 20000);
   it("resolves diagram file links without allowing external navigation or escaping the workspace", async () => {
     // Contract: .hickory-source/frontends/contract.md
-    const { diagramFilePath } = await import("../lib/revealLine");
+    const { diagramFilePath, onOpenLocation, openDiagramLocation } = await import("../lib/revealLine");
     expect(diagramFilePath("../src/main.rs", "docs/design.md")).toBe("src/main.rs");
     expect(diagramFilePath("space%20name.md", "docs/design.md")).toBe("docs/space name.md");
     for (const path of ["../../outside", "https://example.com", "javascript:alert(1)", "/tmp/file", "%2fetc/passwd", "..\\file"])
       expect(diagramFilePath(path, "docs/design.md")).toBeNull();
+    const follow = vi.fn();
+    const stop = onOpenLocation(follow);
+    try {
+      let current = true;
+      const sourceCurrent = () => current;
+      openDiagramLocation("../src/space%20name.md#L6", "docs/design.md", sourceCurrent);
+      expect(follow).toHaveBeenCalledWith({ path: "src/space name.md", line: 6, originCurrent: sourceCurrent });
+      current = false;
+      expect(follow.mock.calls[0][0].originCurrent()).toBe(false);
+      openDiagramLocation("../src/space%20name.md#L6", "docs/design.md", sourceCurrent);
+      openDiagramLocation("../../outside", "docs/design.md", () => true);
+      expect(follow).toHaveBeenCalledTimes(1);
+    } finally { stop(); }
   });
   it("renders native graph previews safely and rejects obsolete Mermaid results", async () => {
     // Contract: .hickory-source/frontends/contract.md

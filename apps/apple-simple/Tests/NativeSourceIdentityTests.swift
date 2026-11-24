@@ -338,6 +338,41 @@ final class NativeSourceIdentityTests:XCTestCase {
         XCTAssertTrue(exactUTF8(buffer.text, draft))
     }
 
+    @MainActor func testRefusedDiagramLinkKeepsTheDraftAndSelection() async throws {
+        let workspace = Workspace()
+        let engine = try Engine(address: "http://127.0.0.1:1")
+        let originFile = FileNode(name: "audit.md", path: "nested/audit.md", dir: false)
+        let targetFile = FileNode(name: "with spaces.md", path: "with spaces.md", dir: false)
+        workspace.rootFiles = [originFile, targetFile]
+        let origin = workspace.retainBuffer(originFile, text: FileText(path: originFile.path, content: "# Audit", hash: "saved"), engine: engine)
+        let target = workspace.retainBuffer(targetFile, text: FileText(path: targetFile.path, content: "# Target", hash: "saved"), engine: engine)
+        defer {
+            origin.language?.close()
+            target.language?.close()
+            workspace.sourceTestIndex?.stop()
+        }
+        workspace.showSource(originFile.path)
+        origin.text = "# Audit draft"
+        let selection = NSRange(location: 2, length: 4)
+        origin.selection = selection
+        let follow = try XCTUnwrap(origin.openDiagramFile)
+
+        follow("../../outside.md")
+        XCTAssertEqual(workspace.status, "This link must point to a file in the workspace.")
+        XCTAssertTrue(workspace.currentBuffer === origin)
+        XCTAssertEqual(origin.selection, selection)
+        XCTAssertEqual(origin.text, "# Audit draft")
+
+        follow("../with%20spaces.md")
+        let clock = ContinuousClock(), deadline = clock.now + .seconds(2)
+        while workspace.currentBuffer !== target && clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(workspace.currentBuffer === target)
+        XCTAssertEqual(origin.selection, selection)
+        XCTAssertEqual(origin.text, "# Audit draft")
+    }
+
     @MainActor func testReservedPhysicalNamesMountCodeAndKeepUtilityTabsReachable()async throws {
         _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]
         let space=Workspace(),engine=try Engine(address:"http://identity.invalid",session:URLSession(configuration:configuration));space.engine=engine

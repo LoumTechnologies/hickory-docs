@@ -15,7 +15,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 ### `GraphEditorPanel`
 
 <storycode:copy id="f-9a9c534677d6-GraphEditorPanel">
-import { workspaceLinkTarget, openLocation } from "../../lib/revealLine";
+import { workspaceLinkTarget, openDiagramLocation } from "../../lib/revealLine";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { request } from "../../api/client";
 
@@ -37,7 +37,7 @@ const GraphEditorPanel = lazy(() => import("../../components/graph/GraphEditorPa
 Capture a linked graph node double-click before label editing receives it. Recheck the owning source, resolve the node from the current diagram body and open through workspace navigation; stale or invalid scenes cannot request a file.
 
 <storycode:copy id="f-9a9c534677d6-diagramView">
-function CodeModelDiagram({ path, script, current }: { path: string; script: string; current: () => boolean }) {
+function CodeModelDiagram({ path, script, captureSource }: { path: string; script: string; captureSource: () => () => boolean }) {
   const [attempt, refresh] = useState(0);
   const [result, setResult] = useState<{ source?: string; error?: string }>({});
   useEffect(() => {
@@ -66,12 +66,12 @@ function CodeModelDiagram({ path, script, current }: { path: string; script: str
     return () => { live = false; clearTimeout(timer); };
   }, [path, script, attempt]);
   function follow(id: string) {
+    const current = captureSource();
     if (!current() || !result.source) return;
     const scene = JSON.parse(result.source);
     const nodes = (scene.topology?.nodes ?? scene.nodes ?? []) as { id: string; href?: string }[];
     const href = nodes.find(item => item.id === id)?.href;
-    const target = href && workspaceLinkTarget(href, path);
-    if (target) openLocation(target.path, target.line);
+    if (typeof href === "string") openDiagramLocation(href, path, current);
   }
   return <div className="rendered-diagram" style={{ position: "relative" }}>
     <button type="button" className="debug-icon" aria-label="Refresh diagram" onClick={() => refresh(n => n + 1)}
@@ -98,26 +98,27 @@ export const diagramView: ElementView = {
     const resolved = slot.text.includes("<hick:paste")
       ? (matchBlock({ span: slot.span, index: slot.index }, cx.diagramBlocks)?.body ?? null)
       : null;
+    const view = cx.view, capturedSource = slot.text;
+    const sourceCurrent = () => {
+      if (!view?.dom.isConnected) return false;
+      const block = structureOf(view.state).blocks.find(block => block.from === slot.at);
+      if (block?.name !== "diagram" || block.attrs.renderer !== slot.renderer) return false;
+      const body = view.state.doc.sliceString(block.contentFrom, block.contentTo);
+      return slot.renderer === "code-model" ? body.trim() === capturedSource.trim() : body === capturedSource;
+    };
+    const captureSource = () => {
+      const revision = view?.state.doc;
+      return () => view?.state.doc === revision && sourceCurrent();
+    };
     if (slot.renderer === "code-model" && cx.path) {
-      return <CodeModelDiagram key={JSON.stringify([cx.path, slot.at, slot.text])} path={cx.path} script={slot.text} current={() => {
-        const view = cx.view;
-        return !!view?.dom.isConnected && structureOf(view.state).blocks.some(block =>
-          block.from === slot.at && block.name === "diagram" && block.attrs.renderer === slot.renderer &&
-          view.state.doc.sliceString(block.contentFrom, block.contentTo).trim() === slot.text.trim());
-      }} />;
+      return <CodeModelDiagram key={JSON.stringify([cx.path, slot.at, slot.text])} path={cx.path} script={slot.text} captureSource={captureSource} />;
     }
+    const openLink = (href: string) => { if (cx.path) openDiagramLocation(href, cx.path, captureSource()); };
     if (slot.renderer === "graph") {
-      const view = cx.view, capturedSource = slot.text;
-      const sourceCurrent = () => {
-        if (!view?.dom.isConnected) return false;
-        const block = structureOf(view.state).blocks.find(block => block.from === slot.at);
-        return block?.name === "diagram" && block.attrs.renderer === "graph" &&
-          view.state.doc.sliceString(block.contentFrom, block.contentTo) === capturedSource;
-      };
       const linkFor = (href: string) => {
         const target = workspaceLinkTarget(href, cx.path ?? "");
         if (!target) return undefined;
-        return () => { if (sourceCurrent()) openLocation(target.path, target.line); };
+        return openLink.bind(undefined, href);
       };
       return (
         <div className="rendered-diagram" onDoubleClickCapture={event => {
@@ -156,6 +157,7 @@ export const diagramView: ElementView = {
           renderer={slot.renderer}
           source={resolved ?? slot.text}
           domId={`hick-diagram-${slot.index}`}
+          openLink={openLink}
           assertions={states}
           systemAppearance={cx.systemAppearance}
         />
