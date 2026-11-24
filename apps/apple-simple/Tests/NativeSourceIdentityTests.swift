@@ -62,6 +62,107 @@ final class NativeSourceIdentityTests:XCTestCase {
         XCTAssertTrue(workspace.status.contains("changed on disk"))
     }
 
+    #if os(macOS)
+    @MainActor func testMountedMacRefreshKeepsMappedSelectionAndViewport() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let engine = try Engine(address: "http://mounted-refresh.invalid", session: session)
+        let workspace = Workspace()
+        let file = FileNode(name: "HtmlExporter.kt", path: "HtmlExporter.kt", dir: false)
+        let source: String
+        if let fixture = ProcessInfo.processInfo.environment["HICKORY_NATIVE_REFRESH_FIXTURE"] {
+            source = try String(contentsOfFile: fixture, encoding: .utf8)
+        } else {
+            source = (1...390).map { "val attachment\($0) = \($0)\n" }.joined()
+        }
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "old", save_guard: "old"))
+        workspace.engine = engine
+        workspace.sourceRootAddress = "/owned"
+        workspace.sourceWorkspaceID = String(repeating: "a", count: 32)
+        workspace.rootFiles = [file]
+        workspace.buffers[file.path] = buffer
+        workspace.showSource(file.path)
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: WorkspaceView(workspace: workspace))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        func findEditor(_ view: NSView) -> SimpleMacTextView? {
+            (view as? SimpleMacTextView) ?? view.subviews.lazy.compactMap { findEditor($0) }.first
+        }
+        defer {
+            window.orderOut(nil)
+            session.invalidateAndCancel()
+            ResponseProtocol.responsesByPath = [:]
+            ResponseProtocol.beforeResponse = nil
+        }
+        for _ in 0..<100 {
+            host.layoutSubtreeIfNeeded()
+            if findEditor(host) != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let editor = try XCTUnwrap(findEditor(host))
+        let scroll = try XCTUnwrap(editor.enclosingScrollView)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        let oldSelection = NSRange(location: 0, length: 0)
+        editor.setSelectedRange(oldSelection)
+        let beforeScroll = scroll.contentView.bounds.origin
+        let prefix = "// External line\n"
+        let changed = prefix + source
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [
+            "/api/files": try JSONSerialization.data(withJSONObject: [
+                "root": "owned", "root_path": "/owned", "workspace_id": workspace.sourceWorkspaceID!,
+                "tree": [["name": file.name, "path": file.path, "dir": false]]
+            ]),
+            "/api/file": try JSONEncoder().encode([
+                "path": file.path, "content": changed, "hash": "fresh", "save_guard": "fresh"
+            ])
+        ]
+        await workspace.refresh()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let expected = NSRange(location: oldSelection.location + prefix.utf16.count, length: oldSelection.length)
+        XCTAssertEqual(editor.string, changed)
+        XCTAssertEqual(editor.selectedRange(), expected)
+        XCTAssertEqual(buffer.selection, expected)
+        XCTAssertEqual(scroll.contentView.bounds.origin, beforeScroll)
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertTrue(buffer.snippets.notice.isEmpty)
+
+        // While the server is reading disk, the reviewer can still move the
+        // viewport and select source. A later edit must use that newer selection.
+        let second = changed + "// Later change\n"
+        let reading = expectation(description: "external read pending")
+        let deliver = DispatchSemaphore(value: 0)
+        ResponseProtocol.responsesByPath["/api/file"] = try JSONEncoder().encode([
+            "path": file.path, "content": second, "hash": "second", "save_guard": "second"
+        ])
+        ResponseProtocol.beforeResponse = { request in
+            guard request.url?.path == "/api/file" else { return }
+            reading.fulfill()
+            _ = deliver.wait(timeout: .now() + 5)
+        }
+        let pending = Task { await workspace.refreshCurrentSource() }
+        await fulfillment(of: [reading], timeout: 3)
+        let latest = NSRange(location: 30, length: 5)
+        editor.setSelectedRange(latest)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 170))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let latestScroll = scroll.contentView.bounds.origin
+        deliver.signal()
+        await pending.value
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(editor.string, second)
+        XCTAssertEqual(editor.selectedRange(), latest)
+        XCTAssertEqual(buffer.selection, latest)
+        XCTAssertEqual(scroll.contentView.bounds.origin, latestScroll)
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertTrue(buffer.snippets.notice.isEmpty)
+    }
+    #endif
+
     func testMapKeepsExactNamesAndPendingReadIdentities(){
         XCTAssertEqual(first,second);XCTAssertNotEqual(NativeSourceKey(first),NativeSourceKey(second))
         var sources:NativeSourceMap<Int>=[:];sources[first]=1;sources[second]=2

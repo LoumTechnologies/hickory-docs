@@ -125,6 +125,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
             ?? (ranges.isEmpty ? nil:SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:ranges))
     }
     func restoreHistory(_ context:SourceSnippetHistoryContext?){
+        if context == nil && session == nil && group == nil {
+            intent += 1
+            return
+        }
         guard let context,let buffer else{restore(nil);return}
         if let parallel=context.parallel,exactUTF8(parallel.source,buffer.text),
            reflectSelections(orderedRanges(parallel),source:buffer.text) {

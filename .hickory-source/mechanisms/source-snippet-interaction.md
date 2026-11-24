@@ -419,6 +419,10 @@ manager once. The prior selections, and any live peer state, travel with source
 history so Undo can return to the exact selections from which the template was
 opened.
 
+Saved-source refresh can restore an empty template context through the same
+undo path. Invalidate pending template actions in that case. Announce a
+template finish only when the empty context clears a live template.
+
 The existing native history pool retains optional field contexts under a 32 MiB logical quota and 4096-token limit. Compute field and choice overhead before retaining its copy-on-write value; empty alternatives must not make a large context appear free. Oversized or evicted field context never disables ordinary source undo. Computed occurrences are never traversal or choice targets. Explicit selections within computed text and typing strictly inside it retire linked intent, including when an editable parent surrounds the computed child. The ordinary primary edit remains owned by the editor; adjacent source/empty boundaries retain their existing intent.
 
 <ui:copy id="source-snippets-apple">
@@ -549,6 +553,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
             ?? (ranges.isEmpty ? nil:SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:ranges))
     }
     func restoreHistory(_ context:SourceSnippetHistoryContext?){
+        if context == nil && session == nil && group == nil {
+            intent += 1
+            return
+        }
         guard let context,let buffer else{restore(nil);return}
         if let parallel=context.parallel,exactUTF8(parallel.source,buffer.text),
            reflectSelections(orderedRanges(parallel),source:buffer.text) {
