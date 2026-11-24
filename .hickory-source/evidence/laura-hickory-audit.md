@@ -51,7 +51,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P1 | Render repository-controlled text safely in terminal search results. | The CLI now escapes control characters in result paths and excerpts. The formatter test and an isolated run of `cmd_search` checked non-ASCII text, whitespace, a path with a newline, and terminal controls. The indexed source and source line numbers are retained. Check the packaged CLI after a full rebuild. |
 | P2 | Rank and group ordinary source with its captured reading. | Lexical search keeps a window when it adds a matching line for that file. Still verify grouping using an explicit relationship between Kotlin and its reading, and evaluate the first page with embeddings enabled. |
 | P1 | A saved search result and an open editor could both match stale Kotlin after another process changed the file. Browser, Apple and Android now compare the hit against a new saved-source read before moving the caret. | The browser and rebuilt macOS app refused line 20 of FloJo's exporter after an external edit moved the match to line 21. An editor refresh and a second search reached line 21. Three focused Apple tests and three Android JVM tests passed. Installed iOS, Android, KDE and Windows shell acceptance remains open. |
-| P2 | In a standalone Mac window, opening the FloJo exporter, dismissing a refused search hit, and using **File → Refresh** showed line 393 while the viewport stayed at the top. The status had shown line 1 before refresh. AppKit put the native caret at the end when the file text was assigned. The editor now initializes the native selection from the buffer. | A focused AppKit probe confirmed that assigning initial text moves the native caret to its end. The mounted refresh test checks the native selection before any gesture and holds a later disk read while moving the selection and viewport. |
+| P2 | In a standalone Mac window, opening the FloJo exporter, dismissing a refused search hit, and using **File → Refresh** showed line 393 while the viewport stayed at the top. The status had shown line 1 before refresh. AppKit put the native caret at the end when the file text was assigned. Commit `5986ead0` initializes the native selection from the buffer. | The rebuilt standalone app mapped line 1, column 1 to line 2, column 1 after an external prefix and kept the viewport at the top. The mounted test also held a disk read while a newer selection and scroll position were set. |
 | P2 | The same refresh showed **Template editing finished · draft** beside **Saved** without a template session. Apple’s shared template controller now leaves the notice alone when restoring an empty context in an ordinary editor. | The mounted Mac test reproduced the false notice twice before the fix. A rebuilt standalone Mac window showed the refreshed exporter and **Saved** without the false notice. iOS runtime verification remains open. |
 | P1 | Browser workspace search kept results when Files began showing a different checkout with the same display name. The panel now binds rows and pending replies to the workspace path and engine identity. | The browser kept FloJo’s exporter hit on a same-workspace refresh. With a controlled replacement Files response, the existing browser retained one old hit and the rebuilt browser cleared it. A focused component test also delivered a late reply from the earlier checkout. Actual cross-checkout switching in the installed KDE and Windows shells remains open. |
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
@@ -491,5 +491,13 @@ reported the external edit when asked to open the old line 20. **File →
 Refresh** adopted the new source, and a repeated search revealed
 line 21, column 5 in the AppKit editor. The fixture used the committed
 FloJo exporter, and only the test process wrote its one added line.
+
+The standalone replay with `5986ead0` began on line 1, column 1. After
+closing the refused result, **File → Refresh** showed the external prefix,
+line 2, column 1 and **Saved**, with the viewport still at the top. A
+fresh `attachmentFor` search opened the identifier at line 21, column 17.
+The exact-exporter AppKit test reproduced the original mismatch before the
+fix and passed after it. The four startup-authority cases and the
+delayed-diagnostics case also passed. The iOS status check remains open.
 
 </review:doc>
