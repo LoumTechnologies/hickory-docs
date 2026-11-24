@@ -45,7 +45,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P0 | Prevent open tabs from implicitly contributing source text to the Simple Agent prompt. The original Send omitted a projection, leaving full editor text in the model description. | Simple now sends an explicit empty projection with the full edit snapshot reserved for the host. The composer points users to the message for excerpts. Direct source selection and a preview remain open. Verify selected and unselected synthetic text on every Simple client when that workflow is available. |
 | P1 | Verify the read-only agent audit, then its guarded edit path. | Show which open files are captured and which text will be sent to the selected model. Exercise a local or approved model against the same repository, then compare the provider-visible payload and delivery receipt with the selection. The browser's request to the local host and its draft retention on refusal have focused evidence. Separately review a patch against exact preimages, with explicit user action before publication. |
 | P1 | Check web/native preview isolation and permission boundaries during normal review. | Confirm external URLs are handled by the appropriate policy, unsupported content remains readable, actions require current workspace authority, and unrelated local data stays outside review scope. |
-| P1 | Render repository-controlled text safely in terminal search results. | The CLI now escapes control characters in result paths and excerpts. The focused formatter test checked non-ASCII text, spaces and a tab, a path with a newline, and several terminal controls. The indexed source and source line numbers are retained. Verify the emitted output through the rebuilt CLI. |
+| P1 | Render repository-controlled text safely in terminal search results. | The CLI now escapes control characters in result paths and excerpts. The formatter test and an isolated run of `cmd_search` checked non-ASCII text, whitespace, a path with a newline, and terminal controls. The indexed source and source line numbers are retained. Check the packaged CLI after a full rebuild. |
 | P2 | Rank and group ordinary source with its captured reading. | Lexical search keeps a window when it adds a matching line for that file. Still verify grouping using an explicit relationship between Kotlin and its reading, and evaluate the first page with embeddings enabled. |
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
@@ -96,7 +96,12 @@ the context preview for a result without lexical terms. A separate Rust
 test checks that lexical ranking returns exactly one window for each of
 the two distinct lines plus the separate reading, with the exact source
 text at the indexed offset. Three lexical search tests and the related
-search anchor test passed. In the browser’s **Find
+search anchor test passed. An isolated harness compiled the production
+`cmd_search` function with the real search engine. It captured the three
+results, the Kotlin citations at lines 35 and 100, and escaped text in
+the filename and excerpt fixture. Command-line argument parsing, the
+packaged executable, and model installation were outside this harness.
+In the browser’s **Find
 in workspace** dialog, the saved match opened line 100. After an unsaved
 edit there, a new search of saved text refused to reveal the stale match
 and preserved both the draft and the saved file.
