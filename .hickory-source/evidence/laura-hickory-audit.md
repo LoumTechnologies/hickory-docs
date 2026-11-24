@@ -76,7 +76,7 @@ The file-based journal places valuable user data at three boundaries. The device
 | P1 | The editor handled file I/O errors during saves, discard and delete. A storage permission exception could escape those same actions. Laura-app `a0fc284` reports storage access failures in the open editor and retains its draft and acknowledged baseline. | Revoke and restore access on an Android device during autosave and discard. Verify the error stays visible and a retry uses the current guarded baseline. |
 | P1 | Returning from storage settings could run directory and metadata work synchronously, and a failed directory listing could replace the cached metadata with an empty index. Laura-app `f6b9ac0` opens the vault off the UI thread, keeps the last readable metadata on failure, and offers **Try again** when access is granted and storage is unavailable. | Verify both Android permission paths, an unavailable volume, and successful retry with the retained editor session. |
 | P1 | Android can deny a vault operation after the activity's permission precheck. FloJo caught that denial but showed the generic unavailable screen with no explanation. Laura-app `866b15b` directs the user to check storage access in Settings and retry. | A focused injected denial preserved the open draft and last readable metadata. Retry cleared the error and loaded the external edit. Actual permission changes and the installed retry screen still need Android device acceptance. |
-| P2 | A storage failure during a scan, export or recovery action appears in a temporary toast. In particular, export closes the progress dialog on failure and recovery leaves the scan report behind the toast. | Keep the failure readable at the affected action with the selected scope or recovery row. Check how a developer locates the cause, restores access and retries without rebuilding the selection. |
+| P2 | Scan, export and recovery failures appeared in temporary toasts. Laura-app `8055064` adds **Retry scan**, returns a failed export to its title and filter confirmation, and displays a failed recovery beside its row. The view model retains these details while the storage gate replaces the journal. | The host denial test keeps the same export title, filter and error through retry. On Android, check each dialog, return from Settings, large text and screen-reader announcements. Also check what the user sees if permission changes while publication is in progress. |
 | P1 | A retained editor could overwrite an external metadata change after a storage reload adopted the new row. Laura-app `0942cd7` checks the editor’s acknowledged row and loaded month bytes. `c5a591d` adds **Compare with current entry** and carries pending fields into the current entry for explicit Save. | Exercise comparison, cancel and Save on Android. Verify another external edit after comparison is refused. Cross-process writes between verification and file replacement remain possible. |
 | P0 | Laura-app `89015fc` stages a file before deleting its metadata. Laura-app `aa96fcc` stages new text and proposed metadata together. **Resume save** in `6165c50` and **Restore file** in `3db5f70` recover retained work from the scan report without replacing conflicting files. | Verify both recovery flows and interruption at each boundary on Android shared storage. Restoring a deletion requires the original metadata. Multi-month changes, rename recovery and power-loss durability remain open. |
 | P1 | The manifest asks for all-files access, and `VaultPaths` keeps readable journal and export data under public Documents. The original first launch opened Android settings before the permission screen could explain the scope. Its fallback settings action could fail without guidance. Laura-app `76e12ff` waits for user action, explains shared storage access and shows manual settings guidance if neither route opens. | On API 23–29 and API 30+, open a fresh install, read the explanation, deny access, request it again, and verify the vault opens after grant. Check the missing-settings fallback, large type, revoke, restore and reinstall. An explicitly chosen vault and narrower access are still design work. [Android all-files access](https://developer.android.com/training/data-storage/manage-all-files) and [Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files). |
@@ -344,5 +344,18 @@ contained the exact message, and Hickory opened it at line 202. From the
 captured export chapter, Hickory separately reached the permission toast
 in live `FloJoApp.kt` at line 492. These readings and host tests leave the
 device presentation and permission transition open.
+
+Laura-app `8055064` keeps scan errors in a retry dialog, export errors with
+the submitted scope, and recovery errors with the affected row. A recovered
+row is recorded before refreshing tags. The existing journal-owner test
+now retains the export title, filter and error across a simulated storage
+denial and successful reopen. Nineteen focused metadata, creation,
+deletion and stop-export tests passed, along with debug packaging and
+fatal release lint. The debug APK includes all three retry messages.
+Hickory Simple Browser started from the captured export chapter and
+opened the live export failure at `FloJoApp.kt:500` and its retry
+button at `ImportExportDialogs.kt:209`. The Compose presentation, process
+death and permission changes during active publication still need
+Android device checks.
 
 </review:doc>
