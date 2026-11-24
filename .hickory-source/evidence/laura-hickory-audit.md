@@ -95,6 +95,7 @@ The file-based journal places valuable user data at three boundaries. The device
 | P1 | Laura-app `dea3763` moves export selection to the background worker and refreshes files and metadata. `2f6df0d` makes scans cancellable between files. `6398a10` compares copied media with the source and reports changed attachments as skipped. | Exercise progress, cancellation and revoked permission with a large vault on Android. The byte comparison covers detectable copy-time changes. Selection and publication still do not share a single filesystem snapshot. |
 | P1 | Manual scans used the live repository’s cached metadata to decide which files were already known. Laura-app `b758ef1` reloads the monthly files before classification, refuses an unavailable metadata directory, and retains the previous snapshot if reading fails or is cancelled. Permission grant now retries creating the vault directories. | Verify first scan after permission grant and a failed scan after storage changes on Android. A host test exercised cancellation between metadata months. External writers can still change the vault after acquisition. |
 | P1 | The read path previously picked the last usable row for a journal ID, even when the write path rejected that ID as ambiguous. Laura-app `0d265e5` omits ambiguous entries, reports the month files in Scan vault, and refuses affected exports. `e23ac24` adds a timeline count and a read-only **View conflicts** action. | Exercise the warning, conflict details and export refusal on Android, then repair the conflicting rows and rescan. Verify the warning clears and the entry becomes visible again. |
+| P1 | Scan results used the displayed name as the Compose key. An unsupported file can have the same display name as a separate metadata conflict. Both findings then produce the same key. | A disposable vault reproduced the key collision. The tested patch assigns keys by failure kind and name, including for recovery rows. Direct file opens in the live Laura checkout timed out. Applying the patch there and rendering the report on Android remain open. [Compose lazy list keys](https://developer.android.com/reference/kotlin/androidx/compose/foundation/lazy/LazyListScope). |
 | P1 | Export formerly copied raw journal text into the bundle's media folder. A text record with content in metadata could show one version in HTML and carry a different version as an unlinked file. Laura-app `29b7a31` shares a media-only selector between copy and rendering. | Compare the visible page and the entire bundle. Only image, video and audio attachments presented by the HTML should appear alongside it. Verify real Android media playback. |
 | P1 | Laura-app `bc5af0c` tracks nine focused JVM suites covering journal writes, path ownership, recovery, metadata, draft retention and export. Laura-app `deac824` restores fatal release lint and isolates the two host-only NIO helpers with scoped API lint exceptions. The R8-minified unsigned release built from a clean archive. | Verify device acceptance for permissions, lifecycle, process death, playback and the first export. |
 | P1 | A partial `release.properties` silently selected an unsigned release. Laura-app `9b7736f` rejects missing or blank values and paths that fail the readable-file check. An absent properties file still allows an unsigned build. | The documented workflow produced a minified APK with a disposable local key. Android SDK `apksigner` verified v1 and v2 signatures. Verify the production signer and installation or upgrade on disposable Android devices. |
@@ -379,5 +380,18 @@ available after reopening, with one directory and the chosen HTML title.
 Fourteen focused tests, debug packaging and fatal release lint passed.
 The platform permission transition, actual view replacement and
 process death still require Android acceptance.
+
+A disposable scan through the production repository found both an
+unsupported `attachment.bin` and conflicting metadata rows with the
+same ID. The original key expression returned one distinct key for the
+two findings. In the build copy, the revised expression returned two
+distinct keys that remained stable on a second scan. Eighteen focused
+metadata and recovery tests passed. Debug packaging and fatal release
+lint passed, and Hickory Simple Browser reached the revised list key in
+the copied source. A direct open of the live FloJo Git branch ref and
+source file timed out. The portable patch passed an application check
+against the preserved base and is at
+`target/laura-scan-report-identity.patch` in the Hickory checkout. The
+live checkout and device presentation remain unverified.
 
 </review:doc>
