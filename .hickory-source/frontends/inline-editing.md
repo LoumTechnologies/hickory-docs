@@ -26,7 +26,11 @@ exec, skips literal files/fragments and fences, and retains exact source ranges.
 
 Diagram previews use the existing isolated native WebView and a local, locked
 Mermaid bundle; graph JSON is drawn as SVG using text nodes for labels. The body
-is passed as JSON rather than executable script. A monotonically increasing
+is passed as JSON rather than executable script. Like the browser, the shared
+Apple and Android graph renderer reads authored top-level nodes and edges as
+well as scene topology nested under `topology`. Both forms keep layout at the
+top level. Reject malformed collections so an invalid graph cannot look like an
+empty preview. A monotonically increasing
 render ticket rejects obsolete Mermaid results. Native WebViews skip identical
 source/renderer updates so typing elsewhere cannot restart an unchanged diagram. Invalid and unsupported diagrams
 show their source and a status message. Network navigation remains disabled.
@@ -1322,8 +1326,10 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
   if (source.length > 200000) { node.textContent = ''; status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
   try {
     if (renderer === 'graph') {
-      const graph = JSON.parse(source), topology = graph.topology || {}, layout = graph.layout || {};
-      const nodes = topology.nodes || [], edges = topology.edges || [];
+      const graph = JSON.parse(source), layout = graph.layout ?? {};
+      const nodes = graph.topology?.nodes ?? graph.nodes ?? [];
+      const edges = graph.topology?.edges ?? graph.edges ?? [];
+      if (!Array.isArray(nodes) || !Array.isArray(edges)) throw Error('Graph nodes and edges must be arrays.');
       if (nodes.length > 500 || edges.length > 2000) throw Error('Diagram is too large to preview.');
       const ns = 'http://www.w3.org/2000/svg';
       const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };

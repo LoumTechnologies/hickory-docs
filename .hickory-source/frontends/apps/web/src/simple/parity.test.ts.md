@@ -13,6 +13,8 @@ The inline DAP witnesses attach a controlled paused session after text is visibl
 
 The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
 
+The shared native diagram witness checks authored top-level graphs and wrapped scenes. The authored graph must draw both nodes and the edge using its saved layout, and a malformed collection must produce a visible status. Wrapped scenes still use text-only labels and route links through the native bridge.
+
 <ui:copy id="simple-c6aff51ad5-0">
 // Contract: .hickory-source/frontends/contract.md
 import { createElement, Fragment } from "react";
@@ -140,10 +142,20 @@ describe("shared frontend layout contract", () => {
     new Function("document", "globalThis", "mermaid", script)(document, scope, mermaid);
     await scope.renderDiagram(JSON.stringify({ topology: { nodes: [{ id: "a", href: "src/main.rs", label: "<img src=x onerror=alert(1)>" }, { id: "b" }], edges: [{ from: "a", to: "b" }] } }), "graph");
     expect(document.querySelectorAll("svg rect")).toHaveLength(2);
-    document.querySelector("svg g")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    document.querySelector("svg g")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(linked).toHaveBeenCalledWith({ href: "src/main.rs", revision: 0 });
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("svg text")?.textContent).toContain("<img");
+    await scope.renderDiagram(JSON.stringify({
+      nodes: [{ id: "disk", label: "Public vault" }, { id: "export", label: "HTML export" }],
+      edges: [{ from: "disk", to: "export" }],
+      layout: { disk: { x: 40, y: 30, w: 160, h: 64 } },
+    }), "graph");
+    expect([...document.querySelectorAll("svg text")].map(node => node.textContent)).toEqual(["Public vault", "HTML export"]);
+    expect(document.querySelector("svg rect")?.getAttribute("x")).toBe("40");
+    expect(document.querySelector("svg line")?.getAttribute("x1")).toBe("200");
+    await scope.renderDiagram('{"nodes": {}}', "graph");
+    expect(document.getElementById("status")?.textContent).toBe("Graph nodes and edges must be arrays.");
     await scope.renderDiagram("broken", "graph");
     expect(document.getElementById("status")?.textContent).not.toBe("");
     const old = scope.renderDiagram("graph TD; A-->B", "mermaid");
