@@ -31,6 +31,11 @@ against the same observed buffer, preserving its selection and viewport. A
 reply to an older tree request cannot replace the latest tree or authority.
 A startup file read applies only while the initial layout is still current, so
 a slow request cannot replace a tab the user opened in the meantime.
+
+An ordinary source link can be requested while the startup document is
+readable and the file listing is still pending. Keep the latest request and
+admit it after the listing arrives only if the same workspace, buffer text
+and editor interaction still own it.
 When Files and the guarded reader deliver readable text first, the same
 startup lease owns that buffer until a matching reply confirms the save guard.
 Record the provisional owner before activating its tab so a later Refresh can
@@ -91,6 +96,7 @@ import {EditorRecoveryView,editorRecoveryTransport} from "./EditorRecoveryView";
 import { api,request } from "../api/client";
 import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
 import { onOpenLocation, onShowTerminal, openLocation, revealLine } from "../lib/revealLine";
+import type { OpenLocation } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers, createSourceCopy,adoptCreatedDraft } from "./buffers";
 import { RichOwners } from "./RichInline";
@@ -170,6 +176,13 @@ export function App() {
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
   const acceptStartupFiles = useRef<((response: Awaited<ReturnType<typeof api.files>>) => void) | null>(null);
+  const pendingStartupLocation = useRef<{
+    location: OpenLocation;
+    origin: Buffer;
+    text: string;
+    interaction: number;
+    workspace: string | null;
+  } | null>(null);
   const [retainedTabs]=useState(()=>new RetainedResourceTabs());
   const recoveryFocus=useRef(focused), focusEpoch=useRef(0);
   function setFocused(group: string) {
@@ -435,49 +448,71 @@ export function App() {
     const path = location && semanticPath(location.uri);
     if (path && location) openLocation(path, location.range.start.line + 1, location.range.start.character, false);
   }
-  useEffect(() => onOpenLocation(location => {
-    const departed = currentLocation(),workspace=workspaceIdentity.current,origin=buffer&&editorForBuffer(buffer),originInteraction=origin?.interaction??0;
-    const current=()=>workspaceIdentity.current===workspace&&(!location.capture||location.capture.current()&&(!origin||origin.interaction===originInteraction));
-    if (!current() || location.originCurrent && !location.originCurrent()) return;
-    const find = (nodes: FileNode[]): FileNode | undefined => {
-      for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
-    };
-    const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
-    let accepted: OpenedFile | null = null;
-    const name = location.providerName;
-    const verify = name && file?.path !== buffer?.file.path ? async (target: Buffer) => {
-      const row = target.text.split("\n")[location.line - 1];
-      if (!matchesWorkspaceSymbol(row, location.character ?? -1, name)) {
-        throw new Error("The reported symbol has moved or changed. Query the location again.");
+  useEffect(() => {
+    function navigate(location: OpenLocation) {
+      if (workspaceLookup === "opening" && buffer && buffer.startupWorkspace !== undefined &&
+          !location.capture && !location.providerName) {
+        pendingStartupLocation.current = {
+          location, origin: buffer, text: buffer.text,
+          interaction: editorForBuffer(buffer)?.interaction ?? 0,
+          workspace: buffer.startupWorkspace,
+        };
+        return;
       }
-    } : undefined;
-    if (file) { void open(file, {current, originCurrent: location.originCurrent, verify}).then(async opened => {
-      if (!opened?.current()) return;
-      accepted = opened;
-      const target = opened.buffer;
-      if(location.capture){
-        if(!location.capture.hash){setNotice(location.capture.sourceReference&&location.capture.sourceReference>0?"Adapter-owned source bytes have not been read; opened workspace text without a precise position.":location.capture.positionKnown===false?"Frame position is unavailable; opened readable source text only.":"Opened source text only; the debugger has no captured mapping identity for this frame.");return;}
-        const source=target.text,interaction=editorForBuffer(target)?.interaction??0;
-        for(const character of source)if(character.length===1&&character.charCodeAt(0)>=0xD800&&character.charCodeAt(0)<=0xDFFF){setNotice("Source text has an incomplete Unicode scalar; opened without a debugger position.");return;}
-        const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
-        if (!opened.current()) return;
-        const exact=()=>opened.current()&&target.text===source&&(editorForBuffer(target)?.interaction??0)===interaction;
-        if(!exact()){setNotice("Debugger position or editor interaction changed while checking source. Select the frame again.");return;}
-        if(hash!==location.capture.hash){setNotice("Source differs from the captured debugger mapping; opened without a precise position.");return;}
-        if(!Number.isInteger(location.line)||location.line<1||location.line>source.split("\n").length){setNotice("Captured debugger line does not fit this source; opened text only.");return;}
-        revealLine(file.path,location.line,0,{source,current:exact});return;
+      const departed = currentLocation(),workspace=workspaceIdentity.current,origin=buffer&&editorForBuffer(buffer),originInteraction=origin?.interaction??0;
+      const current=()=>workspaceIdentity.current===workspace&&(!location.capture||location.capture.current()&&(!origin||origin.interaction===originInteraction));
+      if (!current() || location.originCurrent && !location.originCurrent()) return;
+      const find = (nodes: FileNode[]): FileNode | undefined => {
+        for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
+      };
+      const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
+      let accepted: OpenedFile | null = null;
+      const name = location.providerName;
+      const verify = name && file?.path !== buffer?.file.path ? async (target: Buffer) => {
+        const row = target.text.split("\n")[location.line - 1];
+        if (!matchesWorkspaceSymbol(row, location.character ?? -1, name)) {
+          throw new Error("The reported symbol has moved or changed. Query the location again.");
+        }
+      } : undefined;
+      if (file) { void open(file, {current, originCurrent: location.originCurrent, verify}).then(async opened => {
+        if (!opened?.current()) return;
+        accepted = opened;
+        const target = opened.buffer;
+        if(location.capture){
+          if(!location.capture.hash){setNotice(location.capture.sourceReference&&location.capture.sourceReference>0?"Adapter-owned source bytes have not been read; opened workspace text without a precise position.":location.capture.positionKnown===false?"Frame position is unavailable; opened readable source text only.":"Opened source text only; the debugger has no captured mapping identity for this frame.");return;}
+          const source=target.text,interaction=editorForBuffer(target)?.interaction??0;
+          for(const character of source)if(character.length===1&&character.charCodeAt(0)>=0xD800&&character.charCodeAt(0)<=0xDFFF){setNotice("Source text has an incomplete Unicode scalar; opened without a debugger position.");return;}
+          const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+          if (!opened.current()) return;
+          const exact=()=>opened.current()&&target.text===source&&(editorForBuffer(target)?.interaction??0)===interaction;
+          if(!exact()){setNotice("Debugger position or editor interaction changed while checking source. Select the frame again.");return;}
+          if(hash!==location.capture.hash){setNotice("Source differs from the captured debugger mapping; opened without a precise position.");return;}
+          if(!Number.isInteger(location.line)||location.line<1||location.line>source.split("\n").length){setNotice("Captured debugger line does not fit this source; opened text only.");return;}
+          revealLine(file.path,location.line,0,{source,current:exact});return;
+        }
+        if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
+        if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+        revealVisit(opened, departed, location.line, location.character, location.recordHistory !== false);
+      }).catch(error => {
+        if (accepted?.current()) {
+          setNotice(String(error) + " Source text remains available; no precise location was applied.");
+        } else if (verify && current() && location.originCurrent?.()) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        }
+      }); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
+    }
+    const stop = onOpenLocation(navigate, true);
+    const pending = pendingStartupLocation.current;
+    if (pending && workspaceLookup !== "opening") {
+      pendingStartupLocation.current = null;
+      if (workspaceLookup === "opened" && buffer === pending.origin && buffer.text === pending.text &&
+          (editorForBuffer(buffer)?.interaction ?? 0) === pending.interaction && buffer.namespace === buffers.workspace &&
+          (!pending.workspace || pending.workspace === buffers.workspaceId)) {
+        navigate(pending.location);
       }
-      if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
-      if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
-      revealVisit(opened, departed, location.line, location.character, location.recordHistory !== false);
-    }).catch(error => {
-      if (accepted?.current()) {
-        setNotice(String(error) + " Source text remains available; no precise location was applied.");
-      } else if (verify && current() && location.originCurrent?.()) {
-        setNotice(error instanceof Error ? error.message : String(error));
-      }
-    }); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
-  },true), [workspaceFiles, layout, focused]);
+    }
+    return stop;
+  }, [workspaceFiles, layout, focused, workspaceLookup]);
   useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file,{current:()=>workspaceIdentity.current===identity}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,{current}).then(opened=>{if(opened?.current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode, options?: OpenFileOptions) {

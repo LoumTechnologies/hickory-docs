@@ -3,7 +3,7 @@
 // free — and the free one beside an attached line carries no ink until a
 // connector is being dragged (or the node is hovered). The canvas library is
 // mocked; these tests are about which handles exist and how they are marked.
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const connection = { inProgress: false };
@@ -30,10 +30,11 @@ afterEach(() => {
   connection.inProgress = false;
 });
 
-function view(slots: SceneNodeData["slots"]) {
+function view(slots: SceneNodeData["slots"], openLink?: () => void) {
   const data: SceneNodeData = {
     node: { id: "api" },
     derived: false,
+    openLink,
     onRename: () => undefined,
     onResize: () => undefined,
     slots,
@@ -43,6 +44,15 @@ function view(slots: SceneNodeData["slots"]) {
 }
 
 describe("a node's connection bubbles", () => {
+  it("exposes the open action for a node with a workspace destination", () => {
+    const openLink = vi.fn();
+    const rendered = view({}, openLink);
+    const button = rendered.getByRole("button", { name: "Open api" });
+    fireEvent.click(button);
+    expect(openLink).toHaveBeenCalledTimes(1);
+    expect(rendered.queryByRole("textbox")).toBeNull();
+  });
+
   it("centres the occupied slot and flanks it with extras; a bare side is one plain point", () => {
     const { container } = view({ left: [0] });
     const ids = (id: string) =>
@@ -72,7 +82,7 @@ describe("a node's connection bubbles", () => {
 });
 
 it("shares the visible label draft and refuses to overwrite a changed label", async () => {
-  const { act, fireEvent, screen } = await import("@testing-library/react");
+  const { act, screen } = await import("@testing-library/react");
   const { UiActions } = await import("../../lib/uiActions");
   const { UiActionContext } = await import("../../lib/uiActionBridge");
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});

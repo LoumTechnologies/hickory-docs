@@ -74,6 +74,7 @@ export interface GraphEditorPanelProps {
   sourceOwner?: object;
   sourceRevision?: () => object | null;
   onOpenNode?: (id: string) => void;
+  linkFor?: (href: string) => (() => void) | undefined;
 }
 
 const NODE_TYPES = { scene: SceneNodeView };
@@ -89,6 +90,7 @@ function flowNodes(
   derived: boolean,
   onRename: (id: string, label: string, actor?: UiActor) => boolean | void,
   onResize: SceneNodeData["onResize"],
+  linkFor?: GraphEditorPanelProps["linkFor"],
 ): Node[] {
   const layout = placeMissing(scene.nodes, scene.layout);
   const slots = occupiedSlots(scene.edges);
@@ -101,7 +103,10 @@ function flowNodes(
     // out-size it with CSS minimums of its own.
     width: layout[node.id].w ?? DEFAULT_W,
     height: layout[node.id].h ?? DEFAULT_H,
-    data: { node, derived, onRename, onResize, slots: slots[node.id] ?? {} } satisfies SceneNodeData,
+    data: {
+      node, derived, onRename, onResize, slots: slots[node.id] ?? {},
+      openLink: node.href ? linkFor?.(node.href) : undefined,
+    } satisfies SceneNodeData,
   }));
 }
 
@@ -204,7 +209,14 @@ function canvasHeight(scene: Scene): number {
   return Math.min(640, Math.max(80, bottom - top + 48));
 }
 
-function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: hostCurrent, sourceWritable, sourceOwner, sourceRevision, onOpenNode }: GraphEditorPanelProps) {
+function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: hostCurrent, sourceWritable, sourceOwner, sourceRevision, onOpenNode, linkFor }: GraphEditorPanelProps) {
+  // Keep node identity and focus when the host replaces the callback.
+  const linkForRef = useRef(linkFor);
+  linkForRef.current = linkFor;
+  const resolveLink = useCallback((href: string) => {
+    if (!linkForRef.current?.(href)) return undefined;
+    return () => linkForRef.current?.(href)?.();
+  }, []);
   // The last byte form THIS panel wrote. A source that comes back equal is
   // our own commit echoing through the registry; anything else is an external
   // edit — undo, a collaborator, the agent — and the document wins.
@@ -277,7 +289,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
       // usually the moment before the NEXT adjustment to the same node.
       setNodes((current) => {
         const kept = new Set(current.filter((n) => n.selected).map((n) => n.id));
-        return flowNodes(scene, scene.paste !== null, renameRef.current, resizeRef.current).map(
+        return flowNodes(scene, scene.paste !== null, renameRef.current, resizeRef.current, resolveLink).map(
           (n) => (kept.has(n.id) ? { ...n, selected: true } : n),
         );
       });
@@ -287,7 +299,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
       });
       return true;
     },
-    [onCommit, setNodes, setEdges],
+    [onCommit, setNodes, setEdges, resolveLink],
   );
 
   const rename = useCallback(
@@ -344,9 +356,9 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
       : parsed.scene;
     sceneRef.current = scene;
     lastCommitted.current = source;
-    setNodes(flowNodes(scene, scene.paste !== null, renameStable, resizeStable));
+    setNodes(flowNodes(scene, scene.paste !== null, renameStable, resizeStable, resolveLink));
     setEdges(flowEdges(scene));
-  }, [source, resolved, setNodes, setEdges, renameStable, resizeStable]);
+  }, [source, resolved, setNodes, setEdges, renameStable, resizeStable, resolveLink]);
 
   const derived = sceneRef.current?.paste != null;
 

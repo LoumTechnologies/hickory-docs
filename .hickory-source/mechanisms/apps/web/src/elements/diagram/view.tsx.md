@@ -111,23 +111,32 @@ export const diagramView: ElementView = {
       const sourceCurrent = () => {
         if (!view?.dom.isConnected) return false;
         const block = structureOf(view.state).blocks.find(block => block.from === slot.at);
-        return !!block && view.state.doc.sliceString(block.contentFrom, block.contentTo) === capturedSource;
+        return block?.name === "diagram" && block.attrs.renderer === "graph" &&
+          view.state.doc.sliceString(block.contentFrom, block.contentTo) === capturedSource;
+      };
+      const linkFor = (href: string) => {
+        const target = workspaceLinkTarget(href, cx.path ?? "");
+        if (!target) return undefined;
+        return () => { if (sourceCurrent()) openLocation(target.path, target.line); };
       };
       return (
         <div className="rendered-diagram" onDoubleClickCapture={event => {
           if (!sourceCurrent()) return;
-          const node = (event.target as Element).closest('[data-testid^="graph-node-"]');
+          const element = event.target as Element;
+          if (element.closest(".graph-node__open")) return;
+          const node = element.closest('[data-testid^="graph-node-"]');
           if (!node) return;
           try {
             const graph = JSON.parse(resolved ?? slot.text), nodes = graph.topology?.nodes ?? graph.nodes ?? [];
             const href = nodes.find((item: { id: string }) => `graph-node-${item.id}` === node.getAttribute("data-testid"))?.href;
-            const target = typeof href === "string" ? workspaceLinkTarget(href, cx.path ?? "") : null;
-            if (target) { event.stopPropagation(); openLocation(target.path, target.line); }
+            const follow = typeof href === "string" ? linkFor(href) : undefined;
+            if (follow) { event.stopPropagation(); follow(); }
           } catch { /* Invalid scenes retain their renderer's source/error fallback. */ }
         }}>
           <Suspense fallback={<div className="graph-editor graph-editor--loading" />}>
             <GraphEditorPanel
               source={slot.text}
+              linkFor={linkFor}
               sourceCurrent={sourceCurrent}
               sourceWritable={() => !!view && !view.state.readOnly}
               sourceOwner={view ?? undefined}

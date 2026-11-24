@@ -1807,6 +1807,18 @@ textarea:focus {
 .graph-node--selected {
   box-shadow: 0 0 0 2px var(--accent);
 }
+.graph-node__open {
+  margin-inline-start: 0.3rem;
+  padding: 0.1rem 0.25rem;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.graph-node__open:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
 .graph-node--round,
 .graph-node--pill {
   border-radius: 999px;

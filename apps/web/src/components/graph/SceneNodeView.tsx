@@ -17,6 +17,7 @@ import type { SceneNode, Side } from "./scene";
 
 export interface SceneNodeData extends Record<string, unknown> {
   node: SceneNode;
+  openLink?: () => void;
   derived: boolean;
   onRename: (id: string, label: string, actor?: UiActor) => boolean | void;
   /** A resize ended: the node's new place and size, to snap and commit. */
@@ -27,7 +28,7 @@ export interface SceneNodeData extends Record<string, unknown> {
 }
 
 export function SceneNodeView({ data, selected }: NodeProps) {
-  const { node, derived, onRename, onResize, slots } = data as SceneNodeData;
+  const { node, derived, onRename, onResize, slots, openLink } = data as SceneNodeData;
   // Whether ANY connection drag is live on the canvas: the moment the extra
   // bubbles earn their ink (see below).
   const connecting = useConnection((c) => c.inProgress);
@@ -115,6 +116,16 @@ export function SceneNodeView({ data, selected }: NodeProps) {
         />
       ) : (
         <span className="graph-node__label">{node.label ?? node.id}</span>
+      )}
+      {openLink && (
+        <button
+          type="button"
+          className="graph-node__open nodrag nopan"
+          aria-label={`Open ${node.label ?? node.id}`}
+          onClick={event => { event.stopPropagation(); openLink(); }}
+          onDoubleClick={event => event.stopPropagation()}
+          onKeyDown={event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); }}
+        >↗</button>
       )}
     </div>
   );

@@ -3,6 +3,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data:;">
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode:not(.interactive-terminal) .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 <style>
+.diagram-mode g[role="link"]:focus > rect { stroke-width: 3; }
 html:root {
   color-scheme: light dark;
   color: CanvasText; background: Canvas;
@@ -206,20 +207,24 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
       const minX = values.length ? Math.min(...values.map(b => b.x)) - 10 : 0, minY = values.length ? Math.min(...values.map(b => b.y)) - 10 : 0;
       const width = values.length ? Math.max(...values.map(b => b.x + b.w)) - minX + 10 : 24;
       const height = values.length ? Math.max(...values.map(b => b.y + b.h)) - minY + 10 : 24;
-      const svg = element('svg', { viewBox: `${minX} ${minY} ${width} ${height}`, role: 'img', 'aria-label': 'Diagram preview', width, height });
+      const hasLink = item => typeof item.href === 'string' && item.href.trim() !== '';
+      const svg = element('svg', { viewBox: `${minX} ${minY} ${width} ${height}`, role: nodes.some(hasLink) ? 'group' : 'img', 'aria-label': 'Diagram preview', width, height });
       const defs = element('defs'), marker = element('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
       marker.append(element('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor' })); defs.append(marker); svg.append(defs);
       for (const edge of edges) { const a = boxes.get(edge.from), b = boxes.get(edge.to); if (a && b) svg.append(element('line', { x1: a.x + a.w, y1: a.y + a.h / 2, x2: b.x, y2: b.y + b.h / 2, stroke: 'currentColor', 'marker-end': 'url(#arrow)' })); }
       for (const item of nodes) {
         const b = boxes.get(item.id), group = element('g');
         group.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' }));
-        group.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id));
-        if (typeof item.href === 'string') {
+        const label = element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id);
+        group.append(label);
+        if (hasLink(item)) {
           group.style.cursor = 'pointer';
           group.setAttribute('role', 'link'); group.setAttribute('tabindex', '0');
+          group.setAttribute('aria-label', 'Open ' + (item.label || item.id));
+          label.setAttribute('text-decoration', 'underline');
           const follow = () => followDiagramLink(item.href, sizeRevision);
           group.addEventListener('click', follow);
-          group.addEventListener('keydown', event => { if (event.key === 'Enter') follow(); });
+          group.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); follow(); } });
         }
         svg.append(group);
       }

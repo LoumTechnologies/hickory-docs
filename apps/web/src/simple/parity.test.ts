@@ -126,6 +126,11 @@ describe("shared frontend layout contract", () => {
     expect(document.querySelectorAll("svg rect")).toHaveLength(2);
     document.querySelector("svg g")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(linked).toHaveBeenCalledWith({ href: "src/main.rs", revision: 0 });
+    expect(document.querySelector("svg")?.getAttribute("role")).toBe("group");
+    const link = document.querySelector('svg g[role="link"][tabindex="0"]');
+    expect(link?.querySelector("text")?.getAttribute("text-decoration")).toBe("underline");
+    link?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(linked).toHaveBeenCalledTimes(2);
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("svg text")?.textContent).toContain("<img");
     await scope.renderDiagram(JSON.stringify({
@@ -134,6 +139,7 @@ describe("shared frontend layout contract", () => {
       layout: { disk: { x: 40, y: 30, w: 160, h: 64 } },
     }), "graph");
     expect([...document.querySelectorAll("svg text")].map(node => node.textContent)).toEqual(["Public vault", "HTML export"]);
+    expect(document.querySelector("svg")?.getAttribute("role")).toBe("img");
     expect(document.querySelector("svg rect")?.getAttribute("x")).toBe("40");
     expect(document.querySelector("svg line")?.getAttribute("x1")).toBe("200");
     await scope.renderDiagram('{"nodes": {}}', "graph");

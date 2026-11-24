@@ -10,6 +10,10 @@ This page owns the output construction and the explained fragments below. Source
 
 Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
 
+An authored workspace destination gets a button in the node. Its click stays
+separate from dragging, selection and label editing. The embedding editor
+resolves and checks the destination before supplying the action.
+
 <a id="f-daf7e784fe4c-SceneNodeData"></a>
 ### `SceneNodeData`
 
@@ -33,6 +37,7 @@ import type { SceneNode, Side } from "./scene";
 
 export interface SceneNodeData extends Record<string, unknown> {
   node: SceneNode;
+  openLink?: () => void;
   derived: boolean;
   onRename: (id: string, label: string, actor?: UiActor) => boolean | void;
   /** A resize ended: the node's new place and size, to snap and commit. */
@@ -48,7 +53,7 @@ export interface SceneNodeData extends Record<string, unknown> {
 
 <storycode:copy id="f-daf7e784fe4c-SceneNodeView">
 export function SceneNodeView({ data, selected }: NodeProps) {
-  const { node, derived, onRename, onResize, slots } = data as SceneNodeData;
+  const { node, derived, onRename, onResize, slots, openLink } = data as SceneNodeData;
   // Whether ANY connection drag is live on the canvas: the moment the extra
   // bubbles earn their ink (see below).
   const connecting = useConnection((c) => c.inProgress);
@@ -137,6 +142,16 @@ export function SceneNodeView({ data, selected }: NodeProps) {
       ) : (
         <span className="graph-node__label">{node.label ?? node.id}</span>
       )}
+      {openLink && (
+        <button
+          type="button"
+          className="graph-node__open nodrag nopan"
+          aria-label={`Open ${node.label ?? node.id}`}
+          onClick={event => { event.stopPropagation(); openLink(); }}
+          onDoubleClick={event => event.stopPropagation()}
+          onKeyDown={event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); }}
+        >↗</button>
+      )}
     </div>
   );
 }
@@ -187,7 +202,7 @@ mocked; these tests are about which handles exist and how they are marked.
 // free — and the free one beside an attached line carries no ink until a
 // connector is being dragged (or the node is hovered). The canvas library is
 // mocked; these tests are about which handles exist and how they are marked.
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const connection = { inProgress: false };
@@ -239,10 +254,11 @@ afterEach(() => {
 ### `view`
 
 <storycode:copy id="f-d7bdcc63ee38-view">
-function view(slots: SceneNodeData["slots"]) {
+function view(slots: SceneNodeData["slots"], openLink?: () => void) {
   const data: SceneNodeData = {
     node: { id: "api" },
     derived: false,
+    openLink,
     onRename: () => undefined,
     onResize: () => undefined,
     slots,
@@ -257,6 +273,15 @@ function view(slots: SceneNodeData["slots"]) {
 
 <storycode:copy id="f-d7bdcc63ee38-expression_statement-3">
 describe("a node's connection bubbles", () => {
+  it("exposes the open action for a node with a workspace destination", () => {
+    const openLink = vi.fn();
+    const rendered = view({}, openLink);
+    const button = rendered.getByRole("button", { name: "Open api" });
+    fireEvent.click(button);
+    expect(openLink).toHaveBeenCalledTimes(1);
+    expect(rendered.queryByRole("textbox")).toBeNull();
+  });
+
   it("centres the occupied slot and flanks it with extras; a bare side is one plain point", () => {
     const { container } = view({ left: [0] });
     const ids = (id: string) =>
@@ -291,7 +316,7 @@ describe("a node's connection bubbles", () => {
 
 <storycode:copy id="f-d7bdcc63ee38-expression_statement-4">
 it("shares the visible label draft and refuses to overwrite a changed label", async () => {
-  const { act, fireEvent, screen } = await import("@testing-library/react");
+  const { act, screen } = await import("@testing-library/react");
   const { UiActions } = await import("../../lib/uiActions");
   const { UiActionContext } = await import("../../lib/uiActionBridge");
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
