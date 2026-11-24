@@ -33,6 +33,9 @@ display its result while the Markdown bytes still carry the expression.
 The test double supplies the HTTP response. The browser spreadsheet witness
 runs the same range sum through the real evaluator.
 
+The Agent reading witness checks the request shared by Send and edit refresh. The
+host still receives exact buffer text with an explicit empty model reading scope.
+
 <ui:copy id="simple-7d7b2a4b09-0">
 // Contract: .hickory-source/frontends/contract.md
 import XCTest
@@ -224,6 +227,21 @@ final class ParityTests: XCTestCase {
         language.open(local); XCTAssertEqual(selected, NSRange(location: 2, length: 0))
         XCTAssertTrue(buffer.dirty); XCTAssertEqual(opened, 1)
         language.close(); language.open(local); XCTAssertEqual(opened, 1)
+    }
+
+    @MainActor func testAgentReadingScopeKeepsHostSnapshot() throws {
+        let session = AgentSession()
+        session.captureContext = {
+            ["buffers": [["path": "open.md", "content": "Synthetic edit snapshot"]]]
+        }
+        let request = try XCTUnwrap(session.liveAgentContext())
+        XCTAssertEqual(request["live"] as? Bool, true)
+        let buffers = try XCTUnwrap(request["buffers"] as? [[String: String]])
+        XCTAssertEqual(buffers.first?["content"], "Synthetic edit snapshot")
+        let projection = try XCTUnwrap(request["projection"] as? [String: Any])
+        XCTAssertEqual(projection["version"] as? Int, 1)
+        XCTAssertEqual((projection["documents"] as? [Any])?.count, 0)
+        XCTAssertEqual((projection["observations"] as? [Any])?.count, 0)
     }
 
     @MainActor func testAgentMessagesUseLiterateBuffersWithoutFileOwnership() {

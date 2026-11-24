@@ -1032,7 +1032,13 @@ class ParityTest {
                 val sent = requests[index]
                 assertEquals(submitted, sent.getString("prompt"))
                 assertEquals(parent.id, sent.getString("parent_id"))
-                assertEquals(index, sent.getJSONObject("context").getInt("fixture"))
+                val context = sent.getJSONObject("context")
+                assertEquals(index, context.getInt("fixture"))
+                assertTrue(context.getBoolean("live"))
+                val projection = context.getJSONObject("projection")
+                assertEquals(1, projection.getInt("version"))
+                assertEquals(0, projection.getJSONArray("documents").length())
+                assertEquals(0, projection.getJSONArray("observations").length())
                 if (index < 2) {
                     val replacement = "A newer draft"
                     assertTrue(draft.applySourceEdits(listOf(NativeSourceEdit(0, submitted.length, replacement)), submitted))

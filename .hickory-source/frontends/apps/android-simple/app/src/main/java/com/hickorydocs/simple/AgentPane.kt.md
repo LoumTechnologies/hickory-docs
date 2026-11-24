@@ -5,6 +5,11 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Polling and prompt state are confined to the agent pane. Cancelling its composition cancels polling; it never cancels or retries a dispatched agent turn implicitly. A failed provider leaves the editor operational.
 
+
+Initial Send and edit refresh carry exact editor bytes for guarded work on the host.
+The explicit empty reading projection excludes those bytes from model input. The
+composer points to the message as the place to include excerpts.
+
 <ui:copy id="simple-716e739687-0">
 package com.hickorydocs.simple
 
@@ -31,6 +36,7 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class AgentFenceReading(val turn: String, val side: String, val source: String, val current: () -> Boolean) {
@@ -42,6 +48,10 @@ data class AgentFenceReading(val turn: String, val side: String, val source: Str
 
 data class AgentTool(val name: String, val ok: Boolean? = null, val result: String? = null)
 data class AgentActivity(val phase: String = "Starting…", val answer: String? = null, val tools: List<AgentTool> = emptyList(), val tokens: Long = 0)
+
+internal fun liveAgentContext(snapshot: JSONObject): JSONObject =
+    snapshot.put("live", true).put("projection", JSONObject()
+        .put("version", 1).put("documents", JSONArray()).put("observations", JSONArray()))
 
 class AgentSession {
     var totals by mutableStateOf<AgentTotals?>(null)
@@ -207,7 +217,7 @@ acknowledgment. A refusal leaves the draft available for inspection.
         error = ""
         mutation++
         try {
-            val id = engine.send(submitted, parent, provider, model, effort, captureContext().put("live", true))
+            val id = engine.send(submitted, parent, provider, model, effort, liveAgentContext(captureContext()))
             liveTurn = id
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
             earlyEvents.filter { it.optString("run_id") == id }.forEach(::receive)
@@ -412,7 +422,7 @@ history confirms the final source and its fence actions.
                             mutation == session.mutation && own == session.liveTurn) {
                             engine.request("POST", "/api/docs/workspace/agent/python/review",
                                 JSONObject().put("capture_request", capture)
-                                    .put("context", simpleAgentContext(workspace).put("live", true)))
+                                    .put("context", liveAgentContext(simpleAgentContext(workspace))))
                         }
                     } else if (own != null) session.liveTurn = null
                 }
@@ -477,7 +487,7 @@ history confirms the final source and its fence actions.
                 Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
+                Text("Your message · Paste any source excerpts you want the model to read.", style = MaterialTheme.typography.labelMedium)
                 LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

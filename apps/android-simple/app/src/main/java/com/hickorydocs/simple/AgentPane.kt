@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class AgentFenceReading(val turn: String, val side: String, val source: String, val current: () -> Boolean) {
@@ -34,6 +35,10 @@ data class AgentFenceReading(val turn: String, val side: String, val source: Str
 
 data class AgentTool(val name: String, val ok: Boolean? = null, val result: String? = null)
 data class AgentActivity(val phase: String = "Starting…", val answer: String? = null, val tools: List<AgentTool> = emptyList(), val tokens: Long = 0)
+
+internal fun liveAgentContext(snapshot: JSONObject): JSONObject =
+    snapshot.put("live", true).put("projection", JSONObject()
+        .put("version", 1).put("documents", JSONArray()).put("observations", JSONArray()))
 
 class AgentSession {
     var totals by mutableStateOf<AgentTotals?>(null)
@@ -179,7 +184,7 @@ class AgentSession {
         error = ""
         mutation++
         try {
-            val id = engine.send(submitted, parent, provider, model, effort, captureContext().put("live", true))
+            val id = engine.send(submitted, parent, provider, model, effort, liveAgentContext(captureContext()))
             liveTurn = id
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
             earlyEvents.filter { it.optString("run_id") == id }.forEach(::receive)
@@ -345,7 +350,7 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                             mutation == session.mutation && own == session.liveTurn) {
                             engine.request("POST", "/api/docs/workspace/agent/python/review",
                                 JSONObject().put("capture_request", capture)
-                                    .put("context", simpleAgentContext(workspace).put("live", true)))
+                                    .put("context", liveAgentContext(simpleAgentContext(workspace))))
                         }
                     } else if (own != null) session.liveTurn = null
                 }
@@ -410,7 +415,7 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                 Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
+                Text("Your message · Paste any source excerpts you want the model to read.", style = MaterialTheme.typography.labelMedium)
                 LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

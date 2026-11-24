@@ -61,6 +61,9 @@ leave the current recorded editor and its draft untouched.
 
 The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
 
+The Agent Send witness checks the real HTTP request for an explicit empty reading
+scope alongside the host capture. Newer local drafts still survive an older reply.
+
 <ui:copy id="simple-de002213e5-0">
 // Contract: .hickory-source/frontends/contract.md
 package com.hickorydocs.simple
@@ -1096,7 +1099,13 @@ class ParityTest {
                 val sent = requests[index]
                 assertEquals(submitted, sent.getString("prompt"))
                 assertEquals(parent.id, sent.getString("parent_id"))
-                assertEquals(index, sent.getJSONObject("context").getInt("fixture"))
+                val context = sent.getJSONObject("context")
+                assertEquals(index, context.getInt("fixture"))
+                assertTrue(context.getBoolean("live"))
+                val projection = context.getJSONObject("projection")
+                assertEquals(1, projection.getInt("version"))
+                assertEquals(0, projection.getJSONArray("documents").length())
+                assertEquals(0, projection.getJSONArray("observations").length())
                 if (index < 2) {
                     val replacement = "A newer draft"
                     assertTrue(draft.applySourceEdits(listOf(NativeSourceEdit(0, submitted.length, replacement)), submitted))

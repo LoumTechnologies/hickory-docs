@@ -9,6 +9,11 @@ The run channel provides immediate progress and usage. The history read still
 confirms the recorded answer before fence actions can use it. Frames that arrive
 before Send returns stay provisional until the server identifies the turn.
 
+
+Send and edit refresh keep the originating editor snapshot on the host. An explicit
+empty reading projection keeps that snapshot out of model input. The composer tells
+users how to supply an excerpt when they want the model to read one.
+
 <ui:copy id="simple-42e0887630-0">
 import SwiftUI
 import Observation
@@ -106,6 +111,12 @@ import Observation
         return text.map { exactUTF8($0, buffer.text) } == true && documents["\(id)-\(side.bufferSuffix)"] === buffer
     }
     var captureContext:(()throws->[String:Any])?
+    func liveAgentContext() throws -> [String: Any]? {
+        guard var context = try captureContext?() else { return nil }
+        context["live"] = true
+        context["projection"] = ["version": 1, "documents": [], "observations": []] as [String: Any]
+        return context
+    }
     var liveTurn: String?
     var sending = false
     var error = ""
@@ -145,8 +156,7 @@ import Observation
         }
         let state: CaptureState = try await engine.request("GET", "/api/docs/workspace/agent/python")
         guard !Task.isCancelled, current(), mutation == self.mutation, turn == liveTurn, state.turn == turn,
-              let capture = state.edits?.captureRequest, var context = try captureContext?() else { return }
-        context["live"] = true
+              let capture = state.edits?.captureRequest, let context = try liveAgentContext() else { return }
         let _: CaptureState = try await engine.request("POST", "/api/docs/workspace/agent/python/review",
             body: ["capture_request": capture, "context": context])
     }
@@ -576,7 +586,7 @@ struct AgentPane: View {
             if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-                Text("Your message · literate document").font(.caption).foregroundStyle(.secondary)
+                Text("Your message · Paste any source excerpts you want the model to read.").font(.caption).foregroundStyle(.secondary)
                 NativeEditor(buffer: session.draft).id(session.draft.id).frame(height: 140).accessibilityLabel("Message")
                 HStack {
                     Spacer()
@@ -643,8 +653,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
         session.sending = true; session.error = ""; session.mutation += 1
         defer { session.replayEarlyEvents(for: ""); session.sending = false; session.mutation += 1 }
         do {
-            var context = try session.captureContext?()
-            context?["live"] = true
+            let context = try session.liveAgentContext()
             let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort, context: context)
             guard workspaceCurrent() else { return }
             session.liveTurn = context == nil ? nil : started.session_id

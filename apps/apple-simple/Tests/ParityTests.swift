@@ -190,6 +190,21 @@ final class ParityTests: XCTestCase {
         language.close(); language.open(local); XCTAssertEqual(opened, 1)
     }
 
+    @MainActor func testAgentReadingScopeKeepsHostSnapshot() throws {
+        let session = AgentSession()
+        session.captureContext = {
+            ["buffers": [["path": "open.md", "content": "Synthetic edit snapshot"]]]
+        }
+        let request = try XCTUnwrap(session.liveAgentContext())
+        XCTAssertEqual(request["live"] as? Bool, true)
+        let buffers = try XCTUnwrap(request["buffers"] as? [[String: String]])
+        XCTAssertEqual(buffers.first?["content"], "Synthetic edit snapshot")
+        let projection = try XCTUnwrap(request["projection"] as? [String: Any])
+        XCTAssertEqual(projection["version"] as? Int, 1)
+        XCTAssertEqual((projection["documents"] as? [Any])?.count, 0)
+        XCTAssertEqual((projection["observations"] as? [Any])?.count, 0)
+    }
+
     @MainActor func testAgentMessagesUseLiterateBuffersWithoutFileOwnership() {
         // Contract: .hickory-source/frontends/contract.md
         let session = AgentSession()

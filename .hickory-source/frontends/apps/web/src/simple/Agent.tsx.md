@@ -28,6 +28,7 @@ import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
 import { Buffer, Buffers } from "./buffers";
 import type {AgentEditorContext} from "../api/agentTypes";
+import { projectionEstimate } from "../lib/contextProjection";
 import { Document, editorForBuffer } from "./Document";
 import { RichOwners } from "./RichInline";
 import { api, request } from "../api/client";
@@ -92,10 +93,21 @@ inline grids. The draft retains selection, undo and unsaved text through provide
 changes. Subscribe to every draft edit so Send availability follows blankness.
 Capture a send once, keep it busy until acknowledged, and clear only that exact
 draft; typing during a request belongs to the next message.
+Send and edit refresh keep exact buffers for the host. The explicit empty reading
+projection keeps those buffers out of the model prompt. Add excerpts to the message
+when the model should read them.
 
 <ui:copy id="simple-agent-document-session">
 export class AgentSession {
   captureContext?:()=>AgentEditorContext;
+  liveAgentContext(): AgentEditorContext | undefined {
+    const context = this.captureContext?.();
+    if (!context) return undefined;
+    return {
+      ...context, live: true,
+      projection: { version: 1, documents: [], observations: [], estimate: projectionEstimate({ documents: [], observations: [] }) },
+    };
+  }
   constructor() { this.draft.subscribe(() => this.publish()); }
   turns: AgentTurn[] = [];
   totals?: AgentTotals;
@@ -194,8 +206,8 @@ export class AgentSession {
     if (!this.prompt.trim() || this.running) return;
     const text = this.prompt; this.busy = true; this.error = ""; this.mutation++; this.publish();
     try {
-      const context=this.captureContext?.();
-      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context && { ...context, live: true }, undefined, this.effort || undefined);
+      const context = this.liveAgentContext();
+      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context, undefined, this.effort || undefined);
       this.liveTurn = context ? started.session_id : null;
       this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
       const early = this.early;
@@ -248,8 +260,8 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
             const state = await request<{ turn: string | null; edits: { captureRequest?: string } }>("GET", "/api/docs/workspace/agent/python");
             const capture = state.edits?.captureRequest;
             if (capture && state.turn === own && !cancelled && mutation === session.mutation && own === session.liveTurn) {
-              const context = session.captureContext?.();
-              if (context) await acpApi.edits("workspace", { capture_request: capture, context: { ...context, live: true } }, "python");
+              const context = session.liveAgentContext();
+              if (context) await acpApi.edits("workspace", { capture_request: capture, context }, "python");
             }
           } else if (own) {
             session.liveTurn = null;
@@ -313,7 +325,7 @@ actions.
     </div>
     {error && <div role="alert" className="notice">{error}</div>}
     <form className="agent-composer" onSubmit={event => { event.preventDefault(); void session.send(); }}>
-      <label className="message-label">Your message · literate document</label>
+      <label className="message-label">Your message · Paste any source excerpts you want the model to read.</label>
       <Document buffer={session.draft} />
       <div className="agent-send">
         {session.canStop

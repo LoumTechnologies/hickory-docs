@@ -108,8 +108,10 @@ it('sends an initial guarded snapshot and tracks its live turn', async () => {
     expect(started).toHaveBeenCalledTimes(1);
     const context = started.mock.calls[0][6]!;
     expect(context.live).toBe(true);
+    expect(context.projection).toMatchObject({ version: 1, documents: [], observations: [] });
     expect(capture).toHaveBeenCalledTimes(1);
     expect(capture.mock.results[0].value.live).toBe(false);
+    expect(capture.mock.results[0].value.projection).toBeUndefined();
     expect(session.liveTurn).toBe('owned-turn');
     expect(context.buffers.find(row => row.path === 'note.py')).toMatchObject({
       id: resourceBufferId(buffer), content:'value=1\n', save_guard:'original-guard',
