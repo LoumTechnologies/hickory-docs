@@ -90,7 +90,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var testIndex by mutableStateOf<SourceTestIndex?>(null)
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
-    val state = TextFieldState(loaded.content)
+    val state = TextFieldState(loaded.content, initialSelection = TextRange.Zero)
     val snippets=SourceSnippetController(this)
     var showSnippetTools by mutableStateOf(false)
     var focusSource: (() -> Unit)? = null

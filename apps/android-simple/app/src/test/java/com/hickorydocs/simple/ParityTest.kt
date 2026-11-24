@@ -56,6 +56,7 @@ class ParityTest {
             val early = workspace.currentBuffer!!
             val state = early.state
             val scroll = early.sourceScroll
+            assertEquals(androidx.compose.ui.text.TextRange.Zero, state.selection)
             early.state.edit { selection = androidx.compose.ui.text.TextRange(2, 5) }
             scroll.scrollTo(120)
             assertEquals(raw, early.text)
@@ -86,11 +87,15 @@ class ParityTest {
             assertFalse(early.readOnly)
             assertEquals("owned guard", early.saveGuard)
 
-            val revised = "$changed\nRefreshed copy."
+            val prefix = "Refreshed copy.\n"
+            val revised = prefix + changed
             confirmed.set(revised)
             workspace.refresh()
             assertEquals(revised, early.text)
             assertFalse(early.dirty)
+            assertSame(state, early.state)
+            assertEquals(120, scroll.value)
+            assertEquals(androidx.compose.ui.text.TextRange(prefix.length + 2, prefix.length + 5), state.selection)
             early.state.edit { replace(length, length, " My draft.") }
             confirmed.set("External change")
             workspace.refresh()

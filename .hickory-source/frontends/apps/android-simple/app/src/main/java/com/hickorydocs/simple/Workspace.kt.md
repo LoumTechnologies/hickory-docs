@@ -5,7 +5,7 @@ The read-only navigation epoch lets a fact reader reject work after a workspace 
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
+Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Initialize a new source caret at the top with the first viewport. Compose otherwise places the caret at the end of preloaded text. Explicit navigation and recovery can set their own selection on that state. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
 
 When an activated link has no admitted workspace path, keep the editor
 selection and show the reason in the existing workspace status.
@@ -143,7 +143,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var testIndex by mutableStateOf<SourceTestIndex?>(null)
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
-    val state = TextFieldState(loaded.content)
+    val state = TextFieldState(loaded.content, initialSelection = TextRange.Zero)
     val snippets=SourceSnippetController(this)
     var showSnippetTools by mutableStateOf(false)
     var focusSource: (() -> Unit)? = null

@@ -13,9 +13,11 @@ editor. Repeating the launch on the same ViewModel must preserve the mounted
 editor and its draft. A missing request keeps the tree available for recovery.
 
 The provisional startup witness independently holds the Files and guarded
-source endpoints. Neither delay may hide the raw text. Once both answer, the
-exact editor, text state, selection and scroll remain mounted. A differing
-guarded revision stays readable with writes refused until an explicit reopen.
+source endpoints. Neither delay may hide the raw text. The first caret belongs
+at the start of that text. When the guarded reply arrives, the same editor,
+selection and scroll remain mounted. A later refresh maps the selection past
+an external prefix and keeps the viewport. If the editor already holds a
+draft, refresh keeps its bytes and save guard.
 
 When Files comes first, the guarded request can fail before the independent
 text returns. A second branch serves the bytes immediately without a save
@@ -123,6 +125,7 @@ class ParityTest {
             val early = workspace.currentBuffer!!
             val state = early.state
             val scroll = early.sourceScroll
+            assertEquals(androidx.compose.ui.text.TextRange.Zero, state.selection)
             early.state.edit { selection = androidx.compose.ui.text.TextRange(2, 5) }
             scroll.scrollTo(120)
             assertEquals(raw, early.text)
@@ -153,11 +156,15 @@ class ParityTest {
             assertFalse(early.readOnly)
             assertEquals("owned guard", early.saveGuard)
 
-            val revised = "$changed\nRefreshed copy."
+            val prefix = "Refreshed copy.\n"
+            val revised = prefix + changed
             confirmed.set(revised)
             workspace.refresh()
             assertEquals(revised, early.text)
             assertFalse(early.dirty)
+            assertSame(state, early.state)
+            assertEquals(120, scroll.value)
+            assertEquals(androidx.compose.ui.text.TextRange(prefix.length + 2, prefix.length + 5), state.selection)
             early.state.edit { replace(length, length, " My draft.") }
             confirmed.set("External change")
             workspace.refresh()
