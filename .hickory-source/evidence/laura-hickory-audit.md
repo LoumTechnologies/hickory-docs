@@ -39,7 +39,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P1 | Make local Markdown link gestures discoverable and support an accessible action. | Trace an audit heading into Kotlin from prose, table and graph, and back again. Simple Browser verified prose activation and keyboard navigation from all nine nodes in the local architecture graph. Native editors offer a prose caret action. Native in-app navigation, screen readers and table keyboard access still need acceptance. |
 | P1 | Show source-backed, captured and document-owned code distinctly with revision-bound authority. | Inspect a reading and ordinary Kotlin, then preview a change. Name the destination and source revision, keep source untouched on stale/diverged input, and distinguish reconstruction from runtime checks. |
 | P1 | Keep first open and audits responsive under slow parsing, indexing and tooling. | On each frontend, open a large cold repo. Render readable text and tree independently of capabilities. Pending and failed capabilities leave focus, selection, scroll, draft and Undo intact. |
-| P1 | Make the local state from open/search visible and easy to keep out of commits. | A disposable checkout's status remains clear of generated artifacts after the recommended setup. Offer a scoped ignore change and explain what is retained locally. Opening a repo must not silently edit its tracked settings. |
+| P1 | Make the local state from open/search visible and easy to keep out of commits. | `hick init --ignore-local-cache` opts into `/.hick-cache/` in Git's local `info/exclude`. The cache holds operational state such as the search index and editor collaboration records. A focused linked-worktree test restored its original Git status while retaining the cache. The workspace UI still needs a discoverable explanation and action. |
 | P1 | Report audit capabilities against real Kotlin/Gradle, including unavailable actions and Android Studio handoff. | Run file, text and available semantic navigation against an Android module. Show supported Kotlin tooling, missing setup, unsupported Android debugging, and commands or IDE locations that remain useful. |
 | P1 | Keep an audit's evidence pinned to a specific checked state. | One retained result names dirty files or fingerprints, code spans, test counts, exit status and unverified targets. Open a dirty project, change source, and confirm the earlier claim cannot become current on refresh. |
 | P0 | Prevent open tabs from implicitly contributing source text to the Simple Agent prompt. The original Send omitted a projection, leaving full editor text in the model description. | Simple now sends an explicit empty projection with the full edit snapshot reserved for the host. The composer points users to the message for excerpts. Direct source selection and a preview remain open. Verify selected and unselected synthetic text on every Simple client when that workflow is available. |
@@ -83,6 +83,27 @@ The file-based journal places valuable user data at three boundaries. The device
 First acceptance for Laura-app requires an ordinary journey on an isolated Android device. Grant access to an explicitly disposable vault, create and reopen a text entry, import known media, apply combined filters and export a safe bundle. Then check the recovery and permission cases above. The initial review did not inspect the user's Android vault.
 
 ## Verification scope
+
+When the live Laura checkout became readable again at `6398a10`, Hickory's
+browser editor opened all nine audit-desk destinations by keyboard.
+**Find in workspace** then landed on the actual Kotlin `renderCard`
+declaration at line 254. Git
+listed a generated search index and a CRDT record alongside 18 paths flagged
+by the initial reading verifier. A temporary cache-only Git exclusion
+removed those two entries from the verifier's output. All 18 source paths
+remained and verification still exited 1. The historical reading and the
+current Kotlin therefore require distinct citations. In particular, the
+captured export chapter uses the earlier media-directory call while the live
+Kotlin calls `renderCard` with the published attachment path.
+
+An isolated checkout containing the current Laura exporter gained a
+search-index file after a normal Hickory search. A focused harness compiled
+the production initialization argument and command with the real Git
+operations. The local-cache flag restored the original porcelain status
+and retained the byte-identical search index. A second invocation reported
+that the cache was already ignored. The linked-worktree and ignore
+precedence tests also passed. This check exercised the flag in the harness.
+The packaged CLI still needs a rebuild.
 
 The ranked-search follow-up used an isolated export fixture with the two
 Laura paths and representative Kotlin identifiers. The live Laura folder

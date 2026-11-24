@@ -220,6 +220,93 @@ fn git_toplevel(dir: &Path) -> Result<PathBuf> {
     ))
 }
 
+/// Keep Hickory's operational state out of this local repository's untracked inventory.
+pub fn ignore_local_cache(dir: &Path) -> Result<bool> {
+    use std::io::{Read as _, Write as _};
+
+    const CACHE: &str = ".hick-cache/";
+    let root = git_toplevel(dir)?;
+    let cache_path = CACHE.trim_end_matches('/');
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .context("failed to run git")
+    };
+    let cached = git(&["ls-files", "-z", "--", cache_path])?;
+    if !cached.status.success() {
+        bail!("Git could not check tracked Hickory cache paths.");
+    }
+    if !cached.stdout.is_empty() {
+        bail!("Git already tracks paths in .hick-cache/. Review those paths before excluding local state.");
+    }
+    match std::fs::symlink_metadata(root.join(cache_path)) {
+        Ok(metadata) if !metadata.is_dir() => {
+            bail!("The workspace's .hick-cache path is not an ordinary directory. Review it first.");
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    let check = || -> Result<bool> {
+        let ignored = git(&["check-ignore", "-q", "--no-index", "--", CACHE])?;
+        match ignored.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => bail!("Git could not check ignore rules for .hick-cache/."),
+        }
+    };
+    if check()? {
+        return Ok(false);
+    }
+
+    let resolved = git(&["rev-parse", "--git-path", "info/exclude"])?;
+    if !resolved.status.success() {
+        bail!("Git could not locate the local exclude file.");
+    }
+    let path = root.join(std::str::from_utf8(&resolved.stdout)?.trim_end_matches(['\r', '\n']));
+    let info = path.parent().context("Git returned an invalid exclude path.")?;
+    std::fs::create_dir_all(info)?;
+    if std::fs::symlink_metadata(info)?.file_type().is_symlink() {
+        bail!("Git's local exclude directory is a symbolic link. Review it before making changes.");
+    }
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.is_file() => {
+            bail!("Git's local exclude path is not an ordinary file. Review it before making changes.");
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut exclude = std::fs::OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(path)?;
+    fs2::FileExt::lock_exclusive(&exclude)?;
+    let mut existing = Vec::new();
+    exclude.read_to_end(&mut existing)?;
+    let current = existing.strip_suffix(b"\n").unwrap_or(&existing);
+    let added = current.rsplit(|byte| *byte == b'\n').next() != Some(b"/.hick-cache/");
+    if added {
+        let rule = if existing.is_empty() || existing.ends_with(b"\n") {
+            b"/.hick-cache/\n".as_slice()
+        } else {
+            b"\n/.hick-cache/\n".as_slice()
+        };
+        exclude.write_all(rule)?;
+        exclude.sync_all()?;
+    }
+    drop(exclude);
+    if !check()? {
+        bail!("Git still shows .hick-cache/ with the local exclude rule present. Review the worktree's .gitignore.");
+    }
+    Ok(added)
+}
+
 /// The directory where the pre-commit hook belongs, honouring `core.hooksPath`.
 fn hooks_dir(root: &Path) -> Result<PathBuf> {
     let cfg = Command::new("git")
@@ -806,6 +893,59 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         git(dir.path(), &["init", "-q"]);
         dir
+    }
+
+    #[test]
+    fn local_cache_exclusion_preserves_worktree_inventory_and_other_rules() {
+        let repo = init_repo();
+        let root = repo.path();
+        std::fs::write(root.join(".gitignore"), "*.tmp\n").unwrap();
+        git(root, &["add", ".gitignore"]);
+        git(root, &["-c", "user.name=Audit", "-c", "user.email=audit@example.test",
+            "-c", "commit.gpgSign=false", "commit", "-qm", "Initial worktree"]);
+        let checkout = tempfile::tempdir().unwrap();
+        let checkout = checkout.path().join("review");
+        git(root, &["worktree", "add", "--detach", checkout.to_str().unwrap()]);
+        let exclude = root.join(".git/info/exclude");
+        std::fs::write(&exclude, b"# keep this comment\r\n/private/").unwrap();
+        let status = || Command::new("git").arg("-C").arg(&checkout)
+            .args(["status", "--porcelain"]).output().unwrap().stdout;
+        let baseline = status();
+        let search = checkout.join(".hick-cache/search");
+        std::fs::create_dir_all(&search).unwrap();
+        std::fs::write(search.join("index.json"), "{}").unwrap();
+        assert_ne!(status(), baseline);
+        assert!(ignore_local_cache(&checkout).unwrap());
+        assert!(!ignore_local_cache(&checkout).unwrap());
+        assert_eq!(status(), baseline);
+        assert_eq!(std::fs::read(&exclude).unwrap(), b"# keep this comment\r\n/private/\n/.hick-cache/\n");
+        assert_eq!(std::fs::read_to_string(checkout.join(".gitignore")).unwrap(), "*.tmp\n");
+        assert!(search.join("index.json").exists());
+    }
+
+    #[test]
+    fn local_cache_exclusion_respects_tracked_paths_and_worktree_precedence() {
+        let repo = init_repo();
+        let root = repo.path();
+        let exclude = root.join(".git/info/exclude");
+        let before = std::fs::read(&exclude).unwrap();
+        let search = root.join(".hick-cache/search");
+        std::fs::create_dir_all(&search).unwrap();
+        std::fs::write(search.join("index.json"), "{}").unwrap();
+        git(root, &["add", "-f", "--", ".hick-cache/search/index.json"]);
+        assert!(ignore_local_cache(root).unwrap_err().to_string().contains("already tracks"));
+        assert_eq!(std::fs::read(&exclude).unwrap(), before);
+
+        git(root, &["rm", "--cached", "--", ".hick-cache/search/index.json"]);
+        let worktree_rule = "!/.hick-cache/\n";
+        std::fs::write(root.join(".gitignore"), worktree_rule).unwrap();
+        let conflict = ignore_local_cache(root).unwrap_err().to_string();
+        assert!(conflict.contains("local exclude rule present"), "{conflict}");
+        let with_rule = std::fs::read(&exclude).unwrap();
+        assert!(with_rule.ends_with(b"/.hick-cache/\n"));
+        assert!(ignore_local_cache(root).is_err());
+        assert_eq!(std::fs::read(exclude).unwrap(), with_rule);
+        assert_eq!(std::fs::read_to_string(root.join(".gitignore")).unwrap(), worktree_rule);
     }
 
     #[test]

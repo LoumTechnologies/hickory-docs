@@ -940,6 +940,9 @@ struct InitArgs {
     /// Directory inside the git repository to initialize (default: cwd).
     #[arg(default_value = ".")]
     dir: PathBuf,
+    /// Add only the /.hick-cache/ rule to Git's local info/exclude.
+    #[arg(long)]
+    ignore_local_cache: bool,
 }
 
 #[derive(clap::Args)]
@@ -3763,6 +3766,14 @@ fn cmd_sandbox_run(_args: SandboxRunArgs) -> Result<ExitCode> {
 }
 
 fn cmd_init(args: InitArgs) -> Result<ExitCode> {
+    if args.ignore_local_cache {
+        if hickory_cli::init::ignore_local_cache(&args.dir)? {
+            println!("Added /.hick-cache/ to Git's local info/exclude.");
+        } else {
+            println!("Git already ignores .hick-cache/ in this worktree.");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let report = hickory_cli::run_init(&args.dir)?;
     hickory_cli::print_init_report(&report);
     Ok(ExitCode::SUCCESS)
