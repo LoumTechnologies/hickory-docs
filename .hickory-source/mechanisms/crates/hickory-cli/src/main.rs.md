@@ -1745,6 +1745,10 @@ Keep the range in the result heading and cite each preview line within that
 range. An explicit query selects matching source lines. Related search uses
 the window's source as context.
 
+The terminal treats control characters as instructions. Escape them in both
+repository paths and source excerpts at the point they become terminal text.
+The indexed window still carries the original source for navigation.
+
 <storycode:copy id="f-5607f2721a2d-cmd_search">
 async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
     let root = match &args.root {
@@ -1795,13 +1799,41 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
         None
     };
     for hit in hits {
-        println!("{}:{}-{}", hit.path, hit.start_line, hit.end_line);
+        let path = terminal_search_text(&hit.path);
+        println!("{path}:{}-{}", hit.start_line, hit.end_line);
         for (number, line) in hit.preview_lines(preview_query, 3) {
-            println!("    {number}: {line}");
+            println!("    {number}: {}", terminal_search_text(line));
         }
         println!();
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn terminal_search_text(text: &str) -> String {
+    let mut visible = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() {
+            visible.extend(ch.escape_debug());
+        } else {
+            visible.push(ch);
+        }
+    }
+    visible
+}
+
+#[cfg(test)]
+mod terminal_search_tests {
+    use super::terminal_search_text;
+
+    #[test]
+    fn repository_search_output_escapes_controls_and_keeps_readable_source() {
+        let path = "notes/資料\nreview.kt";
+        let source = "    val café = \t'\u{1b}\u{9b}\r'";
+        assert_eq!(terminal_search_text(path), r"notes/資料\nreview.kt");
+        let rendered = terminal_search_text(source);
+        assert_eq!(rendered, r"    val café = \t'\u{1b}\u{9b}\r'");
+        assert!(!rendered.chars().any(char::is_control));
+    }
 }
 
 </storycode:copy>
