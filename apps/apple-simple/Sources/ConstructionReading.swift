@@ -99,14 +99,15 @@ struct ConstructionReadingView:View {
   Text(model.notice).font(.caption).textSelection(.enabled)
   ScrollView{VStack(alignment:.leading,spacing:8){if let value=model.value{
    Text("Captured entry: \(value.entry) · focus: \(value.focus ?? "all")").font(.caption)
+   Text("Draft changes compare two reconstructions. Use Files to inspect the working copy.").font(.caption)
    Text("\(value.output_count) related outputs\(value.outputs_truncated ? " · first 300 shown":""). \(value.test_count) detected tests\(value.tests_truncated ? " · test list truncated":""). Evidence: \(value.evidence_status). Outputs have not been written.").font(.caption)
    Text(value.test_relationship).font(.caption);ForEach(Array(value.notices.enumerated()),id:\.offset){_,notice in Text(notice).font(.caption)}
    if !value.unused_sources.isEmpty{Text("\(value.unused_sources.count) supplied drafts did not contribute to this entry.").font(.caption)}
-   ForEach(value.outputs,id:\.path){output in Button("\(output.change) · \(output.path)"){model.selected=output.path}.buttonStyle(.plain)}
+   ForEach(value.outputs,id:\.path){output in Button("\(output.change) in draft · \(output.path)"){model.selected=output.path}.buttonStyle(.plain)}
    if let output=value.outputs.first(where:{$0.path==model.selected}) ?? value.outputs.first{
-    Text("\(output.change) · \(output.path)").font(.headline);Text("Contributors: \(output.contributors.joined(separator:", "))").font(.caption)
-    HStack{Button("Saved construction"){model.after=false};Button("Draft construction"){model.after=true}}
-    if let snapshot=model.after ? output.after:output.before{Text("\(snapshot.kind) · \(snapshot.size) bytes · executable \(String(snapshot.executable))").font(.caption);Text(snapshot.preview ?? "Binary output; text preview unavailable.").font(.system(.caption,design:.monospaced)).textSelection(.enabled);if snapshot.preview_truncated{Text("Preview abbreviated.").font(.caption)}}else{Text("Output absent from this construction.")}
+    Text("\(output.change) in draft · \(output.path)").font(.headline);Text("Contributors: \(output.contributors.joined(separator:", "))").font(.caption)
+    HStack{Button("From saved entry"){model.after=false};Button("From captured drafts"){model.after=true}}
+    if let snapshot=model.after ? output.after:output.before{Text("\(snapshot.kind) · \(snapshot.size) bytes · executable \(String(snapshot.executable))").font(.caption);Text("SHA-256 \(snapshot.hash)").font(.system(.caption,design:.monospaced)).textSelection(.enabled);Text(snapshot.preview ?? "Binary output; text preview unavailable.").font(.system(.caption,design:.monospaced)).textSelection(.enabled);if snapshot.preview_truncated{Text("Preview abbreviated.").font(.caption)}}else{Text("Output absent from this construction.")}
     DisclosureGroup("Compiler contribution ranges"){ForEach(Array(output.origins.enumerated()),id:\.offset){_,origin in Text("\(origin.phase) · \(origin.path) bytes \(origin.source_bytes.map(String.init).joined(separator:"–")) → output bytes \(origin.output_bytes.map(String.init).joined(separator:"–")) · \(origin.exact ? "equal byte slices":"reported origin; exact bytes unconfirmed")").font(.caption);if let fragment=origin.fragment{Text("Declared \(fragment.kind) #\(fragment.name)").font(.caption)};if let point=origin.source_point{Button("Open contributor"){Task{await openPoint(point)}}.accessibilityLabel("Open \(origin.phase) contributor \(origin.path)")}};if output.origins_truncated{Text("First 100 origins shown.").font(.caption)}}
    }
    DisclosureGroup("Detected test declarations"){ForEach(value.tests,id:\.id){test in Text("\(test.name) · \(test.source?.path ?? test.target.path):\(test.source?.line ?? test.target.line)").font(.caption)}}

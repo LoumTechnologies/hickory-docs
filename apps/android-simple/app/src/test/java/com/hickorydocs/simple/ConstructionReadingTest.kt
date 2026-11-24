@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.json.JSONObject
 import kotlinx.coroutines.*
 class ConstructionReadingTest {
+ @Test fun reconstructedPreviewKeepsItsFullOutputHash() {
+  val hash = "ab".repeat(32)
+  val response = JSONObject("""{
+    "version":1, "entry":"project.md", "focus":null, "materialized":false,
+    "outputs":[{"path":"Example.kt","change":"unchanged",
+      "before":{"hash":"$hash","kind":"File","executable":false,"size":4000,"preview":"short","preview_truncated":true},
+      "after":{"kind":"File","executable":false,"size":4000,"preview":"short","preview_truncated":true},
+      "contributors":[],"origins":[],"origins_truncated":false}],
+    "output_count":1,"outputs_truncated":false,"tests":[],"test_count":0,"tests_truncated":false,
+    "test_relationship":"declarations","evidence_status":"not_queried","notices":[],"unused_sources":[]
+  }""")
+  val output = constructionReading(response, "project.md", null).outputs.single()
+  assertEquals(hash, output.before?.hash)
+  assertTrue(output.before?.abbreviated == true)
+  assertNull(output.after?.hash)
+ }
+
  @Test fun boundEntryOverridePreservesLiteralAddress()=kotlinx.coroutines.runBlocking {
   val model=ConstructionReadingModel()
   val address=" folder/entry.md "

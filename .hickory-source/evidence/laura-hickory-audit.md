@@ -37,7 +37,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P1 | Give diagram defects a readable disposition. Unsupported, oversize, empty and malformed scenes need recoverable state. Show when a node has no destination. | A correct project link opens the target, an unlinked node is apparent, and refused destinations leave the original window and caret intact. Check a nested document and paths with spaces. |
 | P1 | Make investigation tables usable at normal editor widths. The shared Markdown table now displays workspace link labels and keeps the original Markdown for cell editing. | The browser measured unclipped cells at 580 px and followed the link by touch and keyboard in a fixture. Full native-shell navigation, screen-reader behavior and physical touch remain open. |
 | P1 | Make local Markdown link gestures discoverable and support an accessible action. | Trace an audit heading into Kotlin from prose, table and graph, and back again. Simple Browser verified prose activation and keyboard navigation from all nine nodes in the local architecture graph. Native editors offer a prose caret action. Native in-app navigation, screen readers and table keyboard access still need acceptance. |
-| P1 | Show source-backed, captured and document-owned code distinctly with revision-bound authority. | Inspect a reading and ordinary Kotlin, then preview a change. Name the destination and source revision, keep source untouched on stale/diverged input, and distinguish reconstruction from runtime checks. |
+| P1 | Show source-backed, captured and document-owned code distinctly with revision-bound authority. | Construction reading labels its comparison as draft changes and shows the full output digest. The live browser check distinguished the historical reconstruction from the ordinary Kotlin. Explicit capture-to-working-file relationships, currentness indicators, and guarded edit previews remain open. |
 | P1 | Keep first open and audits responsive under slow parsing, indexing and tooling. | On each frontend, open a large cold repo. Render readable text and tree independently of capabilities. Pending and failed capabilities leave focus, selection, scroll, draft and Undo intact. |
 | P1 | Make the local state from open/search visible and easy to keep out of commits. | `hick init --ignore-local-cache` opts into `/.hick-cache/` in Git's local `info/exclude`. The cache holds operational state such as the search index and editor collaboration records. A focused linked-worktree test restored its original Git status while retaining the cache. The workspace UI still needs a discoverable explanation and action. |
 | P1 | Report audit capabilities against real Kotlin/Gradle, including unavailable actions and Android Studio handoff. | Run file, text and available semantic navigation against an Android module. Show supported Kotlin tooling, missing setup, unsupported Android debugging, and commands or IDE locations that remain useful. |
@@ -95,6 +95,17 @@ remained and verification still exited 1. The historical reading and the
 current Kotlin therefore require distinct citations. In particular, the
 captured export chapter uses the earlier media-directory call while the live
 Kotlin calls `renderCard` with the published attachment path.
+
+The live browser editor opened the current Kotlin with a save guard and
+the captured chapter as a separate Markdown document. **Construction
+reading** on that chapter returned equal saved and draft reconstructions
+under `docs/literate/app/flojo/util/HtmlExporter.kt`. Their digest differed
+from the actual `app/flojo/util/HtmlExporter.kt` working file. The rebuilt
+browser labeled the result **unchanged in draft** and displayed the same
+full digest in both reconstruction previews. The Apple and Android
+construction panels use the same labels. Four focused browser tests,
+five Android construction tests, and the iOS and macOS type-checks passed.
+Native runtime presentation still needs acceptance.
 
 An isolated checkout containing the current Laura exporter gained a
 search-index file after a normal Hickory search. A focused harness compiled
