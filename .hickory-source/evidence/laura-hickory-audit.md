@@ -405,4 +405,76 @@ against the preserved base and is at
 `target/laura-scan-report-identity.patch` in the Hickory checkout. The
 live checkout and device presentation remain unverified.
 
+## Run the scan report check on Android
+
+Use a fresh emulator or a dedicated test device with an empty
+`Documents/FloJo` directory. On the audit host, ADB listed no devices and
+the data volume had 226 MiB free. The Android Emulator requires at least
+5 GB free at startup. [Android Emulator troubleshooting](https://developer.android.com/studio/run/emulator-troubleshooting).
+
+The locally tested candidate is
+`target/laura-toolchain-recheck/candidate/app/build/outputs/apk/debug/app-debug.apk`
+with SHA-256
+`0532f5b3b373de7f8347dfe2d1c9204713d6039f9dc04826348e294ec463fa0c`.
+It contains the scan-row patch, declares `com.flojo.MainActivity`, and
+passed debug signature verification. The patch SHA-256 is
+`1ebbc25ac322ead0ec8d8a88dfc15c7e92fc559c650c5af7854add9a5a8fb91c`.
+
+Create a synthetic vault on the host with the following fixture. The two
+`attachment.bin` findings share a label. The third finding is a
+recoverable text entry with its own metadata.
+
+```python
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+root.mkdir(parents=True)
+meta = root / "meta"
+pending = root / "vault" / "Deletion recovery" / "delete-audit"
+meta.mkdir()
+pending.mkdir(parents=True)
+(root / "vault" / "attachment.bin").write_bytes(b"synthetic unsupported file\n")
+entry = "20200117_120000000"
+(pending / f"{entry}.txt").write_bytes("Retained audit note é\r\n".encode("utf-8"))
+
+def row(entry_id, title, kind, date):
+    return json.dumps(dict(id=entry_id, title=title, entryType=kind,
+                           startLocal=f"{date}T12:00:00",
+                           startSemantics="ABSOLUTE", startOffsetMinutes=0)) + "\n"
+
+(meta / "2020-01.ndjson").write_text(
+    row("attachment.bin", "First metadata claim", "INLINE_MEMO", "2020-01-15")
+    + row(entry, "Retained audit note", "TEXT", "2020-01-17"), encoding="utf-8")
+(meta / "2020-02.ndjson").write_text(
+    row("attachment.bin", "Second metadata claim", "INLINE_MEMO", "2020-01-15"), encoding="utf-8")
+```
+
+1. Install the verified APK on the selected test device. Copy the fixture
+   directory as `/sdcard/Documents/FloJo` before opening the app.
+2. Open FloJo and grant storage access through its own permission screen.
+   Open its import menu and choose **Scan Vault for New Files**.
+3. In **Import Results**, verify the failed count is three. Scroll through
+   both `attachment.bin` rows. One names the conflicting month files and
+   the other says the file type is unsupported. Confirm **Restore file**
+   appears only on the retained note.
+4. Choose **Restore file**. The retained row moves out of **Failed**.
+   Both `attachment.bin` rows remain. Compare the restored vault file
+   with the fixture’s original bytes and verify the staged copy is gone.
+5. Scan again. Expect two failed rows and the restored note under
+   **Already Present**. Use **All time** in the timeline and open the
+   note. Record device model, API level, APK digest and the first and
+   second report contents.
+
+The fixture above passed one focused host check through the production
+scanner and restore operation. It returned three distinct keys, restored
+the retained note byte for byte, and left both month files and the
+unsupported file unchanged. A second scan returned the two original
+failures and the restored note as already present. Hickory Simple Browser
+opened the note's exact metadata row at `meta/2020-01.ndjson:2`.
+These results establish the fixture and storage outcomes. The installation,
+permission prompt, report scrolling and recovery action still need an
+Android device.
+
 </review:doc>
