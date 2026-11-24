@@ -168,4 +168,11 @@ and private predictor inference. Unknown counters and credit balances stay
 unknown. Broad regressions and post-commit status monitoring remain with the
 maintainer (`just checks-status`, or `gh run list` / `gh run view RUN_ID`).
 
+## Audit an existing Android checkout
+
+The [Laura-app walkthrough](laura-hickory-audit.md) records the first useful
+source trace, native editor friction and the security and quality work it exposed.
+
+<book:include file="laura-hickory-audit.md" />
+
 </book:doc>
