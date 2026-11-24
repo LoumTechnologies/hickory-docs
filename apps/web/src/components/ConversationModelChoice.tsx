@@ -16,13 +16,13 @@ export function ConversationModelChoice({ scope, provider, model, disabled, prov
     { key: `${parent}:model`, command: { label: "Set conversation model", parent, subject: parent, parameters: { model: { type: "string", maxLength: 4096 } }, prerequisites: [], read: () => ({ revision: revision(), enabled: !disabled, value: model }), execute: async args => { onModel(args.model as string); return { status: "completed", value: { model_requested: args.model, scope: "Next turn; empty uses provider default" } }; } } },
   ]);
   return <span className="chat-model" role="group" aria-label="Model choice">
-    <select aria-label="Provider" value={provider} disabled={disabled} onChange={e => onProvider(e.target.value)}>
+    <select aria-label="Provider" value={provider} disabled={disabled} title={disabled ? "Wait for the current agent turn to finish." : undefined} onChange={e => onProvider(e.target.value)}>
       {provider === "" && <option value="">provider…</option>}
       {provider !== "" && !providers.some(p => p.id === provider) && <option value={provider}>{provider}</option>}
       {providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
     </select>
     {(provider === "codex-subscription" || provider === "grok-subscription") && <SubscriptionSignIn key={provider} provider={provider} disabled={disabled} />}
-    <input aria-label="Model" value={model} disabled={disabled} placeholder={defaultModel || "default model"} data-tip="Model id for the next turn — leave empty for the provider's default" onChange={e => onModel(e.target.value)} />
+    <input aria-label="Model" value={model} disabled={disabled} placeholder={defaultModel || "default model"} data-tip={disabled ? "Wait for the current agent turn to finish." : "Model id for the next turn — leave empty for the provider's default"} onChange={e => onModel(e.target.value)} />
   </span>;
 }
 type SubscriptionStatus = { ready: boolean; auth_url?: string; error?: string | null; login_pending?: boolean };
@@ -62,9 +62,9 @@ function SubscriptionSignIn({ provider, disabled }: { provider: string; disabled
     <span>{status?.ready ? `${account} sign-in ready` : `Sign in with ${account} to use your ${name} allowance and available credits.`}</span>
     <span>Subscription usage; API charges, credit costs and remaining balance are not estimated. No API fallback or automatic credit purchases.</span>
     {(error || status?.error) && <span role="alert">{error || status?.error} Check your connection and {name} installation, then retry.</span>}
-    <button disabled={disabled || busy} onClick={() => void invoke(`${parent}:true`, {})}>{status?.ready ? `Sign in again with ${account}` : `Sign in with ${account}`}</button>
+    <button disabled={disabled || busy} title={disabled ? "Wait for the current agent turn to finish." : busy ? "An operation is already in progress." : undefined} onClick={() => void invoke(`${parent}:true`, {})}>{status?.ready ? `Sign in again with ${account}` : `Sign in with ${account}`}</button>
     {status?.login_pending && <span>Complete Grok sign-in in your browser, then Check sign-in. If no browser opens, run <code>grok login</code> in a terminal.</span>}
     {status?.auth_url && <a href={status.auth_url} target="_blank" rel="noreferrer">Continue {account} sign-in</a>}
-    <button disabled={disabled || busy} onClick={() => void invoke(`${parent}:false`, {})}>Check sign-in</button>
+    <button disabled={disabled || busy} title={disabled ? "Wait for the current agent turn to finish." : busy ? "An operation is already in progress." : undefined} onClick={() => void invoke(`${parent}:false`, {})}>Check sign-in</button>
   </span>;
 }

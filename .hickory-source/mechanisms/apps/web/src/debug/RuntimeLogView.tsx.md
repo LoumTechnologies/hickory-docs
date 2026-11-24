@@ -115,7 +115,7 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
       {reviewError && <p role="alert">{reviewError}</p>}
       <p>Observed execution provenance · revision {source?.revision ?? "not retained"}. These links are separate from byte lineage, model context and declared support. Emission and calling context are different locations. Captured source is historical.</p>
       <label>Runtime log stream <select value={chosen ?? ""} onChange={event => setPair(event.target.value)}>{pairs.map(value => <option key={value} value={value}>{JSON.parse(value).join(" · ")}</option>)}</select></label>
-      <label>Captured source <select value={source?.id ?? ""} disabled={!source} onChange={event => setSourceId(event.target.value)}>{run.sources.map(item => <option key={item.id} value={item.id}>{item.uri} · {item.revision}</option>)}</select></label>
+      <label>Captured source <select value={source?.id ?? ""} disabled={!source} title={!source ? "This run has no retained source snapshots." : undefined} onChange={event => setSourceId(event.target.value)}>{run.sources.map(item => <option key={item.id} value={item.id}>{item.uri} · {item.revision}</option>)}</select></label>
       <label>Execution connector style <select value={style} onChange={event => setStyle(event.target.value as "bands" | "braces")}><option value="braces">Braces</option><option value="bands">Ribbons</option></select></label>
       <div className="runtime-log-panes" ref={setContainer}>
         <div><h4>Captured log · {stream}/{category}</h4><EditingSurface readOnly value={logText} onViewReady={setLogView} ariaLabel="Captured execution log" /></div>
@@ -135,13 +135,13 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
             <strong>{selected === event.id ? "Selected · " : ""}{event.id}</strong> · invocation {event.invocation ?? "unknown"} · chunk bytes {item.chunk_bytes.start}–{item.chunk_bytes.end} → line bytes {item.line_bytes.start}–{item.line_bytes.end}
             <button onClick={() => navigate(event, event.emission)}>Emission · {event.emission?.precision ?? "unknown"}</button>
             {event.callers.map((caller, callerIndex) => <button key={callerIndex} onClick={() => navigate(event, caller)}>Calling context {callerIndex + 1} · {caller.precision}</button>)}
-            <button disabled={reviewPending} onClick={() => void challenge(event)}>Challenge runtime relationship</button>
+            <button disabled={reviewPending} title={reviewPending ? "A relationship review is in progress." : undefined} onClick={() => void challenge(event)}>Challenge runtime relationship</button>
           </div>;
         })}
       </li>)}</ol>
       {run.events.filter(event => event.observation.kind !== "output").map(event => <p key={event.id}>{selected === event.id ? "Selected · " : ""}{event.id} · typed {event.observation.kind} observation; not inferred from stderr.
         <button onClick={() => navigate(event, event.observation.kind === "exception" ? event.observation.throwing : event.emission)}>Throwing/emitting location</button>
-        <button disabled={reviewPending} onClick={() => void challenge(event)}>Challenge runtime relationship</button></p>)}
+        <button disabled={reviewPending} title={reviewPending ? "A relationship review is in progress." : undefined} onClick={() => void challenge(event)}>Challenge runtime relationship</button></p>)}
     </>}
   </details>;
 }

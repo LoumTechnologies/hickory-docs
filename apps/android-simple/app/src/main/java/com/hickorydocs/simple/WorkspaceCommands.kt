@@ -1,5 +1,38 @@
 package com.hickorydocs.simple
 import org.json.JSONArray
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun WithDisabledReason(reason: String?, content: @Composable (Boolean) -> Unit) {
+    val description = if (reason == null) Modifier else Modifier.semantics { stateDescription = reason }
+    val state = rememberTooltipState()
+    if (reason == null && state.isVisible) {
+        LaunchedEffect(state) { state.dismiss() }
+    }
+    TooltipBox(
+        modifier = description,
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(reason.orEmpty()) } },
+        state = state,
+        focusable = false,
+        enableUserInput = reason != null,
+    ) {
+        content(reason == null)
+    }
+}
+
 data class CommandDescriptor(val id:String,val label:String,val group:String,val requires:String)
 data class CommandContext(val editor:Boolean,val writable:Boolean,val dirty:Boolean,val saving:Boolean,val back:Boolean,val forward:Boolean,val tab:Boolean,val groups:Int,val snippet:Boolean=false,val snippetChoices:Boolean=false,val sourceUndo:Boolean=false,val sourceRedo:Boolean=false)
 data class WorkspaceCommand(val id:String,val label:String,val group:String,val reason:String?,val run:()->Unit)

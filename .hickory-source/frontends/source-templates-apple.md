@@ -341,23 +341,23 @@ struct SourceTemplatesView:View {
     var body:some View {
         ScrollView{VStack(alignment:.leading,spacing:8){
             HStack{Text("Reusable templates").font(.headline);Spacer();Button("Close"){model.close();workspace.currentBuffer?.focusSource?()}}
-            Button(model.reading ? "Reading templates…":"Read templates again"){Task{await model.open(workspace)}}.disabled(model.applying)
+            Button(model.reading ? "Reading templates…":"Read templates again"){Task{await model.open(workspace)}}.disabled(reason: model.applying ? "A template is being applied to the draft." : nil)
             if let catalog=model.catalog {
                 Text("\(catalog.path) · \(catalog.language) · \(model.current() ? "current selection":"stale selection — read again")").font(.caption)
                 ForEach(catalog.notices,id:\.self){Text($0).font(.caption).textSelection(.enabled)}
-                ForEach(catalog.entries,id:\.exactIdentity){entry in VStack(alignment:.leading){Button("Preview \(entry.label)"){Task{await model.choose(entry)}}.disabled(!catalog.available || !entry.available || !model.current() || model.applying);Text(entry.description+" · "+entry.origin).font(.caption);if let reason=entry.reason{Text(reason).font(.caption).textSelection(.enabled)}}}
+                ForEach(catalog.entries,id:\.exactIdentity){entry in VStack(alignment:.leading){Button("Preview \(entry.label)"){Task{await model.choose(entry)}}.disabled(reason: !catalog.available ? "No template provider is available for this source." : !entry.available ? "This template is unavailable for the current source." : !model.current() ? "Refresh the reading against the current source." : model.applying ? "A template is being applied to the draft." : nil);Text(entry.description+" · "+entry.origin).font(.caption);if let reason=entry.reason{Text(reason).font(.caption).textSelection(.enabled)}}}
             }
             if !model.notice.isEmpty{Text(model.notice).font(.caption).textSelection(.enabled).accessibilityLabel("Template notice")}
             if let source=model.batchPreviewSource,let selected=model.selected {
                 Divider();Text("Preview complete group · "+selected.label).font(.headline)
                 Text(source).font(.system(.body,design:.monospaced)).textSelection(.enabled)
-                Button(model.applying ? "Applying…":"Apply template"){Task{_ = await model.apply()}}.disabled(model.applying || model.reading || !model.current()).accessibilityLabel("Apply reviewed template \(selected.label)")
+                Button(model.applying ? "Applying…":"Apply template"){Task{_ = await model.apply()}}.disabled(reason: model.applying ? "A template is being applied to the draft." : model.reading ? "Wait for the current reading to load." : !model.current() ? "Refresh the reading against the current source." : nil).accessibilityLabel("Apply reviewed template \(selected.label)")
             }
             if let preview=model.preview,let selected=model.selected {
                 Divider();Text("Preview · "+selected.label).font(.headline)
                 Text("Replaces only the captured selection. Apply leaves an unsaved draft; native undo retains field editing.").font(.caption)
                 Text(preview.snippet.text).font(.system(.body,design:.monospaced)).textSelection(.enabled)
-                Button(model.applying ? "Applying…":"Apply template"){Task{_ = await model.apply()}}.disabled(model.applying || model.reading || !model.current()).accessibilityLabel("Apply reviewed template \(selected.label)")
+                Button(model.applying ? "Applying…":"Apply template"){Task{_ = await model.apply()}}.disabled(reason: model.applying ? "A template is being applied to the draft." : model.reading ? "Wait for the current reading to load." : !model.current() ? "Refresh the reading against the current source." : nil).accessibilityLabel("Apply reviewed template \(selected.label)")
             }
         }.padding()}.frame(minWidth:320,idealWidth:560,maxWidth:760,minHeight:220,idealHeight:500,maxHeight:720)
     }

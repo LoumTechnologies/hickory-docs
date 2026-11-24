@@ -81,7 +81,7 @@ function CapturedProfileEvidence({ run, view, stale }: Props) {
     {expanded && <ProfileTableReading rows={rows} />}
     <table><thead><tr><th>Function</th><th>Calls / primitive</th><th>Self seconds</th><th>Cumulative seconds</th><th>Source and evidence</th></tr></thead><tbody>{rows.map(row => <tr key={row.events[0].id} data-profile-evidence={row.events.map(e => e.id).join(" ")}>
       <td>{row.function.name}</td><td>{row.function.total_calls} / {row.function.primitive_calls}</td><td>{row.self ?? "unavailable"}</td><td>{row.cumulative ?? "unavailable"}</td>
-      <td>{row.events[0].emission ? <button disabled={stale} onClick={() => navigate(row.events[0])}>Source · {row.events[0].id}</button> : `Unresolved/native: ${row.function.file}`}</td>
+      <td>{row.events[0].emission ? <button disabled={stale} title={stale ? "This profile evidence belongs to a different source revision." : undefined} onClick={() => navigate(row.events[0])}>Source · {row.events[0].id}</button> : `Unresolved/native: ${row.function.file}`}</td>
     </tr>)}</tbody></table></details></section>;
 }
 

@@ -216,27 +216,27 @@ function BrowserWorkspaceOwner({ storage }: { storage: WorkspaceStorage }) {
     <p>Editing {path} · {dirty ? "unsaved edits" : "saved"} · {storage.durability === "memory" ? "memory only" : storage.durability === "remote" ? "remote storage" : "local browser storage"}</p>
     {syncing && <div aria-label="Remote synchronization">
       <span>{syncState?.state}{syncState?.reason ? ` · ${syncState.reason}` : ""}</span>
-      <button disabled={busy || syncState?.state === "syncing"} onClick={() => { void sync(); }}>Sync saved files</button>
-      {syncState?.state === "conflict" && <button disabled={busy} onClick={() => { void reviewConflicts(); }}>Review sync conflicts</button>}
+      <button disabled={busy || syncState?.state === "syncing"} title={busy ? "An operation is already in progress." : syncState?.state === "syncing" ? "Workspace sync is in progress." : undefined} onClick={() => { void sync(); }}>Sync saved files</button>
+      {syncState?.state === "conflict" && <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void reviewConflicts(); }}>Review sync conflicts</button>}
     </div>}
     {conflicts.map(conflict => <BrowserSyncConflict key={conflict.path} conflict={conflict} busy={busy} showBytes={showBytes} resolve={resolve} />)}
-    <select disabled={busy} aria-label="Browser notes" value={paths.includes(path) ? path : ""} onChange={(event) => { void open(event.target.value); }}>
-      <option value="" disabled>Select a saved note</option>{paths.map((name) => <option key={name}>{name}</option>)}
+    <select disabled={busy} title={busy ? "An operation is already in progress." : undefined} aria-label="Browser notes" value={paths.includes(path) ? path : ""} onChange={(event) => { void open(event.target.value); }}>
+      <option value="" disabled title={"Choose a saved note from the list."}>Select a saved note</option>{paths.map((name) => <option key={name}>{name}</option>)}
     </select>
-    <button type="button" disabled={busy} onClick={() => { void save(); }}>Save note</button>
-    <button type="button" disabled={busy} onClick={() => { void open(path); }}>Reload saved note</button>
-    <button type="button" disabled={busy} onClick={() => { void open(`notes/note-${crypto.randomUUID()}.md`); }}>New note</button>
-    <label>Import .md <input disabled={busy} type="file" accept=".md,text/markdown" aria-label="Import note" onChange={(event) => {
+    <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void save(); }}>Save note</button>
+    <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void open(path); }}>Reload saved note</button>
+    <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void open(`notes/note-${crypto.randomUUID()}.md`); }}>New note</button>
+    <label>Import .md <input disabled={busy} title={busy ? "An operation is already in progress." : undefined} type="file" accept=".md,text/markdown" aria-label="Import note" onChange={(event) => {
       const file = event.target.files?.[0]; if (!file) return;
       void importNote(file.name, () => file.arrayBuffer());
     }} /></label>
-    <button type="button" disabled={busy} onClick={() => { void exportBundle(); }}>Export saved workspace</button>
-    <label>Import workspace <input disabled={busy} type="file" accept="application/json,.json" aria-label="Import workspace" onChange={event => {
+    <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void exportBundle(); }}>Export saved workspace</button>
+    <label>Import workspace <input disabled={busy} title={busy ? "An operation is already in progress." : undefined} type="file" accept="application/json,.json" aria-label="Import workspace" onChange={event => {
       const file = event.target.files?.[0]; event.target.value = ""; if (file) void importBundle(() => file.text());
     }} /></label>
     <label>Search saved notes <input type="search" aria-label="Search saved notes" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
     {query.trim() && <div aria-label="Search results">{matches.length ? <ul>{matches.map((match) =>
-      <li key={`${match.path}:${match.line}`}><button disabled={busy} onClick={() => { void open(match.path); }}>{match.path}:{match.line} · {match.text}</button></li>)}</ul>
+      <li key={`${match.path}:${match.line}`}><button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void open(match.path); }}>{match.path}:{match.line} · {match.text}</button></li>)}</ul>
       : <p>No matching saved notes.</p>}</div>}
     {message && <p role="status">{message}</p>}
     <DebuggableDocument path={path} source={source} revision={String(revision)} host={host}
@@ -264,8 +264,8 @@ function BrowserSyncConflict({ conflict, busy, showBytes, resolve }: { conflict:
     <p>Choose a saved version to queue for publication. Unsaved editor text stays in its draft.</p>
     <div aria-label={`Sync conflict ${conflict.path}`}>
       <h3>Original base</h3><pre>{reading.original_base}</pre><h3>Local saved version</h3><pre>{reading.local}</pre><h3>Remote version</h3><pre>{reading.remote}</pre>
-      <button disabled={busy} onClick={() => { void resolve(conflict, "local"); }}>Keep local saved version</button>
-      <button disabled={busy} onClick={() => { void resolve(conflict, "remote"); }}>Use remote version</button>
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void resolve(conflict, "local"); }}>Keep local saved version</button>
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => { void resolve(conflict, "remote"); }}>Use remote version</button>
     </div>
   </details>;
 }

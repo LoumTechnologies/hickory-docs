@@ -482,15 +482,15 @@ history confirms the final source and its fence actions.
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (session.canStop) {
-                    FilledIconButton(enabled = !session.stopPending, onClick = { scope.launch { session.stop(engine) } }) {
+                    WithDisabledReason(if (session.stopPending) "A stop request is in progress." else null) { available -> FilledIconButton(enabled = available, onClick = { scope.launch { session.stop(engine) } }) {
                         Text("■", Modifier.semantics { contentDescription = "Stop" })
-                    }
+                    } }
                 } else {
-                    FilledIconButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
+                    WithDisabledReason(if (engine == null) "Connect to a workspace server first." else if (running) "Wait for the current agent turn to finish." else if (!(session.prompt.isNotBlank())) "Enter a message first." else null) { available -> FilledIconButton(enabled = available, onClick = {
                         if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
                             session.send(engine) { simpleAgentContext(workspace) }
                         }
-                    }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) }
+                    }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) } }
                 }
             }
         }
@@ -593,7 +593,7 @@ move the conversation. Changing a selection retains the draft buffer.
                         custom = it == "custom"
                         if (!custom) session.model = it
                     }
-                    if (custom) OutlinedTextField(session.model, { session.model = it }, enabled = !session.running, label = { Text("Custom model") }, singleLine = true)
+                    if (custom) WithDisabledReason(if (session.running) "Wait for the current agent turn to finish." else null) { available -> OutlinedTextField(session.model, { session.model = it }, enabled = available, label = { Text("Custom model") }, singleLine = true) }
                     AgentChoice("Effort", session.effort, listOf("" to if (efforts.isEmpty()) "Managed by provider" else "Default") + efforts.map { it to it }, !session.running && efforts.isNotEmpty()) { session.effort = it }
                     Text("Model presets depend on subscription access. Sign in on the workspace server with $login.", fontSize = 11.sp)
                 }
@@ -611,7 +611,7 @@ move the conversation. Changing a selection retains the draft buffer.
 @Composable private fun AgentChoice(label: String, selected: String, choices: List<Pair<String, String>>, enabled: Boolean, change: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(enabled = enabled, onClick = { expanded = true }) { Text("$label: ${choices.firstOrNull { it.first == selected }?.second ?: selected}") }
+        WithDisabledReason(if (!(enabled)) "Wait for the current agent turn to finish." else null) { available -> OutlinedButton(enabled = available, onClick = { expanded = true }) { Text("$label: ${choices.firstOrNull { it.first == selected }?.second ?: selected}") } }
         DropdownMenu(expanded, { expanded = false }) { choices.forEach { (value, title) ->
             DropdownMenuItem(text = { Text(title) }, onClick = { expanded = false; change(value) })
         } }
@@ -679,7 +679,7 @@ even when the files it describes have changed.
         }
         OutlinedTextField(draft, { draft = it }, label = { Text(if (thread == null) "Write a comment" else "Write a reply") }, maxLines = 4)
         Row {
-            TextButton(enabled = !busy && target != null && history != null && draft.isNotBlank(), onClick = {
+            WithDisabledReason(if (busy) "An operation is already in progress." else if (target == null) "Select a comment target first." else if (history == null) "Wait for the comment history to load." else if (!(draft.isNotBlank())) "Enter a comment first." else null) { available -> TextButton(enabled = available, onClick = {
                 if (!current()) return@TextButton
                 val savedDraft = draft
                 val selected = thread
@@ -697,14 +697,14 @@ even when the files it describes have changed.
                     catch (error: Exception) { history = null; notice = error.message.orEmpty() + " Refresh comments before retrying." }
                     finally { busy = false }
                 }
-            }) { Text(if (thread == null) "Save comment" else "Save reply") }
-            TextButton(enabled = !busy, onClick = {
+            }) { Text(if (thread == null) "Save comment" else "Save reply") } }
+            WithDisabledReason(if (busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available, onClick = {
                 scope.launch {
                     try { load() }
                     catch (error: kotlinx.coroutines.CancellationException) { throw error }
                     catch (error: Exception) { notice = error.message.orEmpty() }
                 }
-            }) { Text("Refresh comments") }
+            }) { Text("Refresh comments") } }
         }
         if (notice.isNotEmpty()) Text(notice, fontSize = 12.sp)
     }

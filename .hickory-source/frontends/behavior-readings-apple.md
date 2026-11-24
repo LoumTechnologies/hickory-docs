@@ -137,28 +137,28 @@ struct ConnectedBehaviorView:View {
    if let node=value.graph.nodes[selectedNode] {
     Text("\(node.kind) · \(node.label) · \(node.status)").font(.headline);Text("Basis: \(node.basis ?? "unknown") · authority: \(node.authority ?? "unknown")").font(.caption)
     Text(node.preview ?? "No abbreviated text supplied.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-    Button("Read full captured text"){Task{await model.readSource(node.id)}}.disabled(!model.current||model.pageBusy||node.hash==nil)
+    Button("Read full captured text"){Task{await model.readSource(node.id)}}.disabled(reason: !model.current ? "Refresh the captured reading against current source." : model.pageBusy ? "An operation is already in progress." : node.hash==nil ? "This reading has no captured source hash." : nil)
     if let path=node.source_path {Button("Open current readable source separately"){Task{await model.openCurrentSource(workspace,path:path)}}}
    }
    if let page=model.page {
     Text("\(model.currentPage ? "Captured":"Historical") source · \(page.origin) · \(page.state) · \(page.target_status) · Unicode scalars \(page.offset)…\(page.offset+page.text.unicodeScalars.count) / \(page.total)").font(.caption)
     Text(page.text).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-    HStack{Button("Source beginning"){Task{await model.continueSource(page,offset:0)}}.disabled(!model.currentPage||model.pageBusy);if let next=page.next{Button("Next captured source page"){Task{await model.continueSource(page,offset:next)}}.disabled(!model.currentPage||model.pageBusy)}}
+    HStack{Button("Source beginning"){Task{await model.continueSource(page,offset:0)}}.disabled(reason: !model.currentPage ? "Refresh the captured source page." : model.pageBusy ? "An operation is already in progress." : nil);if let next=page.next{Button("Next captured source page"){Task{await model.continueSource(page,offset:next)}}.disabled(reason: !model.currentPage ? "Refresh the captured source page." : model.pageBusy ? "An operation is already in progress." : nil)}}
    }
    DisclosureGroup("Declared and observed relationship details"){ForEach(Array(value.graph.edges.enumerated()),id:\.offset){_,edge in Text(connectedBehaviorText(edge)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}}
    if let evidence=value.evidence {DisclosureGroup("Qualified evidence and change impact"){Text(connectedBehaviorText(evidence)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}}
    ForEach(value.graph.checks){check in Button("\(check.label) · \(check.available ? "provider available":"unavailable")"){selectedCheck=check.id}.buttonStyle(.plain)}
    if let check=value.graph.checks.first(where:{$0.id==selectedCheck}) {
     Text(check.reason).font(.caption)
-    Button("Run selected relevant source test"){Task{await model.run(check.id)}}.disabled(!model.current||value.verification_available != true || !check.available)
-    Button("Choose existing profile explicitly"){Task{await model.chooseProfiles()}}.disabled(!model.current||value.verification_available != true)
-    ForEach(model.profiles){profile in Button("Run user-declared profile · \(profile.name)"){Task{await model.run(check.id,profile:profile)}}.disabled(!model.current)}
+    Button("Run selected relevant source test"){Task{await model.run(check.id)}}.disabled(reason: !model.current ? "Refresh the captured reading against current source." : value.verification_available != true ? "Verification requires a current captured reading." : !check.available ? check.reason : nil)
+    Button("Choose existing profile explicitly"){Task{await model.chooseProfiles()}}.disabled(reason: !model.current ? "Refresh the captured reading against current source." : value.verification_available != true ? "Verification requires a current captured reading." : nil)
+    ForEach(model.profiles){profile in Button("Run user-declared profile · \(profile.name)"){Task{await model.run(check.id,profile:profile)}}.disabled(reason: !model.current ? "Refresh the captured reading against current source." : nil)}
    }
   }
   ForEach(model.receipts){receipt in DisclosureGroup("\(receipt.label ?? receipt.check_id) · \(receipt.status) · \(receipt.outcome)"){
    Text("Request \(receipt.id) · origin \(receipt.origin ?? "unknown") · exit \(receipt.exit_code.map(String.init) ?? "unknown"). Process outcome only; no inferred case verdict.").font(.caption).textSelection(.enabled)
    Text(receipt.notice ?? receipt.error ?? "Retained process observation").font(.caption);if let output=receipt.output{Text(output).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}
-   Button("Refresh original request"){Task{await model.refresh(receipt)}};Button("Open retained process if still current"){Task{await model.openProcess(workspace,receipt:receipt)}}.disabled(receipt.origin != "current-workspace")
+   Button("Refresh original request"){Task{await model.refresh(receipt)}};Button("Open retained process if still current"){Task{await model.openProcess(workspace,receipt:receipt)}}.disabled(reason: receipt.origin != "current-workspace" ? "This verification request belongs to a different workspace." : nil)
   }}
  }}
 }

@@ -134,7 +134,7 @@ struct WorkspaceView: View {
                             guard selections.canEdit(in: workspace) else { return }
                             selectionReplacement = ""
                             selectionEdit = selections
-                        }.disabled(!selections.canEdit(in: workspace))
+                        }.disabled(reason: !selections.canEdit(in: workspace) ? "Open editable source and create multiple selections first." : nil)
                         Button("Clear selections") {
                             guard selections.isCurrent(in: workspace) else { return }
                             if selections.buffer.snippets.parallel != nil { selections.buffer.snippets.finish() }
@@ -196,7 +196,7 @@ struct WorkspaceView: View {
                             applied = buffer.replaceMultiple(selectionReplacement)
                         }
                         if applied { selectionEdit = nil }
-                    }.disabled(!selections.canEdit(in: workspace))
+                    }.disabled(reason: !selections.canEdit(in: workspace) ? "Open editable source and create multiple selections first." : nil)
                 }
             }.padding().presentationDetents([.height(200)])
         }
@@ -262,7 +262,7 @@ struct WorkspaceView: View {
                 Text("Connect to a Workspace Server").font(.headline)
                 TextField("https://server:port", text: $workspace.address)
                     .textFieldStyle(.roundedBorder).accessibilityLabel("Workspace server address")
-                    .disabled(connectingWorkspace)
+                    .disabled(reason: connectingWorkspace ? "A connection attempt is in progress." : nil)
                 if !connectionError.isEmpty {
                     Text(connectionError).font(.caption).textSelection(.enabled)
                 }
@@ -271,7 +271,7 @@ struct WorkspaceView: View {
                     Spacer()
                     Button("Connect") { Task { await connectWorkspace() } }
                         .keyboardShortcut(.defaultAction)
-                        .disabled(connectingWorkspace || workspace.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(reason: connectingWorkspace ? "A connection attempt is in progress." : workspace.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Enter the workspace server address." : nil)
                 }
             }.padding().frame(minWidth: 280, idealWidth: 420)
         }
@@ -451,7 +451,7 @@ struct PaneMenu: View {
             Button("Terminal") { Task { await workspace.openTerminal() } }
             Button("Split right") { workspace.split("horizontal") }
             Button("Split below") { workspace.split("vertical") }
-            Button("Move tab to next group") { workspace.moveToNext() }.disabled(workspace.active == nil || workspace.layout.groups().count < 2)
+            Button("Move tab to next group") { workspace.moveToNext() }.disabled(reason: workspace.active == nil ? "Open a tab first." : workspace.layout.groups().count < 2 ? "Split the workspace into another group first." : nil)
         }
     }
 }
@@ -874,7 +874,7 @@ struct WorkspaceProblemsView: View {
             ScrollView { LazyVStack(alignment: .leading, spacing: 8) {
                 if reports.isEmpty { Text("No reported problems match. This is provider information, not a verification result.").font(.caption) }
                 ForEach(Array(reports.dropFirst(selected * 100).prefix(100))) { problem in
-                    Button(problem.path + " · " + problem.message) { Task { await workspace.openProblem(problem) } }.disabled(!problem.current)
+                    Button(problem.path + " · " + problem.message) { Task { await workspace.openProblem(problem) } }.disabled(reason: !problem.current ? "Refresh workspace problems before opening this stale diagnostic." : nil)
                     if !problem.current {
                         Text("Source location stale or unversioned.").font(.caption)
                         Button("Open file") { Task { await workspace.openProblem(problem, precise: false) } }
@@ -882,9 +882,9 @@ struct WorkspaceProblemsView: View {
                 }
             } }
             if last > 0 { HStack {
-                Button("Previous results") { page = selected - 1 }.disabled(selected == 0)
+                Button("Previous results") { page = selected - 1 }.disabled(reason: selected == 0 ? "You’re on the first page." : nil)
                 Text("\(selected + 1)/\(last + 1)").font(.caption)
-                Button("Next results") { page = selected + 1 }.disabled(selected == last)
+                Button("Next results") { page = selected + 1 }.disabled(reason: selected == last ? "You’re on the last page." : nil)
             } }
         }.padding().frame(width: 350, height: 420)
     }

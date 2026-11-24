@@ -504,7 +504,7 @@ export function Document({ buffer, current, renderTools }: {
     {semanticResult && <div ref={semanticPanel} tabIndex={-1} className="simple-semantic-results" role="dialog" aria-label="Semantic locations" onKeyDown={event => { if (event.key === "Escape") { semanticTicket.current++; setSemanticResult(null); view?.focus(); } }}>
       <button type="button" aria-label="Close semantic locations" onClick={() => { semanticTicket.current++; setSemanticResult(null); view?.focus(); }}>×</button>
       <p role="status">{semanticCurrent ? semanticResult.message : "Source or cursor changed. Run the query again."}</p>
-      {semanticResult.locations.map(location => { const path = semanticPath(location.uri); return <button type="button" key={JSON.stringify(location)} disabled={!path || !semanticCurrent} onClick={() => {
+      {semanticResult.locations.map(location => { const path = semanticPath(location.uri); return <button type="button" key={JSON.stringify(location)} disabled={!path || !semanticCurrent} title={!path ? "Save this draft to a workspace path to navigate from it." : !semanticCurrent ? "Refresh the reading against the current source before navigating." : undefined} onClick={() => {
         if (!path || !view) return;
         const originCurrent = semanticOrigin(view, semanticResult.ticket, semanticResult.source, semanticResult.anchor, semanticResult.head);
         if (!originCurrent()) return;
@@ -519,7 +519,7 @@ export function Document({ buffer, current, renderTools }: {
         setSemanticResult(null);
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}
-    {csv && <button type="button" className="simple-source-toggle" disabled={!csvGrid || !view} title={csvFailed ? "Table grid unavailable. Keep editing source or reload to retry the grid." : !csvGrid ? "Loading the table grid" : undefined} onClick={() => setCsvGridSelected(value => !value)}>{showingCsvGrid ? "Edit source text" : "Edit table as grid"}</button>}
+    {csv && <button type="button" className="simple-source-toggle" disabled={!csvGrid || !view} title={!csvGrid ? (csvFailed ? "The table grid is unavailable. Reload to retry it." : "The table grid is loading.") : !view ? "Wait for the source editor to open." : csvFailed ? "Table grid unavailable. Keep editing source or reload to retry the grid." : !csvGrid ? "Loading the table grid" : undefined} onClick={() => setCsvGridSelected(value => !value)}>{showingCsvGrid ? "Edit source text" : "Edit table as grid"}</button>}
     {showingCsvGrid && csvGrid && view && <CsvGrid modules={csvGrid} source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && authoredSource(view.state) === tableSource && buffer.text === tableSource}
       onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && authoredSource(view.state) === tableSource) view.dispatch({ ...authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]), userEvent: "input.table" }); }} />}
     <div className="editor-row" style={{ ...(showingCsvGrid ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" />{!buffer.transient && <Minimap buffer={buffer} />}

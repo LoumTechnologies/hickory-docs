@@ -35,9 +35,9 @@ export function WorkspaceProblems({ buffers, visible, setVisible, current, focus
       {notice && <p role="status">{notice}</p>}
       {!matching.length && <p>No reported problems match. This is provider information, not a verification result.</p>}
       {matching.slice(selectedPage * 100, (selectedPage + 1) * 100).map(problem => <div key={problem.id}>
-        <button type="button" disabled={!problem.current} onClick={() => open(problem)}>{problem.path}{problem.location ? `:${problem.location.range.start.line + 1}` : ""} · {problem.message}</button>
+        <button type="button" disabled={!problem.current} title={!problem.current ? "The diagnostic is stale. Refresh workspace problems before navigating." : undefined} onClick={() => open(problem)}>{problem.path}{problem.location ? `:${problem.location.range.start.line + 1}` : ""} · {problem.message}</button>
         {!problem.current && <small>Source location stale or unversioned. <button type="button" onClick={() => { openLocation(problem.path, 1); setVisible(false); }}>Open file</button></small>}
       </div>)}
-      {last > 0 && <div><button type="button" disabled={selectedPage === 0} onClick={() => setPage(selectedPage - 1)}>Previous results</button><span>{selectedPage + 1}/{last + 1}</span><button type="button" disabled={selectedPage === last} onClick={() => setPage(selectedPage + 1)}>Next results</button></div>}
+      {last > 0 && <div><button type="button" disabled={selectedPage === 0} title={selectedPage === 0 ? "You’re on the first page." : undefined} onClick={() => setPage(selectedPage - 1)}>Previous results</button><span>{selectedPage + 1}/{last + 1}</span><button type="button" disabled={selectedPage === last} title={selectedPage === last ? "You’re on the last page." : undefined} onClick={() => setPage(selectedPage + 1)}>Next results</button></div>}
     </div>, document.body)}</>;
 }

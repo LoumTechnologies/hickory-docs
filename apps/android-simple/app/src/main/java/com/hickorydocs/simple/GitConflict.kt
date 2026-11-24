@@ -55,17 +55,17 @@ class GitConflictModel {
  DisposableEffect(model){onDispose{model.close()}}
  Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
   GitResolutionView(workspace,path)
-  TextButton(enabled=!model.loading,onClick={scope.launch{if(engine==null){model.notice="Connect to a workspace server first.";return@launch};page=0;model.read(path){value->conflictReading(engine.request("GET","/api/git/conflict?path=${URLEncoder.encode(value,"UTF-8")}"))}}}){Text("Inspect conflict stages")}
+  WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={scope.launch{if(engine==null){model.notice="Connect to a workspace server first.";return@launch};page=0;model.read(path){value->conflictReading(engine.request("GET","/api/git/conflict?path=${URLEncoder.encode(value,"UTF-8")}"))}}}){Text("Inspect conflict stages")} }
   if(model.notice.isNotEmpty())Text(model.notice,fontSize=12.sp)
   model.value?.let{value->
    Text("Stage 1: base · Stage 2 and Stage 3 retain Git’s meanings, including during rebase.",fontSize=12.sp)
    Row{value.stages.forEach{stage->TextButton(onClick={selected=stage.stage;page=0}){Text("Stage ${stage.stage}${if(stage.stage==1)" · Base" else ""}")}}}
    (value.stages.firstOrNull{it.stage==selected} ?: value.stages.firstOrNull())?.let{stage->
     Text("Stage ${stage.stage} · mode ${stage.mode}",fontSize=12.sp);SelectionContainer{Text(stage.oid,fontFamily=FontFamily.Monospace,fontSize=12.sp)}
-    stage.text?.let{text->TextButton(enabled=!model.loading,onClick={scope.launch{choose(stage.stage)}}){Text("Preview this stage as source")};val rows=text.split('\n');val last=((rows.size+99)/100-1).coerceAtLeast(0);val index=page.coerceAtMost(last);val preview=rows.drop(index*100).take(100).joinToString("\n")
+    stage.text?.let{text->WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={scope.launch{choose(stage.stage)}}){Text("Preview this stage as source")} };val rows=text.split('\n');val last=((rows.size+99)/100-1).coerceAtLeast(0);val index=page.coerceAtMost(last);val preview=rows.drop(index*100).take(100).joinToString("\n")
      Text("Lines ${index*100+1}–${rows.size.coerceAtMost((index+1)*100)}${if(preview.length>200000)" · page preview capped at 200,000 characters" else ""}",fontSize=12.sp)
      SelectionContainer{Text(preview.take(200000),fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.horizontalScroll(rememberScrollState()))}
-     Row{TextButton(enabled=index>0,onClick={page=index-1}){Text("Previous stage lines")};TextButton(enabled=index<last,onClick={page=index+1}){Text("Next stage lines")}}
+     Row{WithDisabledReason(if (index <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={page=index-1}){Text("Previous stage lines")} };WithDisabledReason(if (index >= last) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={page=index+1}){Text("Next stage lines")} }}
     } ?: Text(stage.unavailable ?: "Text unavailable",fontSize=12.sp)
    }
   }

@@ -22,8 +22,8 @@ export function ComparisonControls({ path, model, layout, setLayout, onChange, a
   return <>
     {!compact && <span>{old.label} → {next.label} · {model.evidence === "verified" ? "output equality verified" : "unverified"}</span>}
     <label>Layout <select aria-label="Comparison layout" value={layout} onChange={e => void invoke(`${parent}:layout`, { layout: e.target.value })}><option value="inline">Inline</option><option value="side-by-side">Side by side</option><option value="patch">Patch</option></select></label>
-    {allowFork && model.policy === "neither" && <button className="btn" disabled={!onChange} onClick={() => void invoke(`${parent}:fork`)}>Fork editable comparison</button>}
-    {model.sources.length > 2 && <label>New source <select value={model.new} disabled={!onChange} onChange={e => void invoke(`${parent}:source`, { id: e.target.value })}>{model.sources.filter(s => s.id !== model.old).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>}
+    {allowFork && model.policy === "neither" && <button className="btn" disabled={!onChange} title={!onChange ? "Fork an editable comparison to change its source." : undefined} onClick={() => void invoke(`${parent}:fork`)}>Fork editable comparison</button>}
+    {model.sources.length > 2 && <label>New source <select value={model.new} disabled={!onChange} title={!onChange ? "Fork an editable comparison to change its source." : undefined} onChange={e => void invoke(`${parent}:source`, { id: e.target.value })}>{model.sources.filter(s => s.id !== model.old).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>}
     {options}
   </>;
 }

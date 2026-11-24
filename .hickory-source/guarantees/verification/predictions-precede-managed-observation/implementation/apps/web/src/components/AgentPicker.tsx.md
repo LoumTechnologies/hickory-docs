@@ -73,13 +73,13 @@ export function AgentPicker({ scope, backend, agents, disabled, detecting, error
   const missing = agents.filter(a => !a.available && a.id !== "python");
   return <div className="acp-controls">
     <div className="acp-settings">
-      <label>Agent<select aria-label="Agent" value={backend} disabled={disabled} onChange={e => perform(`${parent}:choose`, { backend: e.target.value })}>
+      <label>Agent<select aria-label="Agent" value={backend} disabled={disabled} title={disabled ? "Wait for the current agent turn to finish." : undefined} onChange={e => perform(`${parent}:choose`, { backend: e.target.value })}>
         {python && <option value="python">{python.name}{python.available ? "" : " — configure runtime"}</option>}
         {!agents.some(a => a.id === backend) && <option value={backend}>{backend} (not configured)</option>}
         {installed.length > 0 && <optgroup label="Installed ACP agents">{installed.map(a => <option key={a.id} value={a.id}>{a.name} (ACP)</option>)}</optgroup>}
         {missing.length > 0 && <optgroup label="More agents">{missing.map(a => <option key={a.id} value={a.id}>{a.name} — {a.installable ? "install adapter" : "adapter not found"}</option>)}</optgroup>}
       </select></label>
-      <button className="btn-link" disabled={disabled || detecting} onClick={() => perform(`${parent}:refresh`)}>{detecting ? "Checking agents…" : "Refresh agents"}</button>
+      <button className="btn-link" disabled={disabled || detecting} title={disabled ? "Wait for the current agent turn to finish." : detecting ? "Agent discovery is in progress." : undefined} onClick={() => perform(`${parent}:refresh`)}>{detecting ? "Checking agents…" : "Refresh agents"}</button>
     </div>
     {interactionError && <p className="chat-note error" role="alert">{interactionError}</p>}
     {error && <p className="chat-note error" role="alert">{error}</p>}

@@ -70,7 +70,7 @@ class NativeAdapterSourceModel(private val validate:suspend(String,String?)->Nat
  if(binding!=null||model.reading!=null||model.notice.isNotEmpty())Column{
   Text("Adapter-owned source",fontSize=12.sp)
   if(binding!=null&&!capable)Text("This engine/provider does not advertise source content. Workspace or disk text is not a fallback.",fontSize=12.sp)
-  TextButton(enabled=inspection!=null&&binding!=null&&capable&&!model.busy,onClick={inspection?.let{debug.readAdapterSource(it)}}){Text("Read selected frame adapter source")}
+  WithDisabledReason(if (inspection == null) "Pause the debugger and select a frame first." else if (binding == null) "This frame is not bound to the current debugger stop." else if (!(capable)) "The current adapter does not provide this frame’s source." else if (model.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={inspection?.let{debug.readAdapterSource(it)}}){Text("Read selected frame adapter source")} }
   if(model.busy)TextButton(onClick={inspection?.let{model.cancel(it)}}){Text("Cancel pending source reading")}
   if(model.notice.isNotEmpty())Text(model.notice,fontSize=12.sp)
   model.reading?.let{value->var page by remember(value){mutableIntStateOf(0)};val index=page.coerceIn(value.facts.starts.indices)
@@ -78,7 +78,7 @@ class NativeAdapterSourceModel(private val validate:suspend(String,String?)->Nat
    Text("${value.mime ?: "MIME unavailable"} · SHA256 ${value.hash}",fontSize=11.sp)
    SelectionContainer{Text(value.page(index),fontFamily=FontFamily.Monospace,fontSize=12.sp)}
    Text("Page ${index+1}/${value.facts.starts.size} · ${value.facts.scalars} Unicode scalars. Read-only literal text; no workspace mapping is implied.",fontSize=11.sp)
-   Row{TextButton(enabled=index>0,onClick={page=index-1}){Text("Previous adapter source page")};TextButton(enabled=index<value.facts.starts.lastIndex,onClick={page=index+1}){Text("Next adapter source page")}}
+   Row{WithDisabledReason(if (index <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={page=index-1}){Text("Previous adapter source page")} };WithDisabledReason(if (index >= value.facts.starts.lastIndex) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={page=index+1}){Text("Next adapter source page")} }}
   }
  }
 }

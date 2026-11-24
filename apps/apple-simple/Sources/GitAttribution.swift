@@ -27,7 +27,7 @@ struct GitAttributionView:View {
      if let sha=line.immutableCommit{Button("Read immutable commit"){guard model.lines.contains(where:{$0.line==line.line&&$0.immutableCommit==sha}) else{return};workspace.gitHistory.close();workspace.gitHistory=GitHistoryModel(request:.commit(sha,"Commit from saved attribution · \(model.path):\(line.line)"));workspace.showAttribution=false;workspace.showReview=false;workspace.showHistory=true}.accessibilityLabel("Read commit for saved line \(line.line)")}else{Text("Full immutable commit reference unavailable.").font(.caption)}
     }
    }}}
-   HStack{Button("Previous"){model.page-=1}.disabled(model.page==0);Text("\(model.lines.count) reported lines · page \(model.page+1)");Button("Next"){model.page+=1}.disabled((model.page+1)*50>=model.lines.count)}.font(.caption)
+   HStack{Button("Previous"){model.page-=1}.disabled(reason: model.page==0 ? "You’re on the first page." : nil);Text("\(model.lines.count) reported lines · page \(model.page+1)");Button("Next"){model.page+=1}.disabled(reason: (model.page+1)*50>=model.lines.count ? "You’re on the last page." : nil)}.font(.caption)
   }.padding().frame(idealWidth:680,idealHeight:600).task(id:ObjectIdentifier(model)){await refresh()}.onDisappear{model.close()}
  }
 }

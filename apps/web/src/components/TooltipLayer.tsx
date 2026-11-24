@@ -8,6 +8,7 @@ import { placeTip, tipTargetOf, TIP_ATTR, type Placement } from "../lib/tooltip"
 const DELAY = 450;
 
 interface Shown {
+  target: HTMLElement;
   text: string;
   anchor: DOMRect;
 }
@@ -22,7 +23,11 @@ interface Shown {
  * in the same palette, which is the whole point: `title=` is drawn by the OS
  * and never matches the theme.
  *
- * An icon-only control still needs `aria-label`: this is a picture, not an
+ * Observe the displayed anchor’s tooltip attribute while its card is open.
+A control can become available while the pointer stands still, so a removed or
+replaced explanation must retire without waiting for another pointer event.
+
+An icon-only control still needs `aria-label`: this is a picture, not an
  * accessible name.
  */
 export function TooltipLayer() {
@@ -32,7 +37,7 @@ export function TooltipLayer() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const parent = `tooltips:${useId()}`;
-  const shownRevision = useUiRevision(() => shown);
+  const shownRevision = useUiRevision(() => shown && [shown.text, shown.anchor]);
   type Target = { el: HTMLElement; text: string; label: string; token: string };
   const [targets, setTargets] = useState<Target[]>([]);
   const cancel = () => { if (timer.current !== null) clearTimeout(timer.current); timer.current = null; };
@@ -40,7 +45,7 @@ export function TooltipLayer() {
   const show = (found: { el: HTMLElement; text: string }) => {
     if (!found.el.isConnected || tipTargetOf(found.el)?.text !== found.text) return false;
     cancel(); setPlacement(null);
-    setShown({ text: found.text, anchor: found.el.getBoundingClientRect() });
+    setShown({ target: found.el, text: found.text, anchor: found.el.getBoundingClientRect() });
     return true;
   };
   const visible = (el: HTMLElement) => {
@@ -117,6 +122,16 @@ export function TooltipLayer() {
       window.removeEventListener("blur", hide);
     };
   }, []);
+
+  useEffect(() => {
+    if (!shown) return;
+    const observer = new MutationObserver(() => {
+      const currentTip = tipTargetOf(shown.target);
+      if (currentTip?.el !== shown.target || currentTip.text !== shown.text) hide();
+    });
+    observer.observe(shown.target, { attributes: true, attributeFilter: [TIP_ATTR] });
+    return () => observer.disconnect();
+  }, [shown]);
 
   // Measured, then placed: the card is rendered invisibly for one frame so
   // its real size decides whether it fits above the anchor.

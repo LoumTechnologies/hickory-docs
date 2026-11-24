@@ -169,7 +169,7 @@ function ActivePrompt({ prompt, onSettle }: { prompt: Prompt; onSettle: (value: 
     {!current() && <p role="status">Source changed; cancel and request a current action.</p>}
     {prompt.kind === "text" ? <form onSubmit={event => { event.preventDefault(); click("submit"); }}>
       <input autoFocus value={draft} aria-label={prompt.title} onChange={event => setDraft(event.target.value)} />
-      <button type="submit" disabled={!current()}>Apply</button><button type="button" onClick={() => click("cancel")}>Cancel</button>
+      <button type="submit" disabled={!current()} title={!current() ? "Reopen this action against current source." : undefined}>Apply</button><button type="button" onClick={() => click("cancel")}>Cancel</button>
     </form> : <>
       {prompt.filterable && <form onSubmit={event => {
         event.preventDefault();
@@ -179,7 +179,7 @@ function ActivePrompt({ prompt, onSettle }: { prompt: Prompt; onSettle: (value: 
       </form>}
       {prompt.filterable && choices.length === 0 && <p role="status">{filter ? "No matching symbols." : "No symbols returned."}</p>}
       {choices.length > visibleChoices.length && <p role="status">Showing {visibleChoices.length} of {choices.length}. Filter to narrow the list.</p>}
-      <ul className="prompt-panel__options">{visibleChoices.map(({label, index}) => <li key={index}><button type="button" disabled={!current()} onClick={() => click("choice", { index })}>{label}</button></li>)}<li><button type="button" onClick={() => click("cancel")}>Cancel</button></li></ul>
+      <ul className="prompt-panel__options">{visibleChoices.map(({label, index}) => <li key={index}><button type="button" disabled={!current()} title={!current() ? "Reopen this action against current source." : undefined} onClick={() => click("choice", { index })}>{label}</button></li>)}<li><button type="button" onClick={() => click("cancel")}>Cancel</button></li></ul>
     </>}
   </div>;
 }

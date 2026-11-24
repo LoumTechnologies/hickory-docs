@@ -235,14 +235,14 @@ export function TreeRenameEditor({
         </ul>
       )}
       <span className="tree-prompt__buttons">
-        <button type="button" className="tree-prompt__verb" disabled={busy} onClick={() => void submit()}>
+        <button type="button" className="tree-prompt__verb" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => void submit()}>
           {busy
             ? "Renaming…"
             : outcomes.some((outcome) => !outcome.ok)
               ? "Retry failed renames"
               : items.length === 1 ? "Rename" : `Apply ${items.length} renames`}
         </button>
-        <button type="button" disabled={busy} onClick={() => onClose(changed)}>
+        <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => onClose(changed)}>
           {outcomes.length > 0 ? "Done" : "Cancel"}
         </button>
       </span>

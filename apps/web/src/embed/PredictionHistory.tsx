@@ -125,7 +125,7 @@ function PredictionRows({ value, sourceHash, navigation }: { value: PredictionHi
       <p>Scenario {String(attempt.scenario)} · requirement {String(scenario.requirement_reference)}</p>
       <p>Prediction matched: {String(attempt.prediction_matched ?? "unavailable")}; original requirement satisfied: {String(attempt.original_requirement_satisfied ?? "unavailable")}.</p>
       <p>Source SHA-256: {String(identity.source)} · {identity.source === sourceHash ? "matches this captured document" : "different revision; source bytes not included in this snapshot"}. Current certification: unavailable.</p>
-      <button disabled={!navigation?.available.includes(String(identity.source))} onClick={() => { void invoke(`${parent}:${identity.source}`, {}); }}>Inspect captured source revision {String(identity.source)}</button>
+      <button disabled={!navigation?.available.includes(String(identity.source))} title={!navigation?.available.includes(String(identity.source)) ? "The captured source revision is unavailable for inspection." : undefined} onClick={() => { void invoke(`${parent}:${identity.source}`, {}); }}>Inspect captured source revision {String(identity.source)}</button>
       <p>{String(seal.rationale)}</p><pre>{JSON.stringify({ requirement: scenario.requirement, predicted: seal.predicted, target: seal.target, identity, prior_exposure: seal.context ?? "See ordered exposure events" }, null, 2)}</pre>
       <h4>Recorded debugger context</h4>
       {value.debugger_contexts?.some(capture => capture.attempt === attempt.attempt) ? value.debugger_contexts.filter(capture => capture.attempt === attempt.attempt).map((capture, index) => <div key={index}>

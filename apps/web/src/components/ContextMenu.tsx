@@ -192,7 +192,7 @@ export function ContextMenu({
           role="menuitem"
           data-menu-item={item.id}
           disabled={item.disabled || pending}
-          data-tip={item.tip}
+          data-tip={item.disabled ? (item.tip ?? "This action is unavailable for the selected item.") : pending ? "A menu action is already in progress." : item.tip}
           className={`tree-menu__item${item.group ? " tree-menu__item--group" : ""}${
             item.danger ? " tree-menu__item--danger" : ""
           }`}

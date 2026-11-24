@@ -110,17 +110,17 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
   }
   const invoke = useUiCommands(commands);
   const click = (key: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${key}`, args).catch(reason => control.setError(String(reason))); };
-  const reviewPolicy = settingsOpen && state?.edits?.mode === "auto-accept" && <button className="btn-link" disabled={busy || running} onClick={() => click("review-policy")}>Require document edit approval again</button>;
+  const reviewPolicy = settingsOpen && state?.edits?.mode === "auto-accept" && <button className="btn-link" disabled={busy || running} title={busy ? "An operation is already in progress." : running ? "Wait for the current operation to finish." : undefined} onClick={() => click("review-policy")}>Require document edit approval again</button>;
   if (backend === "python") return <div className="acp-controls" aria-label="Python agent controls">
     {reviewPolicy}
     {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
-    {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} onClick={() => click("connect")}>Check runtime</button>.</p>}
+    {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("connect")}>Check runtime</button>.</p>}
   </div>;
   const agent = agents.find(a => a.id === backend);
   return <div className="acp-controls" aria-label="Agent controls">
     {settingsOpen && <div className="acp-settings">
       {reviewPolicy}
-      {!state?.configOptions?.length && state?.modes && <label>Mode<select aria-label="Mode" value={state.modes.currentModeId} disabled={busy || running}
+      {!state?.configOptions?.length && state?.modes && <label>Mode<select aria-label="Mode" value={state.modes.currentModeId} disabled={busy || running} title={busy ? "An operation is already in progress." : running ? "Wait for the current operation to finish." : undefined}
         onChange={e => click("mode", { mode: e.target.value })}>
         {state.modes.availableModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
       </select></label>}
@@ -130,7 +130,7 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
         <button className="btn" onClick={() => click("install")}>Install {agent.name} adapter</button>}
       {!state?.ready && !busy && state?.authMethods?.filter(m => !m.type || m.type === "agent").map(m =>
         <button className="btn" key={m.id} data-tip={m.description} onClick={() => click(`auth:${m.id}`)}>{m.name}</button>)}
-      {!running && <button className="btn-link" disabled={busy} onClick={() => click("connect")}>{busy ? "Connecting…" : "Reconnect"}</button>}
+      {!running && <button className="btn-link" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("connect")}>{busy ? "Connecting…" : "Reconnect"}</button>}
     </div>}
     {!settingsOnly && busy && <p className="muted" role="status">Connecting to {agent?.name ?? backend}… Sign-in may open in your browser.</p>}
     {!settingsOnly && (error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
@@ -177,7 +177,7 @@ function PermissionControl({ doc, backend, permission, control }: { doc: string;
   return <section className="acp-permission" role="group" aria-label="Agent permission">
     <strong>{permission.toolCall.title ?? "The agent needs your permission"}</strong>
     <ToolDetails tool={permission.toolCall} />
-    <div className="acp-settings">{permission.options.map(option => <button className="btn" key={option.optionId} disabled={answering} onClick={() => void invoke(parent, { option: option.optionId }).catch(reason => control.setError(String(reason)))}>{option.name}</button>)}</div>
+    <div className="acp-settings">{permission.options.map(option => <button className="btn" key={option.optionId} disabled={answering} title={answering ? "A permission answer is being sent." : undefined} onClick={() => void invoke(parent, { option: option.optionId }).catch(reason => control.setError(String(reason)))}>{option.name}</button>)}</div>
   </section>;
 }
 
@@ -202,8 +202,8 @@ function ConfigControl({ scope, option, disabled, onChange }: { scope: string; o
       return operationOutcome(await onChange(args.value as string | boolean));
     },
   } }]);
-  if (option.type === "boolean") return <label data-tip={option.description}><input type="checkbox" checked={option.currentValue === true} disabled={disabled} onChange={e => void onChange(e.target.checked)} />{option.name}</label>;
-  return <label data-tip={option.description}>{option.name}<select aria-label={option.name} value={String(option.currentValue)} disabled={disabled} onChange={e => void onChange(e.target.value)}>
+  if (option.type === "boolean") return <label data-tip={option.description}><input type="checkbox" checked={option.currentValue === true} disabled={disabled} title={disabled ? "Agent configuration is locked during a turn." : undefined} onChange={e => void onChange(e.target.checked)} />{option.name}</label>;
+  return <label data-tip={option.description}>{option.name}<select aria-label={option.name} value={String(option.currentValue)} disabled={disabled} title={disabled ? "Agent configuration is locked during a turn." : undefined} onChange={e => void onChange(e.target.value)}>
     {option.options?.map(o => "value" in o ? <option key={o.value} value={o.value}>{o.name}</option> : <optgroup key={o.group} label={o.name}>{o.options.map(v => <option key={v.value} value={v.value}>{v.name}</option>)}</optgroup>)}
   </select></label>;
 }

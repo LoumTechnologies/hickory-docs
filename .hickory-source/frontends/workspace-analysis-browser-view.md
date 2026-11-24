@@ -28,11 +28,11 @@ export function WorkspaceAnalysisView({buffers,files,model,focusCurrent}:{buffer
       <button aria-label="Close analysis" onClick={close}>×</button><strong>Workspace analysis</strong>
       <p>{model.completed}/{model.scope.files.length} attempted · {[...model.knowledge.values()].filter(item=>item.source!==undefined).length} sources read · {model.scope.generated} generated and {model.scope.unclassified} unclassified excluded.</p>
       <p>Provider symbols and diagnostics arrive independently. Zero symbols may mean no declarations, unsupported analysis or indexing. This is not verification.</p>
-      <button disabled={model.running} onClick={()=>{void run();}}>Read workspace</button>
-      <button disabled={!model.running||model.stopping} onClick={()=>model.stop()}>{model.stopping?"Stopping…":"Stop"}</button>
+      <button disabled={model.running} title={model.running ? "Workspace analysis is in progress." : undefined} onClick={()=>{void run();}}>Read workspace</button>
+      <button disabled={!model.running||model.stopping} title={!model.running ? "There is no workspace analysis to stop." : model.stopping ? "A stop request is in progress." : undefined} onClick={()=>model.stop()}>{model.stopping?"Stopping…":"Stop"}</button>
       <input aria-label="Filter analysis" value={query} onChange={event=>{setQuery(event.target.value);setPage(0);}}/>
       {reports.slice(selected*100,(selected+1)*100).map(item=><div key={item.path}><strong>{item.path}</strong><p>{item.source !== undefined && buffers.values.get(item.path)?.text !== item.source ? "stale" : item.state} · {item.locations.length} symbols · {item.notice}</p></div>)}
-      {last>0&&<div><button disabled={!selected} onClick={()=>setPage(selected-1)}>Previous results</button>{selected+1}/{last+1}<button disabled={selected===last} onClick={()=>setPage(selected+1)}>Next results</button></div>}
+      {last>0&&<div><button disabled={!selected} title={!selected ? "You’re on the first page." : undefined} onClick={()=>setPage(selected-1)}>Previous results</button>{selected+1}/{last+1}<button disabled={selected===last} title={selected===last ? "You’re on the last page." : undefined} onClick={()=>setPage(selected+1)}>Next results</button></div>}
     </div>,document.body)}</>;
 }
 </ui:copy>

@@ -159,33 +159,33 @@ struct GitResolutionView:View {
  private func text(_ output:GitResolutionOutput)->Binding<String>{Binding(get:{model.outputs.first{$0.id==output.id}?.text ?? ""},set:{value in model.update(output.id){$0.text=value;$0.stage=nil;$0.stagePath=nil;$0.oid=nil}})}
  var body:some View {let blocked=model.busy || model.hasPending
   VStack(alignment:.leading,spacing:6){
-   HStack{Button("Compose conflict group…"){Task{await model.read(workspace,anchor:path)}}.disabled(blocked);Button("Discard composition"){model.reset()}.disabled(blocked)}
+   HStack{Button("Compose conflict group…"){Task{await model.read(workspace,anchor:path)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil);Button("Discard composition"){model.reset()}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)}
    Text(model.notice).font(.caption).textSelection(.enabled)
    if let receipt=model.confirmedReceipt{Text("Retained saved-source receipt "+receipt.request_id+" · complete "+String(receipt.outcome.complete)+". Local editor adoption is checked separately.").font(.caption).textSelection(.enabled)}
-   if model.hasPending{Button("Inspect original resolution request"){Task{await model.status(workspace)}}.disabled(model.busy)}
+   if model.hasPending{Button("Inspect original resolution request"){Task{await model.status(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
    if let reading=model.reading {
     Text("Select every conflict member. Retained identities and rename relationships are explicit choices. Stage 1 is base; stages 2 and 3 retain Git’s meanings, including during rebase.").font(.caption)
-    ForEach(reading.paths){row in Toggle(row.path,isOn:Binding(get:{model.members.containsSource(row.path)},set:{_ in model.choose(row.path)})).disabled(blocked);if let unavailable=row.unavailable{Text(unavailable).font(.caption)}}
-    Button("Read selected group stages"){Task{await model.read(workspace,anchor:path,selected:true)}}.disabled(blocked || model.members.isEmpty)
+    ForEach(reading.paths){row in Toggle(row.path,isOn:Binding(get:{model.members.containsSource(row.path)},set:{_ in model.choose(row.path)})).disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil);if let unavailable=row.unavailable{Text(unavailable).font(.caption)}}
+    Button("Read selected group stages"){Task{await model.read(workspace,anchor:path,selected:true)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : model.members.isEmpty ? "Select paths to include in the resolution." : nil)
     ForEach(model.outputs){output in
-     TextField("Conflict destination",text:Binding(get:{model.outputs.first{$0.id==output.id}?.path ?? ""},set:{value in model.update(output.id){$0.path=value}})).disabled(blocked)
+     TextField("Conflict destination",text:Binding(get:{model.outputs.first{$0.id==output.id}?.path ?? ""},set:{value in model.update(output.id){$0.path=value}})).disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
      Text("Retained identity: "+(output.identityFrom ?? "new source")).font(.caption)
-     HStack{Button("New identity"){model.update(output.id){$0.identityFrom=nil}};ForEach(model.members,id:\.nativeSourceKey){member in Button("Retain "+member){model.update(output.id){$0.identityFrom=member}}}}.disabled(blocked)
-     TextEditor(text:text(output)).font(.system(.caption,design:.monospaced)).frame(minHeight:90,maxHeight:180).disabled(blocked)
-     HStack{Button("Mode "+output.mode){model.update(output.id){$0.mode=$0.mode=="100644" ? "100755":"100644"}};Button("Remove destination (delete if not retained elsewhere)"){model.remove(output.id)}}.disabled(blocked)
-     GitResolutionStageChoices(model:model,reading:reading,output:output).disabled(blocked)
+     HStack{Button("New identity"){model.update(output.id){$0.identityFrom=nil}};ForEach(model.members,id:\.nativeSourceKey){member in Button("Retain "+member){model.update(output.id){$0.identityFrom=member}}}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
+     TextEditor(text:text(output)).font(.system(.caption,design:.monospaced)).frame(minHeight:90,maxHeight:180).disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
+     HStack{Button("Mode "+output.mode){model.update(output.id){$0.mode=$0.mode=="100644" ? "100755":"100644"}};Button("Remove destination (delete if not retained elsewhere)"){model.remove(output.id)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
+     GitResolutionStageChoices(model:model,reading:reading,output:output).disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
     }
-    Button("Add explicit destination"){model.add()}.disabled(blocked)
+    Button("Add explicit destination"){model.add()}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : nil)
     Text("Members without a retained destination will be deleted: "+model.members.filter{member in !model.outputs.contains{exactUTF8($0.identityFrom,member)}}.joined(separator:", ")).font(.caption)
-    Button("Preview complete resolution consequences"){page=0;Task{await model.prepare(workspace)}}.disabled(blocked || model.members.isEmpty)
+    Button("Preview complete resolution consequences"){page=0;Task{await model.prepare(workspace)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : model.members.isEmpty ? "Select paths to include in the resolution." : nil)
    }
    if let review=model.preview{Text("Complete immutable source/resource proposal, saved metadata and both generated layers").font(.headline);let shown=min(page,review.pages.pages.count-1)
     Text(review.pages.page(shown)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-    HStack{Button("Previous consequences"){page=shown-1}.disabled(shown==0);Text("\(shown+1)/\(review.pages.pages.count)");Button("Next consequences"){page=shown+1}.disabled(shown+1>=review.pages.pages.count)}
+    HStack{Button("Previous consequences"){page=shown-1}.disabled(reason: shown==0 ? "You’re on the first page." : nil);Text("\(shown+1)/\(review.pages.pages.count)");Button("Next consequences"){page=shown+1}.disabled(reason: shown+1>=review.pages.pages.count ? "You’re on the last page." : nil)}
     if !review.value.stage_available{Text(review.value.stage_unavailable ?? "Staging unavailable").font(.caption)}
-    Button("Apply text drafts only"){Task{await model.draft(workspace)}}.disabled(blocked || !review.current() || !review.draftable)
-    Button("Save complete resolution group"){Task{await model.act(workspace,stage:false)}}.disabled(blocked || !review.current() || !review.value.needs_save || model.saved)
-    Button("Stage complete saved group"){Task{await model.act(workspace,stage:true)}}.disabled(blocked || !review.current() || !review.value.stage_available || review.value.needs_save && !model.saved)
+    Button("Apply text drafts only"){Task{await model.draft(workspace)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : !review.current() ? "Refresh the resolution preview against current source." : !review.draftable ? "This resolution changes resources or metadata. Use the reviewed Save action." : nil)
+    Button("Save complete resolution group"){Task{await model.act(workspace,stage:false)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : !review.current() ? "Refresh the resolution preview against current source." : !review.value.needs_save ? "This resolution has no pending changes to save." : model.saved ? "The reviewed resolution has already been saved." : nil)
+    Button("Stage complete saved group"){Task{await model.act(workspace,stage:true)}}.disabled(reason: blocked ? (model.hasPending ? "Inspect the pending resolution request first." : "A conflict resolution operation is in progress.") : !review.current() ? "Refresh the resolution preview against current source." : !review.value.stage_available ? "This resolution cannot be staged in the current Git context." : review.value.needs_save && !model.saved ? "Save the reviewed resolution before staging." : nil)
    }
   }.onDisappear{model.close()}
  }

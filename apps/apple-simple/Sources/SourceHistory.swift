@@ -134,8 +134,8 @@ struct SourceHistoryView:View {
                 if model.selected != nil,model.preview==nil{Text("No source existed on this historical side. Deletion requires the separate resource recovery workflow.").font(.caption)}
                 if let source=model.preview{Text(model.side=="before" ? "Before save":"Intended saved after").font(.caption);Text(source).font(.system(.caption,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Divider();Text("Current draft").font(.caption);Text(workspace.currentBuffer?.text ?? "").font(.system(.caption,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading)}
                 }}
-                if model.selected?.retry_allowed==true{Button("Allow a new Save attempt"){_ = model.allowNewSaveAttempt()}.disabled(model.busy || !model.current())}
-                Button("Restore selected text to draft"){Task{_ = await model.restore()}}.disabled(model.busy||model.selected?.available != true || model.preview==nil || !model.current()).help("Replace this draft through native undo. Saved files and generated outputs are unchanged.")
+                if model.selected?.retry_allowed==true{Button("Allow a new Save attempt"){_ = model.allowNewSaveAttempt()}.disabled(reason: model.busy ? "An operation is already in progress." : !model.current() ? "Refresh the reading against the current source." : nil)}
+                Button("Restore selected text to draft"){Task{_ = await model.restore()}}.disabled(reason: model.busy ? "An operation is already in progress." : model.selected?.available != true ? "This save record has no retained source text." : model.preview==nil ? "Wait for the retained source text to load." : !model.current() ? "Refresh the reading against the current source." : nil).help("Replace this draft through native undo. Saved files and generated outputs are unchanged.")
             }
         }.padding(12).frame(minWidth:340,idealWidth:560,maxWidth:720,minHeight:180,idealHeight:440,maxHeight:640)
     }

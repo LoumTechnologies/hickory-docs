@@ -148,7 +148,7 @@ export function FenceConvert({
           type="button"
           className="btn btn-primary"
           disabled={!container.trim() || (containers.length > 0 && !containers.includes(container))}
-          data-tip={container.trim() ? undefined : "Name the container it runs in"}
+          data-tip={!container.trim() ? "Enter a container image." : (containers.length > 0 && !containers.includes(container)) ? "Choose an available container image." : container.trim() ? undefined : "Name the container it runs in"}
           onClick={() => convert()}
         >
           Convert

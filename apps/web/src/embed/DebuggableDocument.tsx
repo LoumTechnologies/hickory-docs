@@ -108,7 +108,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   ]);
   function variables(values: Variable[], depth = 0) {
     return <ul>{values.map((variable) => <li key={variable.name}>
-      {variable.variables_reference > 0 && depth < 5 && <button type="button" disabled={!session || stale} aria-label={`Expand ${variable.name}`}
+      {variable.variables_reference > 0 && depth < 5 && <button type="button" disabled={!session || stale} title={!session ? "Start the debugger first." : stale ? "Save or reopen the current source before using this debugger state." : undefined} aria-label={`Expand ${variable.name}`}
         onClick={() => { expandVariable(variable.variables_reference); }}>▸</button>}
       <code>{variable.name} = {variable.value}</code>
       {depth < 5 && children[variable.variables_reference] && variables(children[variable.variables_reference], depth + 1)}
@@ -116,7 +116,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   }
   return <div className="hickory-browser-debug" data-status={debug.status}>
     <div className="browser-debug-actions">
-      <button type="button" disabled={!backend || debug.status === "starting"} onClick={start} aria-label="Debug document">{debug.status === "idle" ? "Debug" : "Restart"}</button>
+      <button type="button" disabled={!backend || debug.status === "starting"} title={!backend ? "Connect to a workspace host with a debugger." : debug.status === "starting" ? "The debugger is starting." : undefined} onClick={start} aria-label="Debug document">{debug.status === "idle" ? "Debug" : "Restart"}</button>
       {debug.status === "running" && <button type="button" onClick={() => backend?.pause()}>Pause</button>}
       {stale && <span role="status">Running previous revision {runRevision}. <button type="button" onClick={start}>Restart with edits</button></span>}
     </div>
@@ -134,7 +134,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       <div aria-label="Live variables">{variables(debug.variables)}</div>
       <form onSubmit={(event) => { event.preventDefault(); submitWatch(); }}>
         <label>Read-only watch <input id={`watch-${props.path}`} aria-label="Watch expression" value={watch} onChange={(event) => setWatch(event.target.value)} /></label>
-        <button type="submit" disabled={stale || !watch.trim()}>Watch</button>
+        <button type="submit" disabled={stale || !watch.trim()} title={stale ? "Save or reopen the current source before using this debugger state." : !watch.trim() ? "Enter an expression to watch." : undefined}>Watch</button>
       </form>
       <ul aria-label="Watch values">{debug.watches.map((value) => <li key={value.expression}><code>{value.expression} = {value.value ?? "…"}</code></li>)}</ul>
     </div>}

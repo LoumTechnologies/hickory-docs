@@ -202,14 +202,14 @@ function OwnedPatchEditor({ slot, cx }: Props) {
     {capture && <>
       {model ? <ComparisonEditor path={path} model={model} compact onChange={loading || contextRevision !== capture.contextRevision || (cx.view?.state.readOnly && !cx.capturedProject?.editPatch) ? undefined : (value, assisted) => { draftAssisted.current ||= !!assisted; setError(""); cx.capturedProject?.draftPending?.(capture.id, true); setDraft(value); }} options={<PatchOptions paths={patchPaths(capture.project.local_states[capture.id])} path={path} side={side} disabled={!!draft || saving || loading || contextRevision !== capture.contextRevision} allowSide={!cx.capturedProject?.editPatch} onPath={selectPath} onSide={selectSide} revision={revision}>
       <p>{path} · {cx.view?.state.readOnly && !cx.capturedProject?.editPatch ? "read-only" : saving ? "Checking…" : draft ? "Unsaved draft" : "Up to date"}</p>
-      {!cx.capturedProject?.editPatch && <label>Editable side <select disabled={!!draft || saving || loading || contextRevision !== capture.contextRevision} value={side} onChange={e => selectSide(e.target.value as "old" | "new")}><option value="new">New</option><option value="old">Old · authored predecessor</option></select></label>}
-      <label>File <select disabled={!!draft || saving || loading || contextRevision !== capture.contextRevision} value={path} onChange={e => selectPath(e.target.value)}>
+      {!cx.capturedProject?.editPatch && <label>Editable side <select disabled={!!draft || saving || loading || contextRevision !== capture.contextRevision} title={!!draft ? "Save or discard the current patch draft before switching its target." : saving ? "A save is in progress." : loading ? "Wait for the current reading to load." : contextRevision !== capture.contextRevision ? "The patch context changed. Reload it first." : undefined} value={side} onChange={e => selectSide(e.target.value as "old" | "new")}><option value="new">New</option><option value="old">Old · authored predecessor</option></select></label>}
+      <label>File <select disabled={!!draft || saving || loading || contextRevision !== capture.contextRevision} title={!!draft ? "Save or discard the current patch draft before switching its target." : saving ? "A save is in progress." : loading ? "Wait for the current reading to load." : contextRevision !== capture.contextRevision ? "The patch context changed. Reload it first." : undefined} value={path} onChange={e => selectPath(e.target.value)}>
         {patchPaths(capture.project.local_states[capture.id]).map(p => <option key={p}>{p}</option>)}
       </select></label>
       <p className="muted">Edits save automatically after checking later patches. Debugging uses the latest project containing exactly the code shown.</p>
       </PatchOptions>} /> : <p role="alert">This entry is binary or a symlink. Edit its explicit entry construction.</p>}
     </>}
-    {error && <button className="btn" onClick={() => void reload()} disabled={saving || loading}>Reload patch{draft ? " and discard draft" : ""}</button>}
+    {error && <button className="btn" onClick={() => void reload()} disabled={saving || loading} title={saving ? "A save is in progress." : loading ? "Wait for the current reading to load." : undefined}>Reload patch{draft ? " and discard draft" : ""}</button>}
   </section>;
 }
 

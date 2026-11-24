@@ -38,6 +38,7 @@ it("excludes duplicate launches, keeps status readable while pending and reports
   expect(await run("Run test at editor line", { line: 2 })).toMatchObject({ status: "disabled" });
   const marker = view.dom.querySelector('.cm-test-run[role="button"]')!;
   expect(marker.getAttribute("aria-disabled")).toBe("true");
+  expect(marker.getAttribute("data-tip")).toBe("A test launch is in progress.");
   await act(async () => marker.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
   expect(launch).toHaveBeenCalledTimes(1);
   await act(async () => resolve({ id: "terminal", title: "test: adds", source_hash: "a".repeat(64), source_checked_at_admission: true }));

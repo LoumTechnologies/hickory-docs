@@ -185,37 +185,55 @@ class MainActivity : ComponentActivity() {
     if(workspace.showEverywhere) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showEverywhere=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SearchEverywhereView(workspace,commands)}}
     if (workspace.changes.mode != null) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.changes.close(workspace)}) { Surface { WorkspaceChangesView(workspace) } }
     if (workspace.showWorkspaceSearch) androidx.compose.ui.window.Dialog(onDismissRequest = { workspace.showWorkspaceSearch = false; workspace.search.revision = java.util.UUID.randomUUID(); workspace.currentBuffer?.focusSource?.invoke() }) { Surface { WorkspaceSearchView(workspace) } }
-    if (connection) AlertDialog(
-        onDismissRequest = { connection = false },
-        title = { Text("Connect to a Workspace Server") },
-        text = {
-            Column {
-                OutlinedTextField(workspace.address, { workspace.address = it },
-                    label = { Text("Workspace server address") },
-                    placeholder = { Text("https://server:port") },
-                    enabled = !workspace.connecting, singleLine = true)
-                if (connectionError.isNotEmpty()) Text(connectionError, fontSize = 12.sp)
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = !workspace.connecting && workspace.address.isNotBlank(), onClick = {
-                connectionError = ""
-                workspace.address = workspace.address.trim()
-                scope.launch {
-                    if (workspace.connect()) connection = false
-                    else connectionError = workspace.status
+    if (connection) {
+        val pendingReason = if (workspace.connecting) "A connection attempt is in progress." else null
+        val connectReason = pendingReason ?: if (workspace.address.isBlank()) "Enter the workspace server address." else null
+        AlertDialog(
+            onDismissRequest = { connection = false },
+            title = { Text("Connect to a Workspace Server") },
+            text = {
+                Column {
+                    WithDisabledReason(pendingReason) { available ->
+                        OutlinedTextField(
+                            workspace.address, { workspace.address = it },
+                            label = { Text("Workspace server address") },
+                            placeholder = { Text("https://server:port") },
+                            enabled = available, singleLine = true,
+                        )
+                    }
+                    if (connectionError.isNotEmpty()) Text(connectionError, fontSize = 12.sp)
                 }
-            }) { Text("Connect") }
-        },
-        dismissButton = { TextButton(onClick = { connection = false }) { Text("Cancel") } },
-    )
+            },
+            confirmButton = {
+                WithDisabledReason(connectReason) { available ->
+                    TextButton(enabled = available, onClick = {
+                        connectionError = ""
+                        workspace.address = workspace.address.trim()
+                        scope.launch {
+                            if (workspace.connect()) connection = false
+                            else connectionError = workspace.status
+                        }
+                    }) { Text("Connect") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { connection = false }) { Text("Cancel") } },
+        )
+    }
 }
 @Composable private fun CommandMenu(label: String, commands: List<WorkspaceCommand>) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text(label, fontSize = 13.sp) }
         DropdownMenu(expanded, { expanded = false }) {
-            commands.forEach { command -> DropdownMenuItem(text = { Text(command.label) },enabled=command.reason==null,onClick = { expanded = false; command.run() }) }
+            commands.forEach { command ->
+                WithDisabledReason(command.reason) { available ->
+                    DropdownMenuItem(
+                        text = { Text(command.label) },
+                        enabled = available,
+                        onClick = { expanded = false; command.run() },
+                    )
+                }
+            }
         }
     }
 }
@@ -248,16 +266,16 @@ private fun multipleSelectionCommands(workspace: Workspace): List<WorkspaceComma
         OutlinedTextField(query, { query = it; page = 0 }, label = { Text("Filter problems") }, singleLine = true)
         if (reports.isEmpty()) Text("No reported problems match. This is provider information, not a verification result.", fontSize = 12.sp)
         for (problem in reports.drop(selected * 100).take(100)) {
-            TextButton(enabled = problem.current, onClick = { scope.launch { workspace.openProblem(problem) } }) { Text(problem.path + " · " + problem.message, fontSize = 12.sp) }
+            WithDisabledReason(if (!(problem.current)) "Refresh workspace problems before opening this stale diagnostic." else null) { available -> TextButton(enabled = available, onClick = { scope.launch { workspace.openProblem(problem) } }) { Text(problem.path + " · " + problem.message, fontSize = 12.sp) } }
             if (!problem.current) {
                 Text("Source location stale or unversioned.", fontSize = 11.sp)
                 TextButton(onClick = { scope.launch { workspace.openProblem(problem, precise = false) } }) { Text("Open file") }
             }
         }
         if (last > 0) Row {
-            TextButton(enabled = selected > 0, onClick = { page = selected - 1 }) { Text("Previous results") }
+            WithDisabledReason(if (selected <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available, onClick = { page = selected - 1 }) { Text("Previous results") } }
             Text("${selected + 1}/${last + 1}")
-            TextButton(enabled = selected < last, onClick = { page = selected + 1 }) { Text("Next results") }
+            WithDisabledReason(if (selected >= last) "You’re on the last page." else null) { available -> TextButton(enabled = available, onClick = { page = selected + 1 }) { Text("Next results") } }
         }
     }
 }

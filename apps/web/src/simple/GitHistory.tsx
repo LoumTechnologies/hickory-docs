@@ -38,7 +38,7 @@ export function GitHistoryView({visible,workspace,request,close,openComparison}:
  {request.kind==='log' && comparing && openComparison && <GitComparisonPicker open={openComparison} close={close}/> }
  {request.kind==='log'&&!comparing&&<>
  <div aria-label="Reported commits">{model.commits.slice(model.page*20,(model.page+1)*20).map(commit=><div key={commit.sha}><button aria-label={`Read commit ${commit.sha}`} onClick={()=>void model.select(commit.sha)}>{commit.short} · {commit.subject}</button><span> {commit.author}</span></div>)}</div>
- <nav aria-label="History pages"><button disabled={model.page===0} onClick={()=>{model.page--;paint();}}>Previous</button><span>Page {model.page+1}</span><button disabled={(model.page+1)*20>=model.commits.length} onClick={()=>{model.page++;paint();}}>Next</button><button disabled={model.limit>=1000||model.commits.length<model.limit} onClick={()=>void model.refresh(Math.min(1000,model.limit+120))}>Load more commits</button></nav>
+ <nav aria-label="History pages"><button disabled={model.page===0} title={model.page===0 ? "You’re on the first page." : undefined} onClick={()=>{model.page--;paint();}}>Previous</button><span>Page {model.page+1}</span><button disabled={(model.page+1)*20>=model.commits.length} title={(model.page+1)*20>=model.commits.length ? "You’re on the last page." : undefined} onClick={()=>{model.page++;paint();}}>Next</button><button disabled={model.limit>=1000||model.commits.length<model.limit} title={model.limit>=1000 ? "The history view has reached its 1,000-commit limit." : model.commits.length<model.limit ? "There are no older commits to load." : undefined} onClick={()=>void model.refresh(Math.min(1000,model.limit+120))}>Load more commits</button></nav>
  </>}
  {!comparing&&model.reading&&<><h3>{model.reading.sha}</h3>{model.reading.message.length>20000&&<p>First 20,000 message characters shown.</p>}<pre aria-label="Commit message">{model.reading.message.slice(0,20000)}</pre>{model.reading.files.length?<><select aria-label="Historical file" value={model.file} onChange={event=>{model.file=Number(event.target.value);paint();}}>{model.reading.files.map((file,index)=><option key={index} value={index}>{file.status} · {file.path}</option>)}</select><label>Content side<select aria-label="Historical side" value={model.side} onChange={event=>{model.side=event.target.value as 'before'|'after';paint();}}><option value="before">Before commit</option><option value="after">After commit</option></select></label><p>{file?.binary?'Binary content · text reading unavailable.':content.length>200000?'First 200,000 characters shown.':content?'Immutable file content.':'No text on this side.'}</p><pre aria-label="Historical content" style={{maxHeight:'35vh',overflow:'auto',whiteSpace:'pre'}}>{file?.binary?'':content.slice(0,200000)}</pre></>:<p>No files under this workspace in this commit.</p>}</>}
  </section>,document.body);
@@ -107,7 +107,7 @@ function GitComparisonPicker({open,close}:{open:(file:GitComparison,current:()=>
   return <section aria-label="Compare two Git commits">
     <label>Base commit <input value={base} onChange={event=>{setBase(event.target.value);retire();}}/></label>
     <label>Target commit <input value={target} onChange={event=>{setTarget(event.target.value);retire();}}/></label>
-    <button type="button" disabled={busy||!base.trim()||!target.trim()} onClick={()=>void readList()}>Read comparison</button>
+    <button type="button" disabled={busy||!base.trim()||!target.trim()} title={busy ? "An operation is already in progress." : !base.trim() ? "Enter the base Git revision." : !target.trim() ? "Enter the target Git revision." : undefined} onClick={()=>void readList()}>Read comparison</button>
     {list && <><p>{list.parent.slice(0,12)} → {list.sha.slice(0,12)}</p>{list.files.length
       ? <select aria-label="Changed file" value={choice} onChange={event=>void readFile(event.target.value)}>
         <option value="">Choose a file</option>{list.files.map(file=><option key={file.path} value={file.path}>{file.status} · {file.path}</option>)}
@@ -115,7 +115,7 @@ function GitComparisonPicker({open,close}:{open:(file:GitComparison,current:()=>
     {reading && (reading.binary ? <p>Binary change</p> : <>
       {reading.patch_truncated && <p>First 200,000 patch characters shown.</p>}
       <pre aria-label="Commit patch" style={{maxHeight:"30vh",overflow:"auto"}}>{reading.patch}</pre>
-      <button type="button" disabled={busy} onClick={async()=>{
+      <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={async()=>{
         const id=ticket.current;setBusy(true);
         try {if(await open(reading,()=>id===ticket.current)){close();return;}
           if(id===ticket.current)setNotice("The working file could not be opened. Check Files and try again.");

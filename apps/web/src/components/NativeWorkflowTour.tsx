@@ -141,15 +141,15 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
   const click = (id: string, args: Record<string, UiValue> = {}) => { void invoke(`${parent}/${id}`, args).catch(reason => setError(String(reason))); };
   const target = !info?.active ? `[data-native-tour-launcher="${encodeURIComponent(instance)}"]` : phase === 0 || phase === 3 ? '[data-coach-target="agent"]' : phase === 2 || phase === 4 ? '[data-coach-target="review"]' : '.cm-card-rail';
   return <div className="workflow-tour-launcher">
-    <button data-native-tour-launcher={encodeURIComponent(instance)} className="btn" disabled={busy} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
+    <button data-native-tour-launcher={encodeURIComponent(instance)} className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
     {open && <AnchoredCoach target={target} title="AI engineer tour" onDismiss={() => click("dismiss")}>
       <section className="workflow-tour workflow-tour--app" aria-label="Agent-first practice">
         <p><strong>Customer brief:</strong> A client retries outbound requests. Two 80ms attempts must share a 100ms total deadline, while short attempts and an empty sequence retain their behavior. The missed qualification is “including retries.” This deterministic model does not test network or OS timing.</p>
         {error && <p role="alert">{error}</p>}
         {!info?.active ? <>
           <p>Start in a separate Git repository. Meeting text and the original mistake are labelled fixtures; subsequent provider calls, debugging, edits and checks must be real.</p>
-          <button disabled={busy} onClick={() => click("create")}>Create and open an isolated practice repository</button>
-          <button disabled={busy} onClick={() => click("create-private")}>Create a private prediction practice</button>
+          <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("create")}>Create and open an isolated practice repository</button>
+          <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("create-private")}>Create a private prediction practice</button>
           <p>Private practice uses host-sealed predictions and withheld debugger/output comparisons. It pauses other engine surfaces until End and requires an explicitly selected local Python/DAP environment. Creation starts no model request or target execution.</p>
           {created && <p>Created <code>{created.path}</code>. {created.opened ? "Opened in a separate native window." : `Open this folder in another Hickory window. ${created.open_error ?? ""}`}</p>}
         </> : <>
@@ -164,8 +164,8 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
           {phase === 5 && <><a href="https://hickorydocs.com/snapshot.html?index=publications/index.json" target="_blank" rel="noreferrer">Inspect reviewed published verification</a><label>Load reviewed publication JSON<input type="file" accept=".json" onChange={event => { const file = event.target.files?.[0]; if (file) void file.text().then(json => click("publication", { json })).catch(reason => setError(String(reason))); }} /></label>{publication && <><p>{published ? "Loaded published pass matches saved source bytes; inspect its origin and tested revision." : "Publication is stale, failed, unavailable or for different source bytes."}</p><PublishedSnapshot snapshot={publication} /></>}</>}
           {task && <details open><summary>Delegation text — review before sending</summary><pre>{task}</pre></details>}
           <p role="status">Step evidence: {gates[phase] ? "observed within the stated scope" : "not established"}.{skipped.length > 0 && ` Skipped steps: ${skipped.map(step => step + 1).join(", ")}; these are not passed.`}</p>
-          <button disabled={busy} onClick={() => click("refresh")}>Refresh observed product evidence</button>
-          <div className="workflow-tour-controls"><button disabled={phase === 0 || busy} onClick={() => click("back")}>Back</button>{phase < COACH_STEPS.length - 1 && <><button disabled={!gates[phase] || busy} onClick={() => click("next")}>Continue</button><button disabled={busy} onClick={() => click("skip")}>Skip this step</button></>}<button disabled={busy} onClick={() => click("restart")}>Restart guidance</button></div>
+          <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("refresh")}>Refresh observed product evidence</button>
+          <div className="workflow-tour-controls"><button disabled={phase === 0 || busy} title={phase === 0 ? "This is the first step." : busy ? "An operation is already in progress." : undefined} onClick={() => click("back")}>Back</button>{phase < COACH_STEPS.length - 1 && <><button disabled={!gates[phase] || busy} title={!gates[phase] ? "Complete the current tour step before continuing." : busy ? "An operation is already in progress." : undefined} onClick={() => click("next")}>Continue</button><button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("skip")}>Skip this step</button></>}<button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("restart")}>Restart guidance</button></div>
           <p>Retained history is not reset. Reload requires missing paused/publication evidence to be re-established. Recording, native/provider execution and deployed revision still need their actual witnesses; the coach never declares launch readiness.</p>
         </>}
         <button onClick={() => click("dismiss")}>Skip / close</button>

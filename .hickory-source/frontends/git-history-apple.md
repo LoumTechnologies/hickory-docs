@@ -66,7 +66,7 @@ struct GitHistoryView:View {
     GitCommitComparisonView(workspace: workspace)
    } else if model.request.isLog{
    ScrollView{VStack(alignment:.leading){ForEach(Array(model.commits.dropFirst(model.page*20).prefix(20))){commit in Button("\(commit.short) · \(commit.subject) · \(commit.author)"){Task{await select(commit.sha)}}.accessibilityLabel("Read commit \(commit.sha)")}}}
-   HStack{Button("Previous"){model.page-=1}.disabled(model.page==0);Text("Page \(model.page+1)");Button("Next"){model.page+=1}.disabled((model.page+1)*20>=model.commits.count);Button("Load more commits"){Task{await refresh(min(1000,model.limit+120))}}.disabled(model.limit>=1000 || model.commits.count<model.limit)}.font(.caption)
+   HStack{Button("Previous"){model.page-=1}.disabled(reason: model.page==0 ? "You’re on the first page." : nil);Text("Page \(model.page+1)");Button("Next"){model.page+=1}.disabled(reason: (model.page+1)*20>=model.commits.count ? "You’re on the last page." : nil);Button("Load more commits"){Task{await refresh(min(1000,model.limit+120))}}.disabled(reason: model.limit>=1000 ? "The history view has reached its 1,000-commit limit." : model.commits.count<model.limit ? "There are no older commits to load." : nil)}.font(.caption)
    }
    if !comparing,let reading=model.reading{Text(reading.sha).font(.caption).textSelection(.enabled);Text(String(reading.message.prefix(20000))).font(.caption).textSelection(.enabled);if reading.message.count>20000{Text("First 20,000 message characters shown.").font(.caption)}
     if reading.files.indices.contains(model.file){Picker("Historical file",selection:Binding(get:{model.file},set:{model.file=$0})){ForEach(reading.files.indices,id:\.self){index in Text("\(reading.files[index].status) · \(reading.files[index].path)").tag(index)}}
@@ -190,7 +190,7 @@ struct GitCommitComparisonView: View {
             TextField("Base commit", text: $base).autocorrectionDisabled()
             TextField("Target commit", text: $target).autocorrectionDisabled()
             Button("Read comparison") { Task { await list() } }
-                .disabled(busy || refs.contains { $0.value?.isEmpty != false })
+                .disabled(reason: busy ? "An operation is already in progress." : refs.contains { $0.value?.isEmpty != false } ? "Enter both Git revisions." : nil)
             if let listing {
                 Text("\(listing.parent.prefix(12)) → \(listing.sha.prefix(12))").font(.caption.monospaced())
                 if listing.files.isEmpty {
@@ -215,7 +215,7 @@ struct GitCommitComparisonView: View {
                         Text(reading.file.patch).font(.caption.monospaced()).textSelection(.enabled)
                     }.frame(minHeight: 160, maxHeight: 320)
                     if workspace.workspaceFile(reading.path) != nil {
-                        Button("Open working file with comparison") { Task { await open(reading) } }.disabled(busy)
+                        Button("Open working file with comparison") { Task { await open(reading) } }.disabled(reason: busy ? "An operation is already in progress." : nil)
                     } else {
                         Text("This path has no working file to open.").font(.caption)
                     }

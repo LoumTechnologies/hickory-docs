@@ -120,7 +120,7 @@ export function ProjectDebugLinks({owner, debug}: {owner:string; debug:DebugSess
   const act = (kind: string) => { void invoke(`${parent}:${kind}`).catch(cause => setError(cause instanceof Error ? cause.message : String(cause))); };
   return <span className="project-debug-links">
     <button className="debug-icon" type="button" aria-label="Show literate source" data-tip="Show literate source" onClick={() => act("literate")}>¶</button>
-    <button className="debug-icon" type="button" aria-label="Show generated code" data-tip="Show generated code" disabled={!hasCode} onClick={() => act("generated")}>{"{}"}</button>
+    <button className="debug-icon" type="button" aria-label="Show generated code" data-tip={!hasCode ? "There is no generated code to show." : "Show generated code"} disabled={!hasCode} onClick={() => act("generated")}>{"{}"}</button>
     {error && <span role="alert">Could not open generated code: {error}</span>}
   </span>;
 }

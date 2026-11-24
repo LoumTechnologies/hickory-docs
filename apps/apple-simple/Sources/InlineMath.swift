@@ -202,10 +202,10 @@ struct InlineEquationControl: View {
     var body: some View {
         VStack(alignment: .leading) {
             NativeMathView(source: draft).frame(height: 120)
-            TextEditor(text: $draft).font(.system(.caption, design: .monospaced)).frame(height: 64).disabled(buffer.readOnly)
+            TextEditor(text: $draft).font(.system(.caption, design: .monospaced)).frame(height: 64).disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
             Button("Apply equation") {
                 if buffer.applySourceEdits?([NativeSourceEdit(range: equation.range, text: draft)], source) != true { notice = "Equation changed. Reopen this line and try again." }
-            }.disabled(buffer.readOnly || draft == equation.body)
+            }.disabled(reason: buffer.readOnly ? "This source is read-only." : draft == equation.body ? "Edit the equation before applying it." : nil)
             if !notice.isEmpty { Text(notice).font(.caption) }
         }.onAppear { draft = equation.body }
     }

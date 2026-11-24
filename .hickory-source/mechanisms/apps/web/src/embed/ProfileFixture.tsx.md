@@ -50,7 +50,7 @@ export function ProfileFixture() {
   const act = (key: string, args = {}) => { const captured = owner.current; void invoke(`profile-fixture:${key}`, args).catch(reason => { if (owner.current === captured) setError(String(reason)); }); };
   return <main><h1>Retained profile replay</h1><p>This browser does not execute Python. Load an actual saved native capture; source and metrics remain captured evidence. Pin/remove affect this page only.</p>
     {error && <p role="alert">{error}</p>}
-    <label>Retained profile record<input type="file" accept=".json" disabled={busy} onChange={event => {
+    <label>Retained profile record<input type="file" accept=".json" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onChange={event => {
       const file = event.target.files?.[0]; if (!file) return;
       const captured = ++owner.current;
       if (file.size > 2 * 1024 * 1024) { setError("Recorded runtime import exceeds 2 MiB"); return; }
@@ -58,9 +58,9 @@ export function ProfileFixture() {
     }} /></label>
     {run && <><DocumentEmbed path={run.sources[0].uri} revision={source} source={source} onChange={event => { owner.current++; setBusy(false); setSource(event.source); }} onViewReady={setView} />
       <RuntimeHistory runs={[run]} source={source} view={view} onPin={async selected => { setRun(current => current === selected ? { ...current, pinned: !current.pinned } : current); }} onDelete={async selected => { if (run === selected) { owner.current++; setBusy(false); setRun(null); setSource(""); setContext(""); } }} />
-      <button disabled={busy} onClick={() => act("context")}>Inspect selected profile context</button>
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => act("context")}>Inspect selected profile context</button>
       <output aria-label="Selected profile context">{context}</output>
-      <button disabled={busy} onClick={() => act("edit")}>Edit after captured profile</button></>}
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => act("edit")}>Edit after captured profile</button></>}
   </main>;
 }
 </storycode:copy>

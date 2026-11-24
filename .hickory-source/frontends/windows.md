@@ -29,6 +29,10 @@ Build a Windows executable with the .NET 10 SDK. Use the WinForms component of t
 
 The launcher accepts a workspace folder or a file. With a file, open its containing folder and encode the workspace-relative path for the editor. With no argument, offer a local folder or a server that serves Simple Browser. Local opens still use the bundled host and the engine still authorizes requested paths. The remote choice is explicit and opens under a temporary WebView profile.
 
+The welcome dialog keeps the address prerequisite on the Connect button. A
+disabled WinForms button cannot handle its own mouse movement, so the button
+row anchors the explanatory tooltip to the same bounds.
+
 <ui:copy id="windows-workspace-target">
 namespace HickorySimple;
 
@@ -165,10 +169,38 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
         var label = new Label { Text = "Workspace server address", AutoSize = true };
         var address = new TextBox { Width = 320, AccessibleName = label.Text, PlaceholderText = "https://server:port" };
         var buttons = new FlowLayoutPanel { AutoSize = true };
-        var connect = new Button { Text = "Connect", AutoSize = true, Enabled = false };
+        const string missingAddress = "Enter the workspace server address.";
+        using var connectionTip = new ToolTip();
+        var connect = new Button { Text = "Connect", AutoSize = true, Enabled = false, AccessibleDescription = missingAddress };
+        var showingConnectionTip = false;
+        void HideConnectionTip()
+        {
+            if (!showingConnectionTip) return;
+            connectionTip.Hide(buttons);
+            showingConnectionTip = false;
+        }
+
+        // Disabled child windows leave mouse movement with the containing panel.
+        buttons.MouseMove += (_, eventArgs) =>
+        {
+            if (connect.Enabled || !connect.Bounds.Contains(eventArgs.Location))
+            {
+                HideConnectionTip();
+                return;
+            }
+            if (showingConnectionTip) return;
+            connectionTip.Show(missingAddress, buttons, connect.Left, connect.Bottom + 2);
+            showingConnectionTip = true;
+        };
+        buttons.MouseLeave += (_, _) => HideConnectionTip();
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
         Uri? result = null;
-        address.TextChanged += (_, _) => connect.Enabled = !string.IsNullOrWhiteSpace(address.Text);
+        address.TextChanged += (_, _) =>
+        {
+            connect.Enabled = !string.IsNullOrWhiteSpace(address.Text);
+            connect.AccessibleDescription = connect.Enabled ? null : missingAddress;
+            if (connect.Enabled) HideConnectionTip();
+        };
         connect.Click += (_, _) =>
         {
             if (!Uri.TryCreate(address.Text.Trim(), UriKind.Absolute, out var url) ||

@@ -41,17 +41,17 @@ struct GitConflictView:View {
  var body:some View {
   VStack(alignment:.leading,spacing:6){
    GitResolutionView(workspace:workspace,path:path)
-   Button("Inspect conflict stages"){Task{guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};page=0;await model.read(path){path in try await engine.request("GET","/api/git/conflict",query:[URLQueryItem(name:"path",value:path)])}}}.disabled(model.loading)
+   Button("Inspect conflict stages"){Task{guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};page=0;await model.read(path){path in try await engine.request("GET","/api/git/conflict",query:[URLQueryItem(name:"path",value:path)])}}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
    if !model.notice.isEmpty{Text(model.notice).font(.caption)}
    if let value=model.value{
     Text("Stage 1: base · Stage 2 and Stage 3 retain Git’s meanings, including during rebase.").font(.caption)
     HStack{ForEach(value.stages,id:\.stage){stage in Button("Stage \(stage.stage)\(stage.stage==1 ? " · Base":"")"){selected=stage.stage;page=0}}}
     if let stage=value.stages.first(where:{$0.stage==selected}) ?? value.stages.first{
      Text("Stage \(stage.stage) · mode \(stage.mode)").font(.caption);Text(stage.oid).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-     if let text=stage.text{Button("Preview this stage as source"){Task{await choose(stage.stage)}}.disabled(model.loading);let rows=text.components(separatedBy:"\n"),last=max(0,(rows.count+99)/100-1),index=min(page,last),preview=rows.dropFirst(index*100).prefix(100).joined(separator:"\n")
+     if let text=stage.text{Button("Preview this stage as source"){Task{await choose(stage.stage)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil);let rows=text.components(separatedBy:"\n"),last=max(0,(rows.count+99)/100-1),index=min(page,last),preview=rows.dropFirst(index*100).prefix(100).joined(separator:"\n")
       Text("Lines \(index*100+1)–\(min(rows.count,(index+1)*100))\(preview.count>200000 ? " · page preview capped at 200,000 characters":"")").font(.caption)
       ScrollView([.horizontal,.vertical]){Text(String(preview.prefix(200000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}.frame(maxHeight:220)
-      HStack{Button("Previous stage lines"){page=index-1}.disabled(index==0);Button("Next stage lines"){page=index+1}.disabled(index==last)}
+      HStack{Button("Previous stage lines"){page=index-1}.disabled(reason: index==0 ? "You’re on the first page." : nil);Button("Next stage lines"){page=index+1}.disabled(reason: index==last ? "You’re on the last page." : nil)}
      }else{Text(stage.unavailable ?? "Text unavailable").font(.caption)}
     }
    }

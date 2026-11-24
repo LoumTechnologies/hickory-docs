@@ -52,7 +52,7 @@ export function DatasetPanel({ src, format, path }: { src: string; format: strin
     <div><strong>{src}</strong> <span className="muted">{format} · read-only</span> <button onClick={() => void invoke(`${parent}:refresh`)}>Refresh</button></div>
     {src.startsWith("s3://") && remote !== src ? <button onClick={() => void invoke(`${parent}:remote`)}>Load from S3</button> : error ? <p role="alert">{error}</p> : !table ? <p>Loading dataset…</p> : <>
       <ReadOnlyTable key={`${src}:${page}:${revision}`} table={table} />
-      <nav aria-label="Dataset pages"><button disabled={page === 0} onClick={() => void invoke(`${parent}:previous`)}>Previous</button> <span>Page {page + 1}</span> <button disabled={!table.has_more} onClick={() => void invoke(`${parent}:next`)}>Next</button></nav>
+      <nav aria-label="Dataset pages"><button disabled={page === 0} title={page === 0 ? "You’re on the first page." : undefined} onClick={() => void invoke(`${parent}:previous`)}>Previous</button> <span>Page {page + 1}</span> <button disabled={!table.has_more} title={!table.has_more ? "You’re on the last page." : undefined} onClick={() => void invoke(`${parent}:next`)}>Next</button></nav>
     </>}
   </section>;
 }

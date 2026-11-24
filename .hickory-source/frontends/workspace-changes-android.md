@@ -378,28 +378,27 @@ Request the software keyboard on the next composition frame after the field gain
                     keyboard?.show()
                 }
             }
-            OutlinedTextField(
+            WithDisabledReason(if (!(editing)) "The Move destination is no longer editable. Reopen the review." else null) { available -> OutlinedTextField(
                 state = destination,
                 modifier = Modifier.onFocusChanged { destinationFocused = it.isFocused },
                 label = { Text("New workspace-relative path") },
                 lineLimits = TextFieldLineLimits.SingleLine,
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Done),
-                enabled = editing,
-            )
-            TextButton(
-                enabled = editing && !workspace.resourceChanges.busy && destination.composition == null &&
-                    destination.text.isNotEmpty() && !destination.text.contentEquals(path),
+                enabled = available,
+            ) }
+            WithDisabledReason(if (!(editing)) "The Move destination is no longer editable. Reopen the review." else if (workspace.resourceChanges.busy) "A resource change is in progress." else if (destination.composition != null) "Finish composing the path with the keyboard." else if (!(destination.text.isNotEmpty())) "Enter a destination path." else if (!(!destination.text.contentEquals(path))) "Enter a different destination path." else null) { available -> TextButton(
+                enabled = available,
                 onClick = { scope.launch { changes.prepare(workspace) } },
-            ) { Text("Prepare move") }
+            ) { Text("Prepare move") } }
         }
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal" && changes.mode!="entryMove") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal" && changes.mode!="entryMove") WithDisabledReason(if (!(changes.mode!="rename" || changes.name.isNotBlank())) "Enter a new symbol name." else null) { available -> TextButton(enabled = available,onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") } }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
             TextButton(onClick={scope.launch {changes.choose(index,workspace,actionSnapshot)}}) { Text(action.optString("title","Provider action")) }
             action.optJSONObject("disabled")?.let { Text(it.optString("reason"),fontSize=11.sp) }
         }
-        if(changes.choices.size>100) Row { TextButton(enabled=changes.actionPage>0,onClick={changes.actionPage--}) {Text("Previous actions")}; TextButton(enabled=(changes.actionPage+1)*100<changes.choices.size,onClick={changes.actionPage++}) {Text("Next actions")} }
+        if(changes.choices.size>100) Row { WithDisabledReason(if (changes.actionPage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={changes.actionPage--}) {Text("Previous actions")} }; WithDisabledReason(if ((changes.actionPage+1)*100 >= changes.choices.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={changes.actionPage++}) {Text("Next actions")} } }
         changes.plan?.let { plan ->
             Text("${plan.title} · ${plan.patches.size} source files")
             if(changes.mode=="rename") Text("Reference targets: ${changes.referencePaths.toSet().size} files · project analysis scope not established",fontSize=11.sp)
@@ -409,7 +408,7 @@ Request the software keyboard on the next composition frame after the field gain
             val before=patch.before.split("\n"); val after=patch.after.split("\n"); val last=maxOf(0,(maxOf(before.size,after.size)+99)/100-1); val page=minOf(changes.page,last)
             Text("Before · lines ${page*100+1}–${minOf(before.size,(page+1)*100)}",fontSize=11.sp); Text(before.drop(page*100).take(100).joinToString("\n"),fontSize=12.sp,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
             Text("After",fontSize=11.sp); Text(after.drop(page*100).take(100).joinToString("\n"),fontSize=12.sp,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
-            if(last>0) Row {TextButton(enabled=page>0,onClick={changes.page=page-1}) {Text("Previous lines")}; Text("${page+1}/${last+1}"); TextButton(enabled=page<last,onClick={changes.page=page+1}) {Text("Next lines")} }
+            if(last>0) Row {WithDisabledReason(if (page <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={changes.page=page-1}) {Text("Previous lines")} }; Text("${page+1}/${last+1}"); WithDisabledReason(if (page >= last) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={changes.page=page+1}) {Text("Next lines")} } }
             TextButton(onClick={changes.apply(workspace)}) {Text("Apply to source drafts")}
         }
     }

@@ -79,8 +79,8 @@ function BrowserWorkflowTour({ surface, predictionOnly = false, onPredictionPrac
       {step === 2 && <label>Your objection<textarea value={objection} onChange={event => setObjection(event.target.value)} /></label>}
       {step >= 4 && <pre aria-label="Correction diff">- var allowed = budget;{"\n"}+ var allowed = Math.max(0, budget - total);</pre>}
       <div className="workflow-tour-controls">
-        <button disabled={step === 0} onClick={() => setStep(step - 1)}>Back</button>
-        {step < TOUR_STEPS.length - 1 && <button disabled={!canContinue} onClick={() => setStep(step + 1)}>Continue</button>}
+        <button disabled={step === 0} title={step === 0 ? "This is the first step." : undefined} onClick={() => setStep(step - 1)}>Back</button>
+        {step < TOUR_STEPS.length - 1 && <button disabled={!canContinue} title={!canContinue ? "Complete the current tour step before continuing." : undefined} onClick={() => setStep(step + 1)}>Continue</button>}
         <button onClick={restart}>Restart tour</button>
         <button onClick={() => setOpen(false)}>Skip / close</button>
         <button onClick={download}>{practice ? "Download default executable spec" : "Download executable spec"}</button>

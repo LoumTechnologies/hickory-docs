@@ -210,8 +210,8 @@ Projection editors use the same launch action as ordinary scripts.
 
 <storycode:copy id="f-3f2d1a1c0986-DebugLaunchAction">
 /** Projection editors use the same launch action as ordinary scripts. */
-export function DebugLaunchAction({ view, label, onStart, disabled = false, hint, onProfiles }: {
-  view: EditorView | null; label: string; onStart: () => void; disabled?: boolean; hint?: string; onProfiles?: () => void;
+export function DebugLaunchAction({ view, label, onStart, disabled = false, disabledReason, hint, onProfiles }: {
+  view: EditorView | null; label: string; onStart: () => void; disabled?: boolean; disabledReason?: string; hint?: string; onProfiles?: () => void;
 }) {
   const rail = view ? debugRailElement(view) : null;
   const controls = useDebugLaunchActions(view, view && rail ? [
@@ -219,6 +219,7 @@ export function DebugLaunchAction({ view, label, onStart, disabled = false, hint
     ...(onProfiles ? [{ key: "profiles", label: `Launch profiles for ${label}`, disabled, run: onProfiles }] : []),
   ] : []);
   const start = () => { void controls.launch("start"); };
+  const unavailable = disabledReason ?? "This launch is unavailable for the current source.";
   const callback = useRef({onStart: start,disabled}); callback.current = {onStart: start,disabled};
   useEffect(() => {
     if (!view) return;
@@ -232,8 +233,8 @@ export function DebugLaunchAction({ view, label, onStart, disabled = false, hint
   }, [view]);
   return view && rail ? createPortal(<DebugRailGroup view={view} at={0}>
     {controls.error && <p role="alert" style={{position:"absolute",right:"100%",top:0,margin:0,minWidth:"16rem",maxWidth:"24rem",maxHeight:"40vh",overflow:"auto",padding:4,background:"Canvas",border:"1px solid GrayText"}}>{controls.error}</p>}
-    <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={start}>▷</button>
-    {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip="Choose a Run or Debug profile" disabled={disabled} onClick={() => void controls.launch("profiles")}>⋯</button>}
+    <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={disabled ? unavailable : hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={start}>▷</button>
+    {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip={disabled ? unavailable : "Choose a Run or Debug profile"} disabled={disabled} onClick={() => void controls.launch("profiles")}>⋯</button>}
   </DebugRailGroup>, rail) : null;
 }
 </storycode:copy>

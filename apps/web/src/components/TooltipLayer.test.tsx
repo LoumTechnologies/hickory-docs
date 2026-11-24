@@ -46,6 +46,20 @@ describe("TooltipLayer", () => {
     expect(document.querySelector(".tip")?.textContent).toBe("Split right");
   });
 
+  it("explains a disabled control without activating it and retires the explanation on enable", async () => {
+    const connect = vi.fn();
+    const control = (disabled: boolean) => <><button disabled={disabled}
+      data-tip={disabled ? "Enter the workspace server address." : undefined} onClick={connect}>Connect</button><TooltipLayer /></>;
+    const { rerender } = render(control(true));
+    const button = screen.getByRole("button", { name: "Connect" });
+    rest(button);
+    expect(document.querySelector(".tip")?.textContent).toBe("Enter the workspace server address.");
+    fireEvent.click(button);
+    expect(connect).not.toHaveBeenCalled();
+    await act(async () => { rerender(control(false)); });
+    expect(document.querySelector(".tip")).toBeNull();
+  });
+
   it("hides on Escape, on a click, and on leaving for untooltipped ground", () => {
     const glyph = scene();
     rest(glyph);

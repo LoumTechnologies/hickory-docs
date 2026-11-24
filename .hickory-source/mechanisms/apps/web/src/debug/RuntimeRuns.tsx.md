@@ -167,7 +167,7 @@ export function NativeRuntimeHistory({ source, view, path }: { path?: string; so
   return <details ref={disclosure} onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && path && <div>
     <label>Generated Python entry point (literate documents)<input value={program} onChange={event => setProgram(event.target.value)} /></label>
     <label><input type="checkbox" checked={profile} onChange={event => setProfile(event.target.checked)} />Profile main-thread functions with cProfile (trace hooks disabled)</label>
-    <button disabled={running} onClick={() => void capture(program, profile).catch(() => {})}>Run saved Python confined</button>
+    <button disabled={running} title={running ? "Wait for the current operation to finish." : undefined} onClick={() => void capture(program, profile).catch(() => {})}>Run saved Python confined</button>
     <p>{running ? "Capturing for at most 10 seconds; hiding this panel does not cancel execution." : "Executes saved application code in the cell sandbox, without network. Unsaved edits are not executed. Descriptor/native writes and catching sites are unsupported."}</p>
   </div>}{shown && <RuntimeHistory runs={path ? runs.filter(run => run.sources.some(item => item.uri.replace(/^hick:\/\/\//, "") === path)) : runs} source={source} view={view}
     onPin={async run => { await request("PATCH", `/api/runtime/runs/${encodeURIComponent(run.id)}`, { pinned: !run.pinned }); await load(); }}

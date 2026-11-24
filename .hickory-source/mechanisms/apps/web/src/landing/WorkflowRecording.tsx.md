@@ -95,11 +95,11 @@ export function WorkflowRecording() {
   return <section id="watch-workflow" aria-label="Recorded agent workflow">
     <h2>Investigate first. Review the evidence. Then change the code.</h2>
     <p>Delegate a retry-budget bug: two 80ms attempts share one 100ms deadline. Inspect the agent's failure and paused source, decide that retries consume the same budget, then review a focused correction and its checks.</p>
-    <button disabled={busy} onClick={() => void load()}>{busy ? "Loading reviewed recording…" : "Load reviewed workflow recording"}</button>
+    <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => void load()}>{busy ? "Loading reviewed recording…" : "Load reviewed workflow recording"}</button>
     <p role="status">{status}</p>
     {video && <video ref={media} controls preload="metadata" src={video} onPlay={() => emit({ name: "demo_engaged", demo_id: "agent-first-recording", step: "play" })} onError={() => setStatus("The recording could not be decoded by this browser; inspect its matching source and retained results.")} />}
     {video && <p><UiLink href={video} download={snapshot?.demonstration?.recording_asset.split("/").at(-1)}>Download this verified recording</UiLink></p>}
-    {snapshot?.demonstration?.session_asset && <p>{session ? <UiLink href={session} download={snapshot.demonstration.session_asset.split("/").at(-1)}>Download reviewed public session export</UiLink> : <button disabled={busy} onClick={() => void loadSession()}>Load reviewed public session export</button>}</p>}
+    {snapshot?.demonstration?.session_asset && <p>{session ? <UiLink href={session} download={snapshot.demonstration.session_asset.split("/").at(-1)}>Download reviewed public session export</UiLink> : <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => void loadSession()}>Load reviewed public session export</button>}</p>}
     {snapshot && <p>Published source <code>{snapshot.source_hash}</code> · tested revision <code>{snapshot.verification?.revision}</code> · result {snapshot.verification?.status ?? "not_run"}. <UiLink href={`./snapshot.html?src=${encodeURIComponent(artifact)}`}>Inspect this exact result, including failures and stale evidence</UiLink></p>}
     {snapshot?.demonstration && <><p>Recording build: <code>{snapshot.demonstration.captured_revision}</code>. Publication and recording revisions are reported separately.</p><ul>{snapshot.demonstration.cuts?.map((note, index) => <li key={index}>{note}</li>)}</ul></>}
     <p>These deterministic checks establish budget allocation, not real network latency or OS scheduling. A recorded browser proposal is not a live provider request.</p>

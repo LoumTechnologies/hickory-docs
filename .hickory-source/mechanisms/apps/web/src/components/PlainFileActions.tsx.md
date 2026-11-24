@@ -44,9 +44,9 @@ export function PlainFileActions({ path, loaded, generatedBy, saveKind, adopting
   const invoke = useUiCommands(commands);
   const human = (key: string) => void invoke(`${parent}:${key}`).catch(error => onError(error instanceof Error ? error.message : String(error)));
   return <>
-    {!generatedBy && <button className="btn" disabled={!ready} onClick={() => human("literate")} data-tip="Open an editable arrangement; Save writes code back to these source files.">Open literate view</button>}
-    {!generatedBy && <button className="btn" disabled={!ready} onClick={() => human("review")}>Review changes</button>}
-    {generatedBy ? <span className="muted plain-file__generated" role="status">Written by a literate document — it is already literate.</span> : <button className="btn" disabled={!ready} onClick={() => human("adopt")} data-tip="Create a .md document that owns this file’s bytes. Future edits to this generated file write back to that document.">{adopting ? "Adopting…" : "Make literate"}</button>}
+    {!generatedBy && <button className="btn" disabled={!ready} onClick={() => human("literate")} data-tip={!ready ? "Wait for the file and its source ownership to be ready." : "Open an editable arrangement; Save writes code back to these source files."}>Open literate view</button>}
+    {!generatedBy && <button className="btn" disabled={!ready} title={!ready ? "Wait for the file and its source ownership to be ready." : undefined} onClick={() => human("review")}>Review changes</button>}
+    {generatedBy ? <span className="muted plain-file__generated" role="status">Written by a literate document — it is already literate.</span> : <button className="btn" disabled={!ready} onClick={() => human("adopt")} data-tip={!ready ? "Wait for the file and its source ownership to be ready." : "Create a .md document that owns this file’s bytes. Future edits to this generated file write back to that document."}>{adopting ? "Adopting…" : "Make literate"}</button>}
   </>;
 }
 </storycode:copy>

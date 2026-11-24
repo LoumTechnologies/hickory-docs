@@ -341,11 +341,11 @@ struct WorkspaceChangesView: View {
                 LabeledContent("Current main construction",value:path)
                 TextField("New workspace-relative path",text:$changes.name).textFieldStyle(.roundedBorder)
                     .onChange(of:changes.name){_,_ in workspace.resourceRestoration.cancel()}
-                    .disabled(workspace.resourceRestoration.hasPending)
+                    .disabled(reason: workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)
                 Button("Prepare move"){Task{await changes.prepare(workspace)}}
-                    .disabled(changes.name.isEmpty||exactUTF8(changes.name,path)||workspace.resourceRestoration.busy||workspace.resourceRestoration.hasPending)
+                    .disabled(reason: changes.name.isEmpty ? "Enter a destination path." : exactUTF8(changes.name,path) ? "Enter a different destination path." : workspace.resourceRestoration.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)
             }
-            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal", changes.mode != "entryMove" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "sourceActions" ? "Prepare source actions" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal", changes.mode != "entryMove" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "sourceActions" ? "Prepare source actions" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(reason: changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "Enter a new symbol name." : nil) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
             ScrollView { VStack(alignment:.leading,spacing:6) {
@@ -362,11 +362,11 @@ struct WorkspaceChangesView: View {
                     Text("Before · lines \(selected*100+1)–\(min(before.count,(selected+1)*100))").font(.caption)
                     Text(before.dropFirst(selected*100).prefix(100).joined(separator:"\n")).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
                     Text("After").font(.caption); Text(after.dropFirst(selected*100).prefix(100).joined(separator:"\n")).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-                    if last > 0 { HStack { Button("Previous lines") { changes.page = selected-1 }.disabled(selected == 0); Text("\(selected+1)/\(last+1)"); Button("Next lines") { changes.page = selected+1 }.disabled(selected == last) } }
+                    if last > 0 { HStack { Button("Previous lines") { changes.page = selected-1 }.disabled(reason: selected == 0 ? "You’re on the first page." : nil); Text("\(selected+1)/\(last+1)"); Button("Next lines") { changes.page = selected+1 }.disabled(reason: selected == last ? "You’re on the last page." : nil) } }
                     Button("Apply to source drafts") { changes.apply(workspace) }
                 }
             } }
-            if changes.choices.count > 100 { HStack { Button("Previous actions") { changes.actionPage -= 1 }.disabled(changes.actionPage == 0); Button("Next actions") { changes.actionPage += 1 }.disabled((changes.actionPage+1)*100 >= changes.choices.count) } }
+            if changes.choices.count > 100 { HStack { Button("Previous actions") { changes.actionPage -= 1 }.disabled(reason: changes.actionPage == 0 ? "You’re on the first page." : nil); Button("Next actions") { changes.actionPage += 1 }.disabled(reason: (changes.actionPage+1)*100 >= changes.choices.count ? "You’re on the last page." : nil) } }
         }.padding(8).frame(minWidth:260,idealWidth:380,maxWidth:480,minHeight:320,idealHeight:480,maxHeight:600)
     }
 }

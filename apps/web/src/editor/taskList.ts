@@ -94,6 +94,7 @@ class CheckboxWidget extends WidgetType {
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", String(this.checked));
     box.setAttribute("aria-disabled", String(this.readOnly));
+    if (this.readOnly) box.dataset.tip = "This task belongs to read-only source.";
     box.setAttribute("aria-label", this.checked ? "Done" : "Not done");
     // The glyph is text rather than a background image so it inherits the
     // editor's colour, scales with the zoom level, and survives a theme swap.

@@ -125,9 +125,9 @@ export function ChatTree({
         <button type="button" className="btn-link" aria-pressed={!botanical} onClick={() => pickStyle(false)}>Compact</button>
         <button type="button" className="btn-link" aria-pressed={botanical} onClick={() => pickStyle(true)}>Hickory tree · experiment</button>
         {botanical && <>
-          <button type="button" className="btn-link" aria-label="Zoom out tree" disabled={zoom <= .5} onClick={() => setZoom(z => Math.max(.5, z - .25))}>−</button>
+          <button type="button" className="btn-link" aria-label="Zoom out tree" disabled={zoom <= .5} title={zoom <= .5 ? "The tree is at its minimum zoom." : undefined} onClick={() => setZoom(z => Math.max(.5, z - .25))}>−</button>
           <button type="button" className="btn-link" aria-label="Reset tree zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-          <button type="button" className="btn-link" aria-label="Zoom in tree" disabled={zoom >= 1.5} onClick={() => setZoom(z => Math.min(1.5, z + .25))}>+</button>
+          <button type="button" className="btn-link" aria-label="Zoom in tree" disabled={zoom >= 1.5} title={zoom >= 1.5 ? "The tree is at its maximum zoom." : undefined} onClick={() => setZoom(z => Math.min(1.5, z + .25))}>+</button>
         </>}
       </div>
       {botanical ? <>

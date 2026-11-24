@@ -541,7 +541,7 @@ function CameraCapture({ disabled, onFile, onError }: { disabled: boolean; onFil
     const epoch = cameraEpoch.current;
     canvas.toBlob(blob => { if (epoch !== cameraEpoch.current) return; if (blob) { onFile(new File([blob], "camera-photo.png", { type: "image/png" })); close(); } else onError("Could not capture the photo. Retry or attach an existing image."); }, "image/png");
   };
-  return <><button type="button" aria-label="Take picture" title="Take picture" disabled={disabled} onClick={() => void open()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6h4l2-3h6l2 3h4v15H3Z"/><circle cx="12" cy="13" r="4"/></svg></button>{stream && createPortal(<dialog ref={dialog} aria-label="Camera" onCancel={close} style={{ width: "min(70vw, 720px)", height: "70vh", background: "var(--bg, #222)", padding: 12 }}><video ref={video} autoPlay playsInline muted style={{ width: "100%", height: "80%", objectFit: "contain" }} /><button type="button" onClick={capture}>Use photo</button><button type="button" onClick={close}>Cancel</button></dialog>, document.body)}</>;
+  return <><button type="button" aria-label="Take picture" title={disabled ? "Wait for the current send, attachment, or agent turn to finish." : "Take picture"} disabled={disabled} onClick={() => void open()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6h4l2-3h6l2 3h4v15H3Z"/><circle cx="12" cy="13" r="4"/></svg></button>{stream && createPortal(<dialog ref={dialog} aria-label="Camera" onCancel={close} style={{ width: "min(70vw, 720px)", height: "70vh", background: "var(--bg, #222)", padding: 12 }}><video ref={video} autoPlay playsInline muted style={{ width: "100%", height: "80%", objectFit: "contain" }} /><button type="button" onClick={capture}>Use photo</button><button type="button" onClick={close}>Cancel</button></dialog>, document.body)}</>;
 }
 
 export function ChatDock({
@@ -882,7 +882,7 @@ export function ChatDock({
             className="btn-link chat-new"
             disabled={running !== null || sending}
             onClick={() => void conversationActions.invoke("new")}
-            data-tip="Start a conversation that does not continue from any existing turn"
+            data-tip={running !== null ? "An agent turn is in progress." : sending ? "A message is being sent." : "Start a conversation that does not continue from any existing turn"}
           >
             New thread
           </button>
@@ -929,18 +929,19 @@ export function ChatDock({
           ) : (
             <>
               <ConversationEditor conversationId={docId} reviewRecordedPatch={reviewRecordedPatch} cancelDictation={cancelDictation} dictationScope={`${docId}:${tip ?? "root"}:${dictationGeneration}`} onDictatingChange={dictatingChanged} hasAttachments={attachments.length > 0} onFiles={files => void addFiles(files)} composerTools={<>
-                <button type="button" aria-label="Attach files" title="Attach files" disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17l11-11"/></svg></button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+                <button type="button" aria-label="Attach files" title={preparingAttachments ? "Wait for attachments to finish preparing." : sending ? "A message is being sent." : !!running ? "An agent turn is in progress." : "Attach files"} disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17l11-11"/></svg></button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} title={preparingAttachments ? "Wait for attachments to finish preparing." : sending ? "A message is being sent." : !!running ? "An agent turn is in progress." : undefined} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
                 <CameraCapture key={docId} disabled={preparingAttachments || sending || !!running} onFile={file => void addFiles([file])} onError={setError} />
                 {preparingAttachments && <span role="status">Preparing attachments…</span>}
-                {attachments.map((attachment, index) => <span key={index}>{attachment.media_type === "image/png" && <img alt={attachment.name} src={`data:image/png;base64,${attachment.data}`} width={48} height={48} style={{ objectFit: "contain" }} />} {attachment.name} <button type="button" aria-label={`Remove ${attachment.name}`} disabled={sending || preparingAttachments} onClick={() => setAttachments(items => items.filter((_, i) => i !== index))}>×</button> </span>)}
+                {attachments.map((attachment, index) => <span key={index}>{attachment.media_type === "image/png" && <img alt={attachment.name} src={`data:image/png;base64,${attachment.data}`} width={48} height={48} style={{ objectFit: "contain" }} />} {attachment.name} <button type="button" aria-label={`Remove ${attachment.name}`} disabled={sending || preparingAttachments} title={sending ? "A message is being sent." : preparingAttachments ? "Wait for attachments to finish preparing." : undefined} onClick={() => setAttachments(items => items.filter((_, i) => i !== index))}>×</button> </span>)}
               </>} renderFinal={turn => <AgentProject doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />} branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
-                onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && !preparingAttachments && !dictating && (!!acp.state?.ready && !acp.busy)} />
+                onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && !preparingAttachments && !dictating && (!!acp.state?.ready && !acp.busy)}
+                sendDisabledReason={sending ? "A message is being sent." : preparingAttachments ? "Wait for attachments to finish preparing." : dictating ? "Finish dictation before sending." : !acp.state?.ready || acp.busy ? "Wait for a ready agent connection." : undefined} />
               {branch.length > 0 && <details className="chat-history"><summary>Conversation history</summary><div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
                   {(backend === "python" || acp.state?.canRewind) && turn.id !== tip &&
-                    <button className="btn-link chat-rewind" disabled={!!running || sending} onClick={() => void conversationActions.invoke("tip", { id: turn.id })} data-tip={REWIND_TIP}>rewind here</button>}
+                    <button className="btn-link chat-rewind" disabled={!!running || sending} onClick={() => void conversationActions.invoke("tip", { id: turn.id })} data-tip={!!running ? "An agent turn is in progress." : sending ? "A message is being sent." : REWIND_TIP}>rewind here</button>}
                 </span>)}
                 {sessionPath && onOpenSession && <button className="btn-link" onClick={() => onOpenSession(sessionPath)}>session</button>}
               </div></details>}
@@ -959,14 +960,14 @@ export function ChatDock({
             disabled={stopping}
             onClick={() => void conversationActions.invoke("stop")}
             aria-label="Stop the agent"
-            data-tip="Stop this turn now — the stream is cut and no more tokens are spent"
+            data-tip={stopping ? "A stop request is in progress." : "Stop this turn now — the stream is cut and no more tokens are spent"}
           >
             <StopMark /> {stopping ? "Stopping…" : "Stop"}
           </button>
         ) : (collapsed || showTree) ? (
           <button
             className="btn btn-primary"
-            disabled={!prompt.trim() || sending || (!acp.state?.ready || acp.busy)}
+            disabled={!prompt.trim() || sending || (!acp.state?.ready || acp.busy)} title={!prompt.trim() ? "Enter a message first." : sending ? "A message is being sent." : (!acp.state?.ready || acp.busy) ? "Wait for a ready agent connection." : undefined}
             onClick={() => void conversationActions.invoke("send")}
           >
             {sending ? "Starting…" : "Send"}

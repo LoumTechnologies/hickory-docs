@@ -262,22 +262,22 @@ fun validSourceEdits(edits: List<NativeSourceEdit>, length: Int): Boolean {
                 TextButton(onClick = { buffer.closeFind() }) { Text("Close search") }
             }
             OutlinedTextField(buffer.findQuery, { buffer.findQuery = it }, label = { Text("Find") }, singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(focus))
-            OutlinedTextField(buffer.findReplacement, { buffer.findReplacement = it }, label = { Text("Replace with") }, singleLine = true, enabled = !buffer.readOnly, modifier = Modifier.fillMaxWidth())
+            WithDisabledReason(if (buffer.readOnly) "This source is read-only." else null) { available -> OutlinedTextField(buffer.findReplacement, { buffer.findReplacement = it }, label = { Text("Replace with") }, singleLine = true, enabled = available, modifier = Modifier.fillMaxWidth()) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(buffer.findCase, { buffer.findCase = it }); Text("Match case", fontSize = 12.sp)
                 Checkbox(buffer.findRegex, { buffer.findRegex = it }); Text("Regex", fontSize = 12.sp)
             }
             Row {
-                TextButton(enabled = current && result.edits.isNotEmpty(), onClick = { move(true) }) { Text("Previous") }
-                TextButton(enabled = current && result.edits.isNotEmpty(), onClick = { move() }) { Text("Next") }
+                WithDisabledReason(if (!(current)) "Refresh the results against the current source." else if (!(result.edits.isNotEmpty())) "There are no matching replacements." else null) { available -> TextButton(enabled = available, onClick = { move(true) }) { Text("Previous") } }
+                WithDisabledReason(if (!(current)) "Refresh the results against the current source." else if (!(result.edits.isNotEmpty())) "There are no matching replacements." else null) { available -> TextButton(enabled = available, onClick = { move() }) { Text("Next") } }
             }
             Row {
-                TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(false) }) { Text("Replace") }
-                TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(true) }) { Text("Replace all") }
+                WithDisabledReason(if (!(current)) "Refresh the results against the current source." else if (!(result.edits.isNotEmpty())) "There are no matching replacements." else if (buffer.readOnly) "This source is read-only." else null) { available -> TextButton(enabled = available, onClick = { replace(false) }) { Text("Replace") } }
+                WithDisabledReason(if (!(current)) "Refresh the results against the current source." else if (!(result.edits.isNotEmpty())) "There are no matching replacements." else if (buffer.readOnly) "This source is read-only." else null) { available -> TextButton(enabled = available, onClick = { replace(true) }) { Text("Replace all") } }
             }
-            TextButton(enabled = current && result.edits.size > 1, onClick = {
+            WithDisabledReason(if (!(current)) "Refresh the results against the current source." else if (result.edits.size <= 1) "There is only one replacement to review." else null) { available -> TextButton(enabled = available, onClick = {
                 if (buffer.selectMultiple(result.edits, request.source)) buffer.closeFind() else notice = "Select between 2 and 256 current matches."
-            }) { Text("Select all matches") }
+            }) { Text("Select all matches") } }
             Text(if (notice.isNotEmpty()) notice else if (measured != request) "Searching…" else if (result.error.isNotEmpty()) result.error else "${result.edits.size} matches", fontSize = 12.sp, modifier = Modifier.semantics { contentDescription = "Search status" })
             if (buffer.readOnly) Text("Read-only · searching is available", fontSize = 12.sp)
         }
@@ -1293,17 +1293,17 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         service.inlays.take(50).forEach { Text(it, fontSize = 11.sp) }
                     }
                     if (service != null) service.diagnostics.forEach { item ->
-                        if (item.from != null && item.to != null) TextButton(enabled = service.diagnosticSource == source, onClick = { buffer.selectSourceRange(item.from, item.to, service.diagnosticSource) }) { Text(item.message) }
+                        if (item.from != null && item.to != null) WithDisabledReason(if (service.diagnosticSource != source) "Refresh diagnostics against the current source." else null) { available -> TextButton(enabled = available, onClick = { buffer.selectSourceRange(item.from, item.to, service.diagnosticSource) }) { Text(item.message) } }
                         else Text(item.message + " (server message; source version unavailable)", fontSize = 12.sp)
                     }
                     if (!service?.locationStatus.isNullOrEmpty()) Text(service?.locationStatus.orEmpty(), fontSize = 12.sp)
                     service?.locations?.forEach { location ->
-                        TextButton(enabled = location.path != null && source == service.locationSource && buffer.state.selection == service.locationSelection, onClick = { if (service.open(location)) menu = false }) { Text(location.label) }
+                        WithDisabledReason(if (location.path == null) "The provider gave no path for this location." else if (source != service.locationSource) "Refresh the location against the current source." else if (buffer.state.selection != service.locationSelection) "Request a new location from the current selection." else null) { available -> TextButton(enabled = available, onClick = { if (service.open(location)) menu = false }) { Text(location.label) } }
                     }
                     service?.suggestions?.forEach { item ->
-                        TextButton(enabled = service.canAcceptCompletion(item), onClick = { scope.launch {if (service.accept(item)) menu = false} }) {
+                        WithDisabledReason(if (!(service.canAcceptCompletion(item))) "Request a new completion from the current source and selection." else null) { available -> TextButton(enabled = available, onClick = { scope.launch {if (service.accept(item)) menu = false} }) {
                             Column { Text(item.label, fontFamily = FontFamily.Monospace); Text(item.detail, fontSize = 11.sp) }
-                        }
+                        } }
                     }
                     TextButton(onClick = { scope.launch { service?.inspect() }; scope.launch { service?.complete() } }) { Text("Refresh language tools") }
                     TextButton(onClick = { service?.start() }) { Text("Retry language services") }
@@ -1312,7 +1312,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         }
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
-        }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { if(!buffer.snippets.inputParallel(buffer.multiText))buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
+        }, confirmButton = { WithDisabledReason(if (buffer.readOnly) "This source is read-only." else null) { available -> TextButton(enabled = available, onClick = { if(!buffer.snippets.inputParallel(buffer.multiText))buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
         if (buffer.showFind) NativeFindPanel(buffer, Modifier.simpleReveal().align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }
@@ -1593,7 +1593,7 @@ private class ConstructionDisclosure(val line: Int) {
                                     if (run.notice.isNotBlank()) Text(run.notice, fontSize = 12.sp)
                                     NativeInlineTerminal(run.output, Modifier.fillMaxWidth().height(140.dp))
                                     if (run.terminal != null && run.notice.isNotBlank()) {
-                                        TextButton(enabled = !run.reading, onClick = { recordedRun.refresh(run) }) { Text("Refresh run output") }
+                                        WithDisabledReason(if (run.reading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available, onClick = { recordedRun.refresh(run) }) { Text("Refresh run output") } }
                                     }
                                     if (!run.busy && !run.reading) {
                                         TextButton(onClick = { recordedRun.start(line) }) { Text("Run again") }
@@ -1613,10 +1613,10 @@ private class ConstructionDisclosure(val line: Int) {
                                 key(buffer.text, equation.from) {
                                     var draft by remember { mutableStateOf(equation.body) }
                                     NativeMathView(draft, Modifier.fillMaxWidth().height(120.dp))
-                                    OutlinedTextField(draft, { draft = it }, label = { Text("LaTeX") }, enabled = !buffer.readOnly)
-                                    TextButton(enabled = !buffer.readOnly && draft != equation.body, onClick = {
+                                    WithDisabledReason(if (buffer.readOnly) "This source is read-only." else null) { available -> OutlinedTextField(draft, { draft = it }, label = { Text("LaTeX") }, enabled = available) }
+                                    WithDisabledReason(if (buffer.readOnly) "This source is read-only." else if (draft == equation.body) "Edit the equation before applying it." else null) { available -> TextButton(enabled = available, onClick = {
                                         buffer.applySourceEdits(listOf(NativeSourceEdit(equation.from, equation.to, draft)), buffer.inlineMarkup.source)
-                                    }) { Text("Apply equation") }
+                                    }) { Text("Apply equation") } }
                                 }
                             }
                             if (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.count { it.line == line } > 32 || buffer.inlineMarkup.equations.count { it.line == line } > 4)) Text("More items remain editable in source.", fontSize = 12.sp)
@@ -1624,10 +1624,10 @@ private class ConstructionDisclosure(val line: Int) {
                                 key(buffer.text, cell.from) {
                                     var draft by remember { mutableStateOf(cell.value) }
                                     var error by remember { mutableStateOf("") }
-                                    OutlinedTextField(draft, { draft = it }, label = { Text("Column ${cell.column + 1}") }, enabled = !buffer.readOnly)
-                                    TextButton(enabled = !buffer.readOnly && draft != cell.value, onClick = {
+                                    WithDisabledReason(if (buffer.readOnly) "This source is read-only." else null) { available -> OutlinedTextField(draft, { draft = it }, label = { Text("Column ${cell.column + 1}") }, enabled = available) }
+                                    WithDisabledReason(if (buffer.readOnly) "This source is read-only." else if (draft == cell.value) "Edit the cell before applying it." else null) { available -> TextButton(enabled = available, onClick = {
                                         if (!buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft, cell.format, cell.delimiter))), buffer.inlineMarkup.source)) error = "Table changed. Reopen this row and try again."
-                                    }) { Text("Apply cell") }
+                                    }) { Text("Apply cell") } }
                                     if (error.isNotEmpty()) Text(error, fontSize = 12.sp)
                                 }
                             }
@@ -1649,14 +1649,14 @@ private class ConstructionDisclosure(val line: Int) {
                             var retainedPage by remember(buffer.debugIdentity){mutableStateOf(0)}
                             val retained=debug.breakpointReadingPage(buffer,retainedPage)
                             if(retained.total>0){Text("Retained breakpoint intentions · ${retained.total}",fontSize=12.sp);Text("Readonly source wishes; they do not authorize changed-source coordinates. Earlier history retains the latest 32 snapshot groups in memory.",fontSize=11.sp)
-                                if(retained.total>64)Row{TextButton(enabled=retained.page>0,onClick={retainedPage=retained.page-1}){Text("Previous intentions")};Text("${retained.page+1} / ${(retained.total+63)/64}",fontSize=11.sp);TextButton(enabled=(retained.page+1)*64<retained.total,onClick={retainedPage=retained.page+1}){Text("Next intentions")}}
+                                if(retained.total>64)Row{WithDisabledReason(if (retained.page <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={retainedPage=retained.page-1}){Text("Previous intentions")} };Text("${retained.page+1} / ${(retained.total+63)/64}",fontSize=11.sp);WithDisabledReason(if ((retained.page+1)*64 >= retained.total) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={retainedPage=retained.page+1}){Text("Next intentions")} }}
                                 retained.rows.forEach{row->androidx.compose.foundation.text.selection.SelectionContainer{Text("${if(row.historical)"Earlier" else "Retained"} source ${row.path} · ${row.hash?.take(8) ?: "hash unconfirmed"} · line ${row.line+1}"+(row.condition?.let{" if $it"} ?: ""),fontSize=12.sp)}}
                             }
-                            debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){TextButton(enabled=!debug.active,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Archive earlier intentions")}}}
+                            debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){WithDisabledReason(if (debug.active) "Stop the current debugger session first." else null) { available -> TextButton(enabled = available,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Archive earlier intentions")} }}}
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (recorded == null || launchesHere) TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { launch(line) } }) { Text("▷ Debug") }
-                                if (recorded == null) TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Launch profiles…")}
+                                if (recorded == null || launchesHere) WithDisabledReason(if (debug.active) "Stop the current debugger session first." else if (buffer.dirty) "Save the current source before launching." else if (buffer.saving) "Wait for this source to finish saving." else null) { available -> TextButton(enabled = available, onClick = { scope.launch { launch(line) } }) { Text("▷ Debug") } }
+                                if (recorded == null) WithDisabledReason(if (debug.active) "Stop the current debugger session first." else if (buffer.dirty) "Save the current source before launching." else if (buffer.saving) "Wait for this source to finish saving." else null) { available -> TextButton(enabled = available,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Launch profiles…")} }
                                 if (codeHere) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
@@ -1665,8 +1665,8 @@ private class ConstructionDisclosure(val line: Int) {
                                         var destinationLine by remember(buffer.debugIdentity,line){mutableStateOf((line+1).toString())}
                                         OutlinedTextField(destinationLine,{destinationLine=it},label={Text("Saved source line (1-based)")},singleLine=true)
                                         val destination=destinationLine.toIntOrNull()?.takeIf{it>0}?.minus(1)
-                                        if(debug.capabilities.optBoolean("run_to"))TextButton(enabled=destination!=null,onClick={destination?.let{debug.moveTo(buffer,it)}}){Text("Run to source line")}
-                                        if(debug.capabilities.optBoolean("goto_targets"))TextButton(enabled=destination!=null,onClick={destination?.let{debug.moveTo(buffer,it,true)}}){Text("Move instruction pointer to source line")}
+                                        if(debug.capabilities.optBoolean("run_to"))WithDisabledReason(if (destination == null) "The adapter frame has no resolved source location." else null) { available -> TextButton(enabled = available,onClick={destination?.let{debug.moveTo(buffer,it)}}){Text("Run to source line")} }
+                                        if(debug.capabilities.optBoolean("goto_targets"))WithDisabledReason(if (destination == null) "The adapter frame has no resolved source location." else null) { available -> TextButton(enabled = available,onClick={destination?.let{debug.moveTo(buffer,it,true)}}){Text("Move instruction pointer to source line")} }
                                     }
                                 }
                                 if (debug.active) TextButton(onClick = { debug.stop() }) { Text("■ Stop") }
@@ -1674,10 +1674,10 @@ private class ConstructionDisclosure(val line: Int) {
                             if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
                             debug.profiles.forEach { profile -> TextButton(onClick = { scope.launch{debug.launch(profile); opened = null} }) { Text(nativeDebugProfileLabel(profile)) } }
                             if (showRunTerminal != null) debug.commandProfiles.forEach { profile ->
-                                TextButton(enabled = !debug.runningProfile && !debug.active && !buffer.dirty && !buffer.saving,
+                                WithDisabledReason(if (debug.runningProfile) "A launch profile is already running." else if (debug.active) "Stop the current debugger session first." else if (buffer.dirty) "Save the current source before launching." else if (buffer.saving) "Wait for this source to finish saving." else null) { available -> TextButton(enabled = available,
                                     onClick = { scope.launch { debug.runProfile(profile, buffer, showRunTerminal) } }) {
                                     Text("Run ${profile.optString("name")}")
-                                }
+                                } }
                             }
                             if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("⇩ Install debugger") }
                             if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
@@ -1686,7 +1686,7 @@ private class ConstructionDisclosure(val line: Int) {
                             if(debug.status!="paused"&&!debug.framesCurrent&&debug.frames.isNotEmpty()){
                                 Text("Previous stack · no current pause confirmed",fontSize=12.sp)
                                 var historyPage by remember(debug.frames){mutableStateOf(0)}
-                                if(debug.frames.size>64)Row{TextButton(enabled=historyPage>0,onClick={historyPage--}){Text("Previous historical frames")};TextButton(enabled=(historyPage+1)*64<debug.frames.size,onClick={historyPage++}){Text("Next historical frames")}}
+                                if(debug.frames.size>64)Row{WithDisabledReason(if (historyPage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={historyPage--}){Text("Previous historical frames")} };WithDisabledReason(if ((historyPage+1)*64 >= debug.frames.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={historyPage++}){Text("Next historical frames")} }}
                                 debug.frames.drop(historyPage*64).take(64).forEach{Text(it.optString("name","Frame"),fontSize=12.sp)}
                             }
                             if (debug.capabilities.optBoolean("conditional_breakpoints") && (recorded == null || codeHere)) {
@@ -1696,23 +1696,23 @@ private class ConstructionDisclosure(val line: Int) {
                             NativeAdapterSourceView(debug,adapterInspection)
                             if (debug.status == "paused") {
                                 Text("Source positions use captured launch/mapping text when bound. Matching text does not establish execution coverage.",fontSize=12.sp)
-                                TextButton(enabled=!debug.threadBusy,onClick={debug.readThreads()}){Text("Read threads")}
+                                WithDisabledReason(if (debug.threadBusy) "Wait for the debugger thread request to finish." else null) { available -> TextButton(enabled = available,onClick={debug.readThreads()}){Text("Read threads")} }
                                 if(debug.threadNotice.isNotEmpty())Text(debug.threadNotice,fontSize=12.sp)
                                 debug.threadReading?.let{reading->
                                     var threadPage by remember(reading){mutableStateOf(0)}
                                     Text("${reading.threads.size} reported threads · pause ${reading.stop}",fontSize=12.sp)
-                                    Row{TextButton(enabled=threadPage>0,onClick={threadPage--}){Text("Previous threads")};Text("${threadPage+1} / ${(reading.threads.size+63)/64}",fontSize=12.sp);TextButton(enabled=(threadPage+1)*64<reading.threads.size,onClick={threadPage++}){Text("Next threads")}}
-                                    reading.threads.drop(threadPage*64).take(64).forEach{thread->TextButton(enabled=!debug.threadBusy&&thread.id!=reading.selected,modifier=Modifier.semantics{selected=thread.id==reading.selected},onClick={debug.selectThread(reading,thread.id)}){Text((if(thread.id==reading.selected)"✓ " else "")+thread.name+" (#${thread.id})")}}
+                                    Row{WithDisabledReason(if (threadPage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={threadPage--}){Text("Previous threads")} };Text("${threadPage+1} / ${(reading.threads.size+63)/64}",fontSize=12.sp);WithDisabledReason(if ((threadPage+1)*64 >= reading.threads.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={threadPage++}){Text("Next threads")} }}
+                                    reading.threads.drop(threadPage*64).take(64).forEach{thread->WithDisabledReason(if (debug.threadBusy) "Wait for the debugger thread request to finish." else if (thread.id == reading.selected) "This thread is already selected." else null) { available -> TextButton(enabled = available,modifier=Modifier.semantics{selected=thread.id==reading.selected},onClick={debug.selectThread(reading,thread.id)}){Text((if(thread.id==reading.selected)"✓ " else "")+thread.name+" (#${thread.id})")} }}
                                 }
                                 OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
                                 Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("= Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("◉ Watch") } }
                                 if(debug.frameNotice.isNotEmpty())Text(debug.frameNotice,fontSize=12.sp)
                                 if(debug.adapterSourceRequired)Text("This frame requires adapter-owned source. Workspace positions and breakpoint mutations are not inferred from its filename.",fontSize=12.sp)
-                                TextButton(enabled=debug.framesCurrent,onClick={debug.readFrameVariables()}){Text("Read frame locals")}
+                                WithDisabledReason(if (!(debug.framesCurrent)) "Pause again or refresh the current debugger stop." else null) { available -> TextButton(enabled = available,onClick={debug.readFrameVariables()}){Text("Read frame locals")} }
                                 var framePage by remember(debug.frames){mutableStateOf(0)}
                                 Text(if(debug.framesCurrent)"${debug.frames.size} reported frames" else "Previous stack · current stack unavailable",fontSize=12.sp)
-                                if(debug.frames.size>64)Row{TextButton(enabled=framePage>0,onClick={framePage--}){Text("Previous frames")};TextButton(enabled=(framePage+1)*64<debug.frames.size,onClick={framePage++}){Text("Next frames")}}
-                                debug.frames.drop(framePage*64).take(64).forEach { frame -> TextButton(enabled=debug.framesCurrent,onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
+                                if(debug.frames.size>64)Row{WithDisabledReason(if (framePage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={framePage--}){Text("Previous frames")} };WithDisabledReason(if ((framePage+1)*64 >= debug.frames.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={framePage++}){Text("Next frames")} }}
+                                debug.frames.drop(framePage*64).take(64).forEach { frame -> WithDisabledReason(if (!(debug.framesCurrent)) "Pause again or refresh the current debugger stop." else null) { available -> TextButton(enabled = available,onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } } }
                                 if(debug.variableTree.notice.isNotEmpty())Text(debug.variableTree.notice,fontSize=12.sp)
                                 variableInspection?.let{inspection->debug.variableTree.groups.forEach{(group,nodes)->
                                     if(group=="locals")Text("Frame locals",fontSize=12.sp)
@@ -1736,12 +1736,12 @@ private class ConstructionDisclosure(val line: Int) {
 
 @Composable private fun NativeVariableRows(debug:NativeDebugger,nodes:List<NativeVariableNode>,inspection:String){
     var page by remember(nodes){mutableStateOf(0)}
-    if(nodes.size>64)Row{TextButton(enabled=page>0,onClick={page--}){Text("Previous values")};TextButton(enabled=(page+1)*64<nodes.size,onClick={page++}){Text("Next values")}}
+    if(nodes.size>64)Row{WithDisabledReason(if (page <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={page--}){Text("Previous values")} };WithDisabledReason(if ((page+1)*64 >= nodes.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={page++}){Text("Next values")} }}
     nodes.drop(page*64).take(64).forEach{node->key(node.id){
         val expanded=debug.variableTree.expansions[node.id]
         Column(Modifier.padding(start=if(node.depth==0)0.dp else 8.dp)){
             if(node.reference==null)Text("${node.name} = ${node.value}",fontSize=12.sp)
-            else TextButton(enabled=expanded?.pending==null,onClick={if(expanded!=null)debug.variableTree.collapse(node,inspection) else debug.expandVariable(node,inspection)},modifier=Modifier.semantics{contentDescription=if(expanded!=null)"Collapse ${node.name}" else "Expand ${node.name}"}){Text("${if(expanded!=null)"▾" else "▸"} ${node.name} = ${node.value}")}
+            else WithDisabledReason(if (expanded?.pending != null) "A read of this value is already in progress." else null) { available -> TextButton(enabled = available,onClick={if(expanded!=null)debug.variableTree.collapse(node,inspection) else debug.expandVariable(node,inspection)},modifier=Modifier.semantics{contentDescription=if(expanded!=null)"Collapse ${node.name}" else "Expand ${node.name}"}){Text("${if(expanded!=null)"▾" else "▸"} ${node.name} = ${node.value}")} }
             expanded?.let{reading->
                 if(reading.message.isNotEmpty())Text(reading.message,fontSize=12.sp)
                 NativeVariableRows(debug,reading.children,inspection)

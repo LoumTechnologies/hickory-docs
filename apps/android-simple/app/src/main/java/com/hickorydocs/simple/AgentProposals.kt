@@ -172,19 +172,19 @@ class AgentProposalModel(private val transport:(suspend(Engine,String,String,JSO
  Column(Modifier.padding(16.dp).widthIn(max=720.dp).heightIn(max=640.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(7.dp)){
   Row{Text("Agent proposal review",style=MaterialTheme.typography.titleMedium);Spacer(Modifier.weight(1f));TextButton(onClick={m.close();w.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
   Text("Retained intentions only. Agent statements and requested checks are not observed verdicts.",fontSize=12.sp);Text(m.notice,fontSize=12.sp);Text(m.phase,fontSize=12.sp)
-  TextButton(enabled=!m.busy&&!m.publicationPending,onClick={scope.launch{m.open(w)}}){Text("Refresh retained intentions")}
-  m.entries.forEach{entry->TextButton(enabled=!m.busy&&!m.publicationPending,onClick={section=0;page=0;scope.launch{m.read(w,entry)}}){Text("Read "+(entry.title ?: "sealed proposal ${entry.token.take(12)}")+if(entry.historical)" · historical" else "")}}
+  WithDisabledReason(if (m.busy) "An operation is already in progress." else if (m.publicationPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.open(w)}}){Text("Refresh retained intentions")} }
+  m.entries.forEach{entry->WithDisabledReason(if (m.busy) "An operation is already in progress." else if (m.publicationPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={section=0;page=0;scope.launch{m.read(w,entry)}}){Text("Read "+(entry.title ?: "sealed proposal ${entry.token.take(12)}")+if(entry.historical)" · historical" else "")} }}
   m.value?.let{value->
    Text(value.title,style=MaterialTheme.typography.titleSmall);Text(if(m.authorityCurrent)"Current retained editor lease" else "Historical editor/source lease · refresh the complete intention before another application",fontSize=11.sp);Text("Origin authority: ${value.origin}",fontSize=12.sp);Text("Complete material SHA256 ${value.fingerprint}",fontSize=11.sp)
    value.sections.forEachIndexed{index,item->TextButton(onClick={section=index;page=0}){Text(item.title)}}
    val selected=value.sections.getOrNull(section) ?: value.sections.first();val pages=selected.starts.size;val index=page.coerceIn(0,pages-1);val start=selected.starts[index];val end=selected.starts.getOrNull(index+1) ?: selected.text.length
    Text(selected.title,style=MaterialTheme.typography.titleSmall);androidx.compose.foundation.text.selection.SelectionContainer{Text(selected.text.substring(start,end),fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,fontSize=12.sp)}
-   Row{TextButton(enabled=index>0,onClick={page=index-1}){Text("Previous material page")};Text("${index+1}/$pages",fontSize=11.sp);TextButton(enabled=index+1<pages,onClick={page=index+1}){Text("Next material page")}}
-   if(agentProposalTextOnly(value))TextButton(enabled=m.canApply&&!m.stagedSave,onClick={scope.launch{m.applyDraft(w)}}){Text("Apply complete draft batch")}
-   TextButton(enabled=m.canApply&&!m.stagedSave,onClick={scope.launch{m.prepareSave(w)}}){Text("Prepare guarded namespace Save")}
-   if(m.stagedSave&&!m.publicationPending)TextButton(enabled=m.canSave,onClick={scope.launch{m.save(w)}}){Text("Save reviewed namespace")}
-   if(m.publicationPending)TextButton(enabled=!m.busy,onClick={scope.launch{m.publicationStatus(w)}}){Text("Inspect original publication status")}
-   if(m.hasReport)TextButton(enabled=!m.busy,onClick={scope.launch{m.sendReport()}}){Text("Retry exact host report · no Apply")}
+   Row{WithDisabledReason(if (index <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={page=index-1}){Text("Previous material page")} };Text("${index+1}/$pages",fontSize=11.sp);WithDisabledReason(if (index+1 >= pages) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={page=index+1}){Text("Next material page")} }}
+   if(agentProposalTextOnly(value))WithDisabledReason(if (!(m.canApply)) "Open a current, fully reviewed proposal before applying it." else if (m.stagedSave) "Finish or discard the prepared namespace Save first." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.applyDraft(w)}}){Text("Apply complete draft batch")} }
+   WithDisabledReason(if (!(m.canApply)) "Open a current, fully reviewed proposal before applying it." else if (m.stagedSave) "Finish or discard the prepared namespace Save first." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.prepareSave(w)}}){Text("Prepare guarded namespace Save")} }
+   if(m.stagedSave&&!m.publicationPending)WithDisabledReason(if (!(m.canSave)) "Prepare a current namespace Save before publishing." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.save(w)}}){Text("Save reviewed namespace")} }
+   if(m.publicationPending)WithDisabledReason(if (m.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.publicationStatus(w)}}){Text("Inspect original publication status")} }
+   if(m.hasReport)WithDisabledReason(if (m.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{m.sendReport()}}){Text("Retry exact host report · no Apply")} }
   }
  }
 }

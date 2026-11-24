@@ -527,7 +527,7 @@ export function App() {
   for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
   const handlersRef=useRef(handlers);handlersRef.current=handlers;
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
-  const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);
+  const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} data-tip={command.reason??command.label} aria-description={command.reason??undefined} onClick={command.run}>{command.label}</button>);
   const statusNotices = [notice, buffer?.completionNotice, buffer?.inlineRenderNotice].filter(Boolean).join(" · ");
   if (requestedPath === null && workspaceLookup !== "opened") {
     if (workspaceLookup === "opening") {
@@ -646,18 +646,20 @@ function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
     if (url.origin === window.location.origin) void retryCurrent();
     else window.location.assign(new URL("/simple.html", url));
   }
-  return <main className="workspace-welcome"><section aria-labelledby="workspace-welcome-title">
+  const pendingReason = busy ? "A connection attempt is in progress." : undefined;
+  const connectReason = pendingReason ?? (!address.trim() ? "Enter the workspace server address." : undefined);
+  return <main className="workspace-welcome"><TooltipLayer /><section aria-labelledby="workspace-welcome-title">
     <h1 id="workspace-welcome-title">Welcome to Hickory Docs</h1>
     {connecting ? <form onSubmit={event => { event.preventDefault(); connect(); }}>
       <label htmlFor="workspace-server-address">Workspace server address</label>
-      <input id="workspace-server-address" autoFocus required disabled={busy} value={address}
+      <input id="workspace-server-address" autoFocus required disabled={busy} data-tip={pendingReason} aria-description={pendingReason} value={address}
         placeholder="https://server:port" onChange={event => setAddress(event.target.value)} />
       <div className="workspace-welcome-actions">
-        <button type="submit" disabled={busy || !address.trim()}>{busy ? "Connecting…" : "Connect"}</button>
-        <button type="button" disabled={busy} onClick={() => { setConnecting(false); setError(""); }}>Back</button>
+        <button type="submit" disabled={!!connectReason} data-tip={connectReason} aria-description={connectReason}>{busy ? "Connecting…" : "Connect"}</button>
+        <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => { setConnecting(false); setError(""); }}>Back</button>
       </div>
     </form> : <div className="workspace-welcome-actions">
-      <button type="button" disabled={busy} onClick={() => { setConnecting(true); setError(""); }}>Connect to a Workspace Server…</button>
+      <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => { setConnecting(true); setError(""); }}>Connect to a Workspace Server…</button>
     </div>}
     {error && <p role="alert">{error}</p>}
   </section></main>;

@@ -41,26 +41,26 @@ class RunMarker extends GutterMarker {
   constructor(
     private readonly mark: TestMark,
     private readonly onRun: (view: EditorView, mark: TestMark) => void,
-    private readonly disabled: boolean,
+    private readonly disabledReason: string | undefined,
   ) {
     super();
   }
   eq(other: RunMarker) {
-    return other.mark.name === this.mark.name && other.mark.line === this.mark.line && other.onRun === this.onRun && other.disabled === this.disabled;
+    return other.mark.name === this.mark.name && other.mark.line === this.mark.line && other.onRun === this.onRun && other.disabledReason === this.disabledReason;
   }
   toDOM(view: EditorView) {
     const el = document.createElement("span");
     el.className = "cm-test-run";
     el.textContent = "▶";
-    el.dataset.tip = `Run ${this.mark.name}`;
+    el.dataset.tip = this.disabledReason ?? `Run ${this.mark.name}`;
     el.setAttribute("role", "button");
     el.setAttribute("aria-label", `Run ${this.mark.name}`);
-    el.setAttribute("aria-disabled", String(this.disabled));
+    el.setAttribute("aria-disabled", String(!!this.disabledReason));
     // The mark answers its own click, rather than the gutter resolving a
     // line from the pointer's height: the mark knows which test it is.
     el.addEventListener("mousedown", (event) => {
       event.preventDefault();
-      if (!this.disabled) this.onRun(view, this.mark);
+      if (!this.disabledReason) this.onRun(view, this.mark);
     });
     return el;
   }
@@ -76,13 +76,13 @@ const SPACER = new (class extends GutterMarker {
 })();
 
 /** Marks at their lines' starts, clamped to the document. */
-function markerSet(state: EditorState, onRun: (view: EditorView, mark: TestMark) => void, disabled: boolean) {
+function markerSet(state: EditorState, onRun: (view: EditorView, mark: TestMark) => void, disabledReason?: string) {
   const builder = new RangeSetBuilder<GutterMarker>();
   const marks = [...state.field(testMarksField).marks].sort((a, b) => a.line - b.line);
   for (const mark of marks) {
     if (mark.line < 1 || mark.line > state.doc.lines) continue;
     const at = state.doc.line(mark.line).from;
-    builder.add(at, at, new RunMarker(mark, onRun, disabled));
+    builder.add(at, at, new RunMarker(mark, onRun, disabledReason));
   }
   return builder.finish();
 }
@@ -146,7 +146,11 @@ export function testGutter(options: TestGutterOptions): Extension[] {
     ),
     gutter({
       class: "cm-test-gutter",
-      markers: (view) => markerSet(view.state, nativeRun, controls.pending() || view.state.field(testMarksField).source !== view.state.doc),
+      markers: (view) => {
+        const reason = controls.pending() ? "A test launch is in progress." :
+          view.state.field(testMarksField).source !== view.state.doc ? "Wait for test markers to refresh for the current source." : undefined;
+        return markerSet(view.state, nativeRun, reason);
+      },
       initialSpacer: () => SPACER,
     }),
     EditorView.theme({

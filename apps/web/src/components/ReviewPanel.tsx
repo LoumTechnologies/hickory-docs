@@ -163,19 +163,19 @@ export function ReviewPanel({ document, source, view, initialOpen = false }: { d
         {entries.map(event => <article key={event.id}><small>{event.actor} · {event.action} · {new Date(Number(event.recorded_at) / (event.recorded_at.length > 13 ? 1e6 : 1)).toLocaleString()}</small><p>{event.body}</p></article>)}
         <form onSubmit={event => { event.preventDefault(); void save("comment"); }}>
           <label>Comment or reason<textarea required value={body} onChange={event => setBody(event.target.value)} /></label>
-          <button disabled={busy || !body.trim()}>Save comment</button>
-          {thread && <button type="button" disabled={busy || !body.trim()} onClick={() => void save(resolved ? "reopen" : "resolve")}>{resolved ? "Reopen" : "Resolve after review"}</button>}
+          <button disabled={busy || !body.trim()} title={busy ? "An operation is already in progress." : !body.trim() ? "Enter a comment first." : undefined}>Save comment</button>
+          {thread && <button type="button" disabled={busy || !body.trim()} title={busy ? "An operation is already in progress." : !body.trim() ? "Enter a comment first." : undefined} onClick={() => void save(resolved ? "reopen" : "resolve")}>{resolved ? "Reopen" : "Resolve after review"}</button>}
         </form>
-        {thread && <button disabled={busy} onClick={() => {
+        {thread && <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => {
           const text = investigationPrompt(root, entries); setPrompt(text);
         }}>Prepare agent investigation</button>}
-        {prompt && <label>Investigation prompt · review and send in the agent pane<textarea readOnly value={prompt} /><button disabled={busy} onClick={() => void invoke(`${parent}/copy-prompt`).catch(e => setError(String(e)))}>Copy prompt</button></label>}
+        {prompt && <label>Investigation prompt · review and send in the agent pane<textarea readOnly value={prompt} /><button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => void invoke(`${parent}/copy-prompt`).catch(e => setError(String(e)))}>Copy prompt</button></label>}
         {thread && <section aria-label="Agent investigations">
-          <label>Investigation conversation <select value={conversation} disabled={busy} onChange={event => setConversation(event.target.value)}>
+          <label>Investigation conversation <select value={conversation} disabled={busy} title={busy ? "An operation is already in progress." : undefined} onChange={event => setConversation(event.target.value)}>
             <option value="">Choose an open agent conversation</option>
             {conversations.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select></label>
-          <button disabled={busy || !conversations.some(item => item.id === conversation)} onClick={() => void investigate()}>Send investigation to selected conversation</button>
+          <button disabled={busy || !conversations.some(item => item.id === conversation)} title={busy ? "An operation is already in progress." : !conversations.some(item => item.id === conversation) ? "Choose an open agent conversation." : undefined} onClick={() => void investigate()}>Send investigation to selected conversation</button>
           {investigations.map(item => <article key={item.event}>
             <p>Investigation {item.state} · {item.link.conversation} · turn {item.link.turn ?? "not yet accepted"}</p>
             {item.response && <blockquote>{item.response}</blockquote>}

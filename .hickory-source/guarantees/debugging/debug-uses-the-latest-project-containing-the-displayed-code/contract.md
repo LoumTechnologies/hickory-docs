@@ -224,6 +224,10 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
       {choose,contextLabel:selection?.latest?"Completed project":"Earlier compatible atomic project",isCurrent:()=>!view || (view.dom.isConnected && view.state.doc.toString()===source.text)});
   };
   const canDebug = !!active && isDebuggable(languageFromPath(active.path));
+  const debugDisabledReason = busy ? "The captured code is being registered with the debugger." :
+    !context ? "Open a captured source with a known project context." :
+    !displayMatches ? "Reload the comparison to match the captured source." :
+    !exact ? "Wait for the debugger to bind to these exact source bytes." : undefined;
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
   const setup = `comparison-tools:${useId()}`;
@@ -232,7 +236,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   useUiReading("captured code tools status", { path, label: source.label, uri: uri || null, exact, display_matches: displayMatches, registering: busy, error: error || selection?.error || null, scope: "Actual captured-code controller state; registration is not execution or verification" }, [source.id, source.text, uri]);
   return <>
     {children?.(context && exact && canDebug ? debug : null)}
-    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
+    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!!debugDisabledReason} disabledReason={debugDisabledReason} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
         debug.selectFrame(id);const captured=debug.captureFrame?.(id);if(!captured){setError('This frame reading retired; choose a current frame.');return;}const frame=captured.frame,bound=!!frame.source_hash&&!(frame.source_reference&&frame.source_reference>0);

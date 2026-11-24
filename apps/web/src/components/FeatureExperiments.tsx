@@ -78,20 +78,20 @@ export function FeatureExperiments({ doc, backend, running, features, activeFeat
   const act = (key: string, args: Parameters<typeof invoke>[1]) => { void invoke(`${parent}:${key}`, args).catch(reason => setError(String(reason))); };
   const records = data?.records.filter(record => record.document === doc) ?? [];
   return <section className="feature-experiments" aria-label="Feature performance measurements">
-    <label><input type="checkbox" checked={backend === "codex" && features.length > 0} disabled={running || busy || backend !== "codex"} onChange={event => act("measure", { enabled: event.target.checked })} /> Measure this request with and without Hickory features</label>
+    <label><input type="checkbox" checked={backend === "codex" && features.length > 0} disabled={running || busy || backend !== "codex"} title={running ? "Wait for the current operation to finish." : busy ? "An operation is already in progress." : backend !== "codex" ? "Select Codex to enable comparative measurements." : undefined} onChange={event => act("measure", { enabled: event.target.checked })} /> Measure this request with and without Hickory features</label>
     {running && activeFeatures.length > 0 && <p role="status">This request is measuring {activeFeatures.join(", ")}. The next request starts with measurement off.</p>}
     {backend !== "codex" && <small>Choose Codex ACP to collect comparisons.</small>}
     {backend === "codex" && features.length > 0 && <div>
-      {choices.map(choice => <label key={choice.id}><input type="checkbox" checked={features.includes(choice.id)} disabled={running || busy} onChange={event => act("feature", { id: choice.id, enabled: event.target.checked })} />{choice.title}</label>)}
+      {choices.map(choice => <label key={choice.id}><input type="checkbox" checked={features.includes(choice.id)} disabled={running || busy} title={running ? "Wait for the current operation to finish." : busy ? "An operation is already in progress." : undefined} onChange={event => act("feature", { id: choice.id, enabled: event.target.checked })} />{choice.title}</label>)}
       <p>{2 * features.length} extra Codex runs after your normal request, up to five minutes each. Fresh working copies keep trial edits separate; they use the adapter’s normal host permissions. Comparisons start fresh, without conversation history.</p>
     </div>}
-    <button type="button" className="btn-link" aria-expanded={open} disabled={busy} onClick={() => act("open", { open: !open })}>{open ? "Hide measurements" : "Measurements and dataset"}</button>
+    <button type="button" className="btn-link" aria-expanded={open} disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => act("open", { open: !open })}>{open ? "Hide measurements" : "Measurements and dataset"}</button>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {open && <div>
       <p>Results accumulate locally. Completion is separate from correctness; savings appear only after both results are reviewed as correct. Negative savings mean the feature cost more.</p>
-      {onUpdate && backend === "codex" && <button disabled={running || busy} onClick={() => act("update", {})}>Update Codex adapter for token totals</button>}
-      <button disabled={busy} onClick={() => act("export", {})}>Export dataset</button>
+      {onUpdate && backend === "codex" && <button disabled={running || busy} title={running ? "Wait for the current operation to finish." : busy ? "An operation is already in progress." : undefined} onClick={() => act("update", {})}>Update Codex adapter for token totals</button>}
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => act("export", {})}>Export dataset</button>
       <p>{data?.coverage.length ?? 0} contracts inventoried; feature-specific correctness and performance evidence still needs to be collected. Storage: {data?.storage ?? "loading"}</p>
       <table><thead><tr><th>Feature</th><th>Pairs</th><th>Median prompt seconds saved</th><th>Median tokens saved</th></tr></thead><tbody>{data?.features.map(feature => <tr key={feature.id}><td>{feature.title}</td><td>{feature.pairs}</td><td>{number(feature.wall_seconds_saved?.median)} (n={feature.wall_seconds_saved?.n ?? 0})</td><td>{number(feature.tokens_saved?.median)} (n={feature.tokens_saved?.n ?? 0})</td></tr>)}</tbody></table>
       <p>Medians describe reviewed pairs in this project across recorded tasks; they are not population estimates.</p>
@@ -103,13 +103,13 @@ export function FeatureExperiments({ doc, backend, running, features, activeFeat
           {pair.arms.map(arm => <details key={arm.arm}><summary>{arm.arm} · {arm.status} · {number(arm.wall_seconds)} seconds · {number(arm.total_tokens)} tokens · correctness {arm.correct === null ? "unreviewed" : arm.correct ? "accepted" : "rejected"}</summary>
             <pre>{arm.answer ?? arm.error ?? "No answer recorded"}</pre><p>{arm.usage_scope}</p><p>Working copy: {arm.workspace} · Record: {arm.transcript}</p>
             {arm.review?.notes && <p>Evidence: {arm.review.notes}</p>}
-            {arm.status === "completed" && <><button disabled={busy || !notes.trim()} onClick={() => act("review", { id: record.id, feature: pair.feature, arm: arm.arm, correct: true })}>Correct</button><button disabled={busy || !notes.trim()} onClick={() => act("review", { id: record.id, feature: pair.feature, arm: arm.arm, correct: false })}>Incorrect</button></>}
+            {arm.status === "completed" && <><button disabled={busy || !notes.trim()} title={busy ? "An operation is already in progress." : !notes.trim() ? "Enter correctness evidence first." : undefined} onClick={() => act("review", { id: record.id, feature: pair.feature, arm: arm.arm, correct: true })}>Correct</button><button disabled={busy || !notes.trim()} title={busy ? "An operation is already in progress." : !notes.trim() ? "Enter correctness evidence first." : undefined} onClick={() => act("review", { id: record.id, feature: pair.feature, arm: arm.arm, correct: false })}>Incorrect</button></>}
           </details>)}
           {pair.savings && <p>Saved {number(pair.savings.wall_seconds)} seconds · {number(pair.savings.total_tokens)} tokens (disabled minus enabled).</p>}
         </div>)}
       </article>)}
-      <label>Correctness evidence<textarea disabled={busy} value={notes} maxLength={8192} onChange={event => act("notes", { notes: event.target.value, contract })} placeholder="Tests or observations supporting the result you are about to review" /></label>
-      <label>Feature contract checked (optional)<select disabled={busy} value={contract} onChange={event => act("notes", { notes, contract: event.target.value })}><option value="">No contract attribution</option>{data?.coverage.map(item => <option key={item.contract} value={item.contract}>{item.contract} · {item.status}</option>)}</select></label>
+      <label>Correctness evidence<textarea disabled={busy} title={busy ? "An operation is already in progress." : undefined} value={notes} maxLength={8192} onChange={event => act("notes", { notes: event.target.value, contract })} placeholder="Tests or observations supporting the result you are about to review" /></label>
+      <label>Feature contract checked (optional)<select disabled={busy} title={busy ? "An operation is already in progress." : undefined} value={contract} onChange={event => act("notes", { notes, contract: event.target.value })}><option value="">No contract attribution</option>{data?.coverage.map(item => <option key={item.contract} value={item.contract}>{item.contract} · {item.status}</option>)}</select></label>
       <p>{data?.limitations}</p>
     </div>}
   </section>;

@@ -50,7 +50,7 @@ export function UiCheckbox({ label, checked, onCheckedChange, owner, ...input }:
       reason: input.disabled ? "This setting is disabled in the current form" : pending.current !== null ? "A setting change callback is pending" : undefined }),
     execute: async args => change(args.checked as boolean),
   } }]);
-  return <><input {...input} type="checkbox" checked={checked} disabled={input.disabled || busy} onChange={event => { void change(event.target.checked); }} />
+  return <><input {...input} type="checkbox" checked={checked} disabled={input.disabled || busy} title={input.disabled ? (input.title ?? "The current form does not allow changing this setting.") : busy ? "A setting change is in progress." : input.title} onChange={event => { void change(event.target.checked); }} />
     {failure?.identity === identity && <span role="alert">{failure.message}</span>}</>;
 }
 </storycode:copy>

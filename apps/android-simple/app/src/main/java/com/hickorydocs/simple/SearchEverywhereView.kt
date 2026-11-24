@@ -28,13 +28,13 @@ import kotlinx.coroutines.launch
             else if(event.key==Key.Enter){items.getOrNull(index)?.takeIf {it.reason==null}?.let {target->scope.launch {workspace.openEverywhere(target,commands)}};true}else false
         })
         Box {TextButton(onClick={scopes=true}) {Text("Search scope: $kind")};DropdownMenu(scopes,{scopes=false}) {for(value in listOf("all","file","type","member","symbol","action"))DropdownMenuItem(text={Text(value)},onClick={kind=value;scopes=false})}}
-        Row {Text("${items.size} of $total matches",fontSize=11.sp);TextButton(enabled=!workspace.analysis.running,onClick={workspace.startAnalysis()}) {Text(if(workspace.analysis.running)"Reading…" else "Read workspace")}}
+        Row {Text("${items.size} of $total matches",fontSize=11.sp);WithDisabledReason(if (workspace.analysis.running) "Workspace analysis is in progress." else null) { available -> TextButton(enabled = available,onClick={workspace.startAnalysis()}) {Text(if(workspace.analysis.running)"Reading…" else "Read workspace")} }}
         Text("Symbols reflect source-current provider reads; missing results may need analysis or language support. Files and actions work independently.",fontSize=11.sp)
         if(commands.isEmpty())Text("Command catalog missing. Reinstall the app; source files remain readable.",fontSize=11.sp)
         Column(Modifier.weight(1f,fill=false).heightIn(max=300.dp).verticalScroll(rememberScrollState())) {items.forEachIndexed {at,target->
             val bring=remember(target.id) {BringIntoViewRequester()}
             LaunchedEffect(target.id,index==at) {if(index==at)bring.bringIntoView()}
-            TextButton(enabled=target.reason==null,onClick={scope.launch {workspace.openEverywhere(target,commands)}},modifier=Modifier.fillMaxWidth().bringIntoViewRequester(bring).background(if(at==index)MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)) {Column {Text(target.label);Text(target.kind+" · "+target.detail,fontSize=11.sp)}}
+            WithDisabledReason(target.reason) { available -> TextButton(enabled = available,onClick={scope.launch {workspace.openEverywhere(target,commands)}},modifier=Modifier.fillMaxWidth().bringIntoViewRequester(bring).background(if(at==index)MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)) {Column {Text(target.label);Text(target.kind+" · "+target.detail,fontSize=11.sp)}} }
             target.reason?.let {Text(it,fontSize=11.sp)}
         }}
     }

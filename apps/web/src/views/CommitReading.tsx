@@ -56,7 +56,7 @@ export function CommitReading({ sha }: { sha: string }) {
     <SurfaceInfo name={`Commit · ${data.sha.slice(0, 12)}`} editable={false} destination="Historical bytes; this view writes nothing. Open a worktree to edit or run this revision." />
     <header className="doc-tab-toolbar">{data.sha.slice(0, 12)} · read-only · {data.parent ? "compared with its first parent" : "initial commit"}</header>
     <DocumentComparison id={`${sha}:message`} path="message.md" before={data.message} after={data.message} />
-    <button className="btn" disabled={pending} onClick={() => void invoke(parent).catch(cause => setFailure({ owner: generation, text: message(cause) }))}>Load complete revision contexts</button>
+    <button className="btn" disabled={pending} title={pending ? "An operation is already in progress." : undefined} onClick={() => void invoke(parent).catch(cause => setFailure({ owner: generation, text: message(cause) }))}>Load complete revision contexts</button>
     {data.files.length === 0 && <p className="muted">No files changed.</p>}
     {data.files.map(file => <section key={file.path} className="commit-reading__file">
       <h2>{file.from !== file.path ? `${file.from} → ` : ""}{file.path} · {file.status}</h2>

@@ -566,12 +566,12 @@ class SourceTemplatesModel {
     androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(min=280.dp,max=760.dp).heightIn(max=720.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp)) {
         androidx.compose.material3.Text("Source templates")
         androidx.compose.material3.TextButton(onClick={workspace.showTemplates=false;workspace.currentBuffer?.focusSource?.invoke()}){androidx.compose.material3.Text("Close")}
-        androidx.compose.material3.TextButton(enabled=!model.busy,onClick={workspace.runCommand{model.refresh(workspace)}}){androidx.compose.material3.Text("Refresh templates")}
+        WithDisabledReason(if (model.busy) "An operation is already in progress." else null) { available -> androidx.compose.material3.TextButton(enabled = available,onClick={workspace.runCommand{model.refresh(workspace)}}){androidx.compose.material3.Text("Refresh templates")} }
         androidx.compose.material3.Text(model.notice)
         model.catalog?.let {catalog->
             catalog.notices.forEach{androidx.compose.material3.Text(it)}
             catalog.entries.forEach{entry->
-                androidx.compose.material3.TextButton(enabled=catalog.available&&entry.available&&!model.busy&&model.current(workspace,catalog.capture),onClick={workspace.runCommand{model.prepare(workspace,entry)}}){androidx.compose.material3.Text("${entry.label} · ${entry.origin}")}
+                WithDisabledReason(if (!(catalog.available)) "No template provider is available for this source." else if (!(entry.available)) "This template is unavailable for the current source." else if (model.busy) "An operation is already in progress." else if (!(model.current(workspace,catalog.capture))) "Read templates again for the current source." else null) { available -> androidx.compose.material3.TextButton(enabled = available,onClick={workspace.runCommand{model.prepare(workspace,entry)}}){androidx.compose.material3.Text("${entry.label} · ${entry.origin}")} }
                 androidx.compose.material3.Text(entry.description)
                 entry.reason?.let{androidx.compose.material3.Text(it)}
             }
@@ -579,7 +579,7 @@ class SourceTemplatesModel {
         model.reviewed?.let{review->
             androidx.compose.material3.Text("Reviewed complete draft · ${review.plan.entry.label}")
             androidx.compose.foundation.text.selection.SelectionContainer{androidx.compose.material3.Text(review.plan.batch?.plan?.state?.source ?: review.draft.plan.patches.singleOrNull()?.after ?: review.draft.before)}
-            androidx.compose.material3.TextButton(enabled=!model.busy&&model.current(workspace,review.plan.catalog.capture),onClick={workspace.runCommand{model.apply(workspace)}}){androidx.compose.material3.Text("Apply template to draft")}
+            WithDisabledReason(if (model.busy) "An operation is already in progress." else if (!(model.current(workspace,review.plan.catalog.capture))) "Read templates again for the current source." else null) { available -> androidx.compose.material3.TextButton(enabled = available,onClick={workspace.runCommand{model.apply(workspace)}}){androidx.compose.material3.Text("Apply template to draft")} }
         }
     }
 }

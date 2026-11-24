@@ -174,7 +174,7 @@ Render paged candidates, explicit name-filter/containing-scope choices, partial/
         Text("Source declarations are candidates. Name filters may match several cases; parameterized cases need runner discovery. Terminal runs are separate from per-case verification.",fontSize=12.sp)
         Text(workspace.currentBuffer?.file?.path ?: "No source selected",fontSize=12.sp)
         OutlinedTextField(model.entry,{model.entry=it},label={Text("Construction entry (optional)")},singleLine=true)
-        TextButton(enabled=!model.reading&&workspace.currentBuffer!=null,onClick={workspace.runCommand {model.refresh(workspace)}}){Text(if(model.reading) "Reading source…" else "Refresh candidates")}
+        WithDisabledReason(if (model.reading) "Wait for the current reading to load." else if (workspace.currentBuffer == null) "Open a source file to discover test candidates." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand {model.refresh(workspace)}}){Text(if(model.reading) "Reading source…" else "Refresh candidates")} }
         model.observation?.second?.let {facts->
             Text("${if(valid) "Source observation" else "Stale observation — refresh before running"} · ${facts.scope} · ${if(facts.syntaxComplete) "parsed" else "partial syntax"}",fontSize=12.sp)
             (facts.notices+facts.unsupportedLanguages.map {"No source detector: $it"}+facts.unclassifiedOutputs.map {"Unclassified output: $it"}).forEach {Text(it,fontSize=12.sp)}
@@ -183,14 +183,14 @@ Render paged candidates, explicit name-filter/containing-scope choices, partial/
         OutlinedTextField(model.query,{model.query=it;model.page=0},label={Text("Filter source tests")},singleLine=true)
         candidates.drop(page*100).take(100).forEach {item->
             Text(item.name);Text("${item.confidence} · ${item.target.path}:${item.target.line}",fontSize=12.sp)
-            TextButton(enabled=valid,onClick={workspace.runCommand(workspace.testPointNavigation(item.point))}){Text("${if(item.source==null) "Open runtime source" else "Open authored source"} ${item.point.line}")}
-            TextButton(enabled=valid&&!model.running&&item.nameFilter!=null,onClick={workspace.runCommand {model.run(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Run name filter")}
-            TextButton(enabled=valid&&!model.running,onClick={workspace.runCommand {model.run(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Run ${item.runScope.replace('_',' ')} scope")}
-            TextButton(enabled=valid&&!model.debugging&&item.nameFilter!=null,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Debug name filter")}
-            TextButton(enabled=valid&&!model.debugging,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Debug ${item.runScope.replace('_',' ')} scope")}
+            WithDisabledReason(if (!(valid)) "Refresh the candidate against the current source." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand(workspace.testPointNavigation(item.point))}){Text("${if(item.source==null) "Open runtime source" else "Open authored source"} ${item.point.line}")} }
+            WithDisabledReason(if (!(valid)) "Refresh the candidate against the current source." else if (model.running) "A test run is in progress." else if (item.nameFilter == null) "This candidate has no exact name filter. Use its containing scope." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand {model.run(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Run name filter")} }
+            WithDisabledReason(if (!(valid)) "Refresh the candidate against the current source." else if (model.running) "A test run is in progress." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand {model.run(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Run ${item.runScope.replace('_',' ')} scope")} }
+            WithDisabledReason(if (!(valid)) "Refresh the candidate against the current source." else if (model.debugging) "A test debugger request is in progress." else if (item.nameFilter == null) "This candidate has no exact name filter. Use its containing scope." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Debug name filter")} }
+            WithDisabledReason(if (!(valid)) "Refresh the candidate against the current source." else if (model.debugging) "A test debugger request is in progress." else null) { available -> TextButton(enabled = available,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Debug ${item.runScope.replace('_',' ')} scope")} }
         }
         if(model.observation!=null&&candidates.isEmpty())Text("No source candidates returned. This does not prove the project has no tests.",fontSize=12.sp)
-        if(last>0)Row {TextButton(enabled=page>0,onClick={model.page=page-1}){Text("Previous")};Text("${page+1}/${last+1}");TextButton(enabled=page<last,onClick={model.page=page+1}){Text("Next")}}
+        if(last>0)Row {WithDisabledReason(if (page <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={model.page=page-1}){Text("Previous")} };Text("${page+1}/${last+1}");WithDisabledReason(if (page >= last) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={model.page=page+1}){Text("Next")} }}
         if(model.debugging)Text("Preparing saved Test Debug… Close cancels admission; it does not retry.",fontSize=12.sp)
         model.debugRuns.forEach {run->
             Text("${run.name} · ${run.selection} · debugger ${run.state}${run.exit?.let {" · process exit $it"} ?: ""}",fontSize=12.sp)

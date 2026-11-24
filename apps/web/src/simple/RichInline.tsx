@@ -163,7 +163,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
     return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default + modules.terminalCss.default}>
-      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
+      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} title={buffer.dirty ? "Save the source before refreshing the recorded output." : undefined} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;

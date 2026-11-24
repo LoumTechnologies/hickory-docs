@@ -201,7 +201,7 @@ export function TreeFindReplace({
             className="btn btn-small btn-primary"
             disabled={busy || writable.length === 0 || result?.truncated}
             onClick={() => void runReplace()}
-            data-tip={
+            data-tip={busy ? "An operation is already in progress." : writable.length === 0 ? "There are no writable matches in this search." : result?.truncated ? "Narrow the search so every match can be reviewed before replacing." :
               writable.length === 0
                 ? "Every match is in a generated file — change the document instead"
                 : "Rewrite every match in the files that can be written"

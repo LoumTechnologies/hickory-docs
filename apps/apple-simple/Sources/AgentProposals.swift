@@ -188,18 +188,18 @@ struct AgentProposalView:View {
   ScrollView {VStack(alignment:.leading,spacing:8){HStack{Text("Agent proposal review").bold();Spacer();Button("Close"){model.close();workspace.currentBuffer?.focusSource?()}}
    Text("Agent statements and requested checks are not observed verdicts.").font(.caption)
    Text(model.notice).font(.caption).textSelection(.enabled);Text(model.phase).font(.caption)
-   Button("Refresh retained intentions"){Task{await model.open(workspace)}}.disabled(model.busy||workspace.resourceRestoration.hasPending)
-   ForEach(model.entries){entry in Button("Read "+(entry.title.map{String($0.prefix(512))} ?? "sealed proposal "+String(entry.token.prefix(12)))+(entry.historical==true ? " · historical":"")){section=0;page=0;Task{await model.read(workspace,entry)}}.disabled(model.busy||workspace.resourceRestoration.hasPending)}
+   Button("Refresh retained intentions"){Task{await model.open(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)
+   ForEach(model.entries){entry in Button("Read "+(entry.title.map{String($0.prefix(512))} ?? "sealed proposal "+String(entry.token.prefix(12)))+(entry.historical==true ? " · historical":"")){section=0;page=0;Task{await model.read(workspace,entry)}}.disabled(reason: model.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)}
    if let value=model.value {Text(value.material.intention.title).bold();Text("Origin: "+value.material.origin_authority).font(.caption);Text("Complete SHA256 "+value.fingerprint).font(.caption2).textSelection(.enabled)
     Text(model.authorityCurrent ? "Current retained editor lease":"Historical editor/source lease · request a new intention before another application").font(.caption)
     ForEach(Array(value.sections.enumerated()),id:\.offset){index,item in Button(item.title){section=index;page=0}}
     let item=value.sections[min(section,value.sections.count-1)];Text(item.title).bold();Text(item.page(page)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-    HStack{Button("Previous material page"){page=max(0,page-1)}.disabled(page==0);Text("\(page+1)/\(item.pages.count)");Button("Next material page"){page=min(item.pages.count-1,page+1)}.disabled(page+1>=item.pages.count)}
-    if value.textOnly {Button("Apply complete draft batch"){Task{await model.applyDraft(workspace)}}.disabled(!model.canApply)}
-    Button("Prepare guarded namespace Save"){Task{await model.prepareSave(workspace)}}.disabled(!model.canApply)
-    Button("Save reviewed namespace"){Task{await model.save(workspace)}}.disabled(!model.canSave)
-    if workspace.resourceRestoration.hasPending{Button("Inspect original publication status"){Task{await model.publicationStatus(workspace)}}.disabled(model.busy)}
-    if model.hasReport{Button("Retry exact host report · no Apply"){Task{await model.sendReport()}}.disabled(model.busy)}
+    HStack{Button("Previous material page"){page=max(0,page-1)}.disabled(reason: page==0 ? "You’re on the first page." : nil);Text("\(page+1)/\(item.pages.count)");Button("Next material page"){page=min(item.pages.count-1,page+1)}.disabled(reason: page+1>=item.pages.count ? "You’re on the last page." : nil)}
+    if value.textOnly {Button("Apply complete draft batch"){Task{await model.applyDraft(workspace)}}.disabled(reason: !model.canApply ? "Open a current, fully reviewed proposal before applying it." : nil)}
+    Button("Prepare guarded namespace Save"){Task{await model.prepareSave(workspace)}}.disabled(reason: !model.canApply ? "Open a current, fully reviewed proposal before applying it." : nil)
+    Button("Save reviewed namespace"){Task{await model.save(workspace)}}.disabled(reason: !model.canSave ? "Prepare a current namespace Save before publishing." : nil)
+    if workspace.resourceRestoration.hasPending{Button("Inspect original publication status"){Task{await model.publicationStatus(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
+    if model.hasReport{Button("Retry exact host report · no Apply"){Task{await model.sendReport()}}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
    }
   }.padding()}.frame(idealWidth:700,idealHeight:620)
  }

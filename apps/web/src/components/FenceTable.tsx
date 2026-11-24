@@ -75,7 +75,7 @@ export function FenceTable({
             type="text"
             value={path}
             maxLength={4096}
-            disabled={!current()}
+            disabled={!current()} title={!current() ? "The code fence changed. Reopen this action on the current source." : undefined}
             placeholder="data/sales.csv"
             aria-label="File to write the CSV to"
             onChange={(event) => changePath(event.target.value)}
@@ -85,7 +85,7 @@ export function FenceTable({
             className="btn btn-small btn-primary"
             disabled={!current()}
             onClick={() => promote()}
-            data-tip={
+            data-tip={!current() ? "The code fence changed. Reopen this action on the current source." :
               path.trim()
                 ? "Convert to a <hick:table>, writing the CSV to that file"
                 : "Convert to a <hick:table> — leave the path empty for a table that writes no file"

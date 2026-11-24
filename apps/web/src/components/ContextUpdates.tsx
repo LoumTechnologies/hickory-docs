@@ -127,17 +127,17 @@ function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
     {open && createPortal(<div ref={panel} id={`${instance}-context`} className="agent-context-panel" style={position} role="region" aria-label="Changed agent context" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); disclosure.current?.focus(); } }}>
     <button className="btn-link" aria-label="Close changed context" onClick={() => { setOpen(false); disclosure.current?.focus(); }}>Close</button>
     <p>Compare with confirmed delivery on this branch. Updates enter a subsequent model boundary. Unsaved text is never saved by this action.</p>
-    <button className="btn" disabled={busy || !branch} onClick={() => void inspect()}>Refresh patches and delivery status</button>
+    <button className="btn" disabled={busy || !branch} title={busy ? "An operation is already in progress." : !branch ? "Choose a branch first." : undefined} onClick={() => void inspect()}>Refresh patches and delivery status</button>
     {error && <p role="alert">{error}</p>}
     {view?.items.filter(i => i.status !== "unchanged").map(item => <details key={item.reference} open={!!expanded[item.reference]} onToggle={event => { const open = event.currentTarget.open; setExpanded(current => current[item.reference] === open ? current : { ...current, [item.reference]: open }); }}>
       <summary>{item.path} · {item.status}</summary>
       <p>{item.role} · {item.scope} · last supplied in {item.request}</p>
-      <label><input type="checkbox" disabled={busy || !item.eligible} checked={selected.includes(item.reference)} onChange={e => select(item, e.target.checked)} /> Select update</label>
+      <label><input type="checkbox" disabled={busy || !item.eligible} title={busy ? "An operation is already in progress." : !item.eligible ? "This update failed the eligibility checks shown in its row." : undefined} checked={selected.includes(item.reference)} onChange={e => select(item, e.target.checked)} /> Select update</label>
       <UiActionsVisibility visible={open && !!expanded[item.reference]}><DiffView path={item.path} diff={unifiedDiff(item.path, item.before, item.after ?? "")} binary={false} staged={false} label="last supplied → candidate" /></UiActionsVisibility>
       {view.updates.filter(u => u.old === item.reference).map(u => <p key={u.id}>{u.state}{u.request ? ` in request ${u.request}` : ""}{u.source.revision !== item.revision ? " · changed again" : ""}</p>)}
     </details>)}
-    <button className="btn" disabled={busy || !selected.length} onClick={() => void inspect(true)}>Queue selected updates</button>
-    <button className="btn" disabled={busy || !view?.items.some(i => i.eligible)} onClick={selectAll}>Select all eligible</button>
+    <button className="btn" disabled={busy || !selected.length} title={busy ? "An operation is already in progress." : !selected.length ? "Select eligible updates first." : undefined} onClick={() => void inspect(true)}>Queue selected updates</button>
+    <button className="btn" disabled={busy || !view?.items.some(i => i.eligible)} title={busy ? "An operation is already in progress." : !view?.items.some(i => i.eligible) ? "There are no eligible updates to select." : undefined} onClick={selectAll}>Select all eligible</button>
     {view?.updates.map(u => <p key={u.id}>{u.state === "provider_confirmed" ? "Included" : u.state}{u.request ? ` in request ${u.request}` : ""}</p>)}
     <p className="muted">{view?.coverage}</p>
     </div>, document.body)}

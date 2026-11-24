@@ -86,7 +86,7 @@ export function GithubReviewThreads({ document, source, view }: { document?: str
     <label>Review repository<input value={repository} onChange={e => setInput("repository", e.target.value)} placeholder="owner/repository" /></label>
     <label>Review PR number<input type="number" min="1" value={number} onChange={e => setInput("number", e.target.value)} /></label>
     <label>Review document<input value={path} onChange={e => setInput("document", e.target.value)} /></label>
-    <button disabled={!ready} onClick={() => void invoke(`${parent}:refresh`).catch(e => setError(String(e)))}>Read / refresh selected PR reviews</button>
+    <button disabled={!ready} title={!ready ? "Choose a pull request with a ready workspace connection." : undefined} onClick={() => void invoke(`${parent}:refresh`).catch(e => setError(String(e)))}>Read / refresh selected PR reviews</button>
     {loading && <p role="status">Loading paginated GitHub review evidence…</p>}
     {error && <p role="alert">GitHub unavailable or permission denied: {error}. {capture ? "Previous capture remains historical; refresh failed." : "No capture available."}</p>}
     {capture?.incomplete && <p>Incomplete paginated capture: provider limit reached. Do not infer absent comments or complete review.</p>}

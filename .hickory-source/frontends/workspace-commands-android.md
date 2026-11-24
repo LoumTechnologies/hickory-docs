@@ -5,9 +5,47 @@ For maintainers changing workspace services independently of the editor renderer
 
 Menus and action search need one vocabulary and one availability decision. The same bundled descriptors name existing operations on every simple platform; platform adapters provide callbacks and current context. A missing adapter stays explicitly unavailable. Searching never grants authority: executing an enabled command still enters the existing source, save or change-preview guard. Keep the menu group and stable ID independent of a translated label or renderer. The ordinary eligibility function can be tested without mounting UI.
 
+The tooltip anchor stays outside the Material control so it can respond to a
+pointer or long press even while the child rejects activation. Native enabled
+state and the explanation come from the same reason. The tooltip floats over
+the current layout and exposes the same explanation to accessibility services.
+
 <ui:copy id="simple-workspace-commands-android">
 package com.hickorydocs.simple
 import org.json.JSONArray
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun WithDisabledReason(reason: String?, content: @Composable (Boolean) -> Unit) {
+    val description = if (reason == null) Modifier else Modifier.semantics { stateDescription = reason }
+    val state = rememberTooltipState()
+    if (reason == null && state.isVisible) {
+        LaunchedEffect(state) { state.dismiss() }
+    }
+    TooltipBox(
+        modifier = description,
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(reason.orEmpty()) } },
+        state = state,
+        focusable = false,
+        enableUserInput = reason != null,
+    ) {
+        content(reason == null)
+    }
+}
+
 data class CommandDescriptor(val id:String,val label:String,val group:String,val requires:String)
 data class CommandContext(val editor:Boolean,val writable:Boolean,val dirty:Boolean,val saving:Boolean,val back:Boolean,val forward:Boolean,val tab:Boolean,val groups:Int,val snippet:Boolean=false,val snippetChoices:Boolean=false,val sourceUndo:Boolean=false,val sourceRedo:Boolean=false)
 data class WorkspaceCommand(val id:String,val label:String,val group:String,val reason:String?,val run:()->Unit)

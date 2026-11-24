@@ -178,7 +178,7 @@ export function FormulaDebugger({
           disabled={first || total === 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => click("first")}
-          data-tip="Back to the first cell that ran"
+          data-tip={first ? "This is the first evaluation step." : total === 0 ? "This formula has no evaluation steps." : "Back to the first cell that ran"}
         >
           ⏮
         </button>
@@ -188,7 +188,7 @@ export function FormulaDebugger({
           disabled={first || total === 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => click("previous")}
-          data-tip="The cell that ran before this one"
+          data-tip={first ? "This is the first evaluation step." : total === 0 ? "This formula has no evaluation steps." : "The cell that ran before this one"}
         >
           ◀ Back
         </button>
@@ -198,7 +198,7 @@ export function FormulaDebugger({
           disabled={last || total === 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => click("next")}
-          data-tip="The next cell to run"
+          data-tip={last ? "This is the last evaluation step." : total === 0 ? "This formula has no evaluation steps." : "The next cell to run"}
         >
           Step ▶
         </button>
@@ -208,7 +208,7 @@ export function FormulaDebugger({
           disabled={last || total === 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => click("last")}
-          data-tip="Straight to the last cell"
+          data-tip={last ? "This is the last evaluation step." : total === 0 ? "This formula has no evaluation steps." : "Straight to the last cell"}
         >
           ⏭
         </button>

@@ -187,7 +187,7 @@ function MergeController({
       </Suspense>}
       {error && <p role="alert">{error}</p>}
       <footer className="merge-view__actions">
-        <button type="button" className="btn" disabled={busy} onClick={() => human("cancel")}>
+        <button type="button" className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("cancel")}>
           Cancel
         </button>
         <button
@@ -201,7 +201,7 @@ function MergeController({
           // ("everything I have not answered stays mine") and blocking it
           // would trap someone in a dialog over a region they do not care
           // about.
-          data-tip={
+          data-tip={busy ? "An operation is already in progress." : !current() ? "The file changed. Reopen the merge against the current source." :
             answered < total
               ? "Unanswered conflicts keep your side"
               : "Put the merged text in the editor"
@@ -294,7 +294,7 @@ function MergeRegionRow({
             className={`btn btn-small${chosen === choice.value ? " btn-primary" : ""}`}
             disabled={disabled}
             aria-pressed={chosen === choice.value}
-            data-tip={choice.hint}
+            data-tip={disabled ? "Wait for the merge action to finish or reopen the comparison against current source." : choice.hint}
             onClick={() => onAnswer(conflictIndex, choice.value)}
           >
             {choice.label}
@@ -424,9 +424,9 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
     {merge ? <MergeView literate path={path} base={merge.base} ours={merge.ours} theirs={merge.disk.source}
       sourceCurrent={() => current.current.source === merge.ours && !applying.current}
       onAccept={text => accept(merge.disk, text, merge.ours)} onCancel={() => setMerge(null)} /> : <>
-      <button type="button" className="btn" disabled={busy} onClick={() => human("ignore")}>Ignore disk changes</button>
-      <button type="button" className="btn" disabled={busy} onClick={() => human("reload")}>{dirty ? "Reload and discard unsaved changes" : "Reload from disk"}</button>
-      {dirty ? <button type="button" className="btn" disabled={busy} onClick={() => human("merge")}>Merge changes</button> :
+      <button type="button" className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("ignore")}>Ignore disk changes</button>
+      <button type="button" className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("reload")}>{dirty ? "Reload and discard unsaved changes" : "Reload from disk"}</button>
+      {dirty ? <button type="button" className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("merge")}>Merge changes</button> :
         !reviewGuard && preference}
     </>}
   </section>;

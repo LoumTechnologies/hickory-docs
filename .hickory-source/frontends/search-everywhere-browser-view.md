@@ -42,10 +42,10 @@ export function SearchEverywhereView({visible,setVisible,buffers,files,analysis,
   }}><button aria-label="Close Search Everywhere" onClick={close}>×</button><strong>Search Everywhere</strong>
     <input ref={input} aria-label="Search files, types, members and actions" value={query} role="combobox" aria-expanded="true" aria-autocomplete="list" aria-activedescendant={result.items.length?`simple-everywhere-${index}`:undefined} aria-controls="simple-everywhere-results" onChange={event=>{setQuery(event.target.value);setSelected(0);setNotice("");}}/>
     <select aria-label="Search scope" value={kind} onChange={event=>{setKind(event.target.value as SearchKind|"all");setSelected(0);}}>{["all","file","type","member","symbol","action"].map(value=><option key={value} value={value}>{value}</option>)}</select>
-    <p>{result.items.length} of {result.total} matches <button aria-label="Read workspace" disabled={analysis.running} onClick={()=>{void run();}}>{analysis.running?"Reading…":"Read workspace"}</button></p>
+    <p>{result.items.length} of {result.total} matches <button aria-label="Read workspace" disabled={analysis.running} title={analysis.running ? "Workspace analysis is in progress." : undefined} onClick={()=>{void run();}}>{analysis.running?"Reading…":"Read workspace"}</button></p>
     <p>Symbols reflect source-current provider reads; missing results may need analysis or language support. Files and actions work independently.</p>{notice&&<p role="status">{notice}</p>}
     {!result.items.length&&<p>No matches in current knowledge. Try another query or Read workspace.</p>}
-    <div id="simple-everywhere-results" role="listbox" aria-label="Search results">{result.items.map((target,at)=><div key={target.id}><button type="button" role="option" id={`simple-everywhere-${at}`} aria-selected={at===index} disabled={!!target.reason} onFocus={()=>setSelected(at)} onClick={()=>invoke(target)}>{target.label}<small>{target.kind} · {target.detail}</small></button>{target.reason&&<p>{target.reason}</p>}</div>)}</div>
+    <div id="simple-everywhere-results" role="listbox" aria-label="Search results">{result.items.map((target,at)=><div key={target.id}><button type="button" role="option" id={`simple-everywhere-${at}`} aria-selected={at===index} disabled={!!target.reason} title={!!target.reason ? target.reason : undefined} onFocus={()=>setSelected(at)} onClick={()=>invoke(target)}>{target.label}<small>{target.kind} · {target.detail}</small></button>{target.reason&&<p>{target.reason}</p>}</div>)}</div>
   </div>,document.body);
 }
 </ui:copy>

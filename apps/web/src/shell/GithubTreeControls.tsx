@@ -29,7 +29,7 @@ export function GithubNotificationRead({ thread, onChanged }: { thread: string; 
     },
   } }]);
   useUiReading(`GitHub notification ${thread}`, { thread, busy, error });
-  return <li role="treeitem" className="github-tree__mark-read"><button type="button" disabled={busy}
+  return <li role="treeitem" className="github-tree__mark-read"><button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined}
     onClick={() => void invoke(parent, {}).catch(cause => setError(String(cause)))}>Mark notification read</button>{error && <span>{error}</span>}</li>;
 }
 

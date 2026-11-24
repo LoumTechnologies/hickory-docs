@@ -444,7 +444,7 @@ Render each action with the same label, disabled state and callback both on the 
         disabled={action === "run" && state === "running"}
         aria-label={title(card, action, state, rendered, replaying)}
         aria-pressed={pressed}
-        data-tip={title(card, action, state, rendered, replaying)}
+        data-tip={action === "run" && state === "running" ? "This block is already running." : title(card, action, state, rendered, replaying)}
         onClick={() => { setExpanded(null); setActionError(""); void invoke(`${parent}/${key}`).catch(error => setActionError(String(error))); }}
       >
         {glyph(card, action, state, rendered)}

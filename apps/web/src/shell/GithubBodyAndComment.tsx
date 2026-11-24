@@ -80,9 +80,9 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
     scope: "Provider-reported content and replies; no independent verification or cross-client compare-and-swap" });
   return <>
     <li role="treeitem" className="github-tree__field">
-      <label>Body<textarea value={draft.text} disabled={busy} onChange={event => changeBody(event.target.value)} /></label>
-      <button type="button" disabled={readOnly || busy || draft.text === body} onClick={() => human("save")}>Save body</button>
-      {draft.baseline !== body && <button type="button" disabled={busy} onClick={() => human("reset")}>Reset body draft to current</button>}
+      <label>Body<textarea value={draft.text} disabled={busy} title={busy ? "An operation is already in progress." : undefined} onChange={event => changeBody(event.target.value)} /></label>
+      <button type="button" disabled={readOnly || busy || draft.text === body} title={readOnly ? "This item is read-only with your current GitHub access." : busy ? "An operation is already in progress." : draft.text === body ? "Edit the body before saving." : undefined} onClick={() => human("save")}>Save body</button>
+      {draft.baseline !== body && <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("reset")}>Reset body draft to current</button>}
     </li>
     <li role="treeitem" className="github-tree__section"><span>Comments ({comments.length})</span>
       <ul role="group" className="github-tree__comments">
@@ -90,8 +90,8 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
           <span className="github-tree__byline">{item.author?.login ?? "unknown"}</span><p>{item.body}</p>
         </li>)}
         <li role="treeitem" className="github-tree__new-comment">
-          <label>New comment<textarea value={comment} disabled={busy} onChange={event => changeComment(event.target.value)} /></label>
-          <button type="button" disabled={readOnly || busy || !comment.trim()} onClick={() => human("send")}>Add comment</button>
+          <label>New comment<textarea value={comment} disabled={busy} title={busy ? "An operation is already in progress." : undefined} onChange={event => changeComment(event.target.value)} /></label>
+          <button type="button" disabled={readOnly || busy || !comment.trim()} title={readOnly ? "This item is read-only with your current GitHub access." : busy ? "An operation is already in progress." : !comment.trim() ? "Enter a comment first." : undefined} onClick={() => human("send")}>Add comment</button>
         </li>
       </ul>
     </li>

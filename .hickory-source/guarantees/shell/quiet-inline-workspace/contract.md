@@ -19,6 +19,13 @@ The editor keeps familiar branch, problem and caret status. Connection legends d
 
 This requirement supersedes earlier always-visible provenance toggle and workspace-tool placement requirements. Existing execution, source-revision, permission and write-review boundaries still apply. Visual feel and language-specific installation success require live acceptance; focused witnesses below establish only the behavior they exercise.
 
+## Explain disabled controls in place
+
+When a visible control is disabled, hovering over it shows the current
+reason and, where there is a next step, what the user can do to enable it.
+Use the same availability state for the explanation and the activation guard.
+The explanation floats at the control without shifting the workspace.
+
 ## Show file text before optional capabilities
 
 File display is eventually consistent: mount available source or disk text without

@@ -183,19 +183,19 @@ function DictationButton({ disabled, onText, onActive, cancelRef }: { cancelRef?
     try { current.stop(); } catch { release(true); setStatus("Dictation stopped. Completed text is kept; you can retry."); }
   };
   return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" aria-label={active ? "Stop dictation" : "Dictate"} disabled={disabled || finishing} aria-pressed={active}
-    title={active ? "Stop dictation" : "Dictate"}
+    title={disabled ? "A message is being sent." : finishing ? "Dictation is finishing." : active ? "Stop dictation" : "Dictate"}
     onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
     <span role="status" aria-label="Dictation status" title={status} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, width: "min(360px, 70vw)", maxHeight: 96, overflow: "auto", zIndex: 10, padding: status ? "4px 6px" : 0, background: "var(--bg-raised)", color: "var(--fg)", boxShadow: status ? "var(--shadow)" : undefined }}>{status}</span></span>;
 }
 
-export function ConversationEditor({ conversationId, dictationScope = "response", onDictatingChange, cancelDictation, hasAttachments = false, onFiles, composerTools, branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal, reviewRecordedPatch }: {
+export function ConversationEditor({ conversationId, dictationScope = "response", onDictatingChange, cancelDictation, hasAttachments = false, onFiles, composerTools, branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sendDisabledReason, sending = false, stamp, showCollapsedLineage = false, renderFinal, reviewRecordedPatch }: {
   conversationId?: string;
   reviewRecordedPatch?: ReviewRecordedPatch;
   cancelDictation?: { current: (() => void) | null }; dictationScope?: string; onDictatingChange?: (active: boolean) => void;
   renderFinal?: (turn: AgentTurn) => ReactNode;
   hasAttachments?: boolean; onFiles?: (files: File[]) => void; composerTools?: ReactNode;
   branch: AgentTurn[]; path: string | null; running: string | null; stream: string; reasoning: string;
-  draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
+  draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sendDisabledReason?: string; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
 }) {
   const composer = useRef<EditorView | null>(null);
   const scope = useRef(dictationScope); scope.current = dictationScope;
@@ -298,7 +298,7 @@ export function ConversationEditor({ conversationId, dictationScope = "response"
       <div aria-label="Chat input tools" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><DictationButton key={dictationScope} disabled={sending} cancelRef={cancelDictation}
         onText={text => dictate(text, dictationScope)} onActive={active => { setDictating(active); onDictatingChange?.(active); }} />{composerTools}</div>
       <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false} hasAttachments={hasAttachments} onView={view => { composer.current = view; }}
-        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend && !dictating} showCollapsedLineage={false} />
+        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend && !dictating} sendDisabledReason={dictating ? "Finish dictation before sending." : sendDisabledReason} showCollapsedLineage={false} />
     </section>
   </div>;
 }
@@ -315,11 +315,11 @@ does not move a reader who deliberately scrolled upward.
 
 <storycode:copy id="conversation-message-buffer">
 /** Each card owns its editor and undo history; only the composer reports edits. */
-function ConversationBuffer({ onView, hasAttachments = false, reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage, fence, reviewRecordedPatch }: {
+function ConversationBuffer({ onView, hasAttachments = false, reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, sendDisabledReason, showCollapsedLineage, fence, reviewRecordedPatch }: {
   reviewRecordedPatch?: ReviewRecordedPatch;
   fence?: { conversation: string; turn: string; side: "user" | "assistant"; source: string; lineOffset: number };
   onView?: (view: EditorView | null) => void; hasAttachments?: boolean; reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
-  running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; showCollapsedLineage: boolean;
+  running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sendDisabledReason?: string; showCollapsedLineage: boolean;
 }) {
   const [view, setView] = useState<EditorView | null>(null);
   const [mountedReading, setMountedReading] = useState<string | null>(null);
@@ -372,8 +372,8 @@ function ConversationBuffer({ onView, hasAttachments = false, reading, path, sou
     }
   }, [view, reading.source, draft]);
   useEffect(() => {
-    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running, allowEmpty: hasAttachments }) });
-  }, [view, canSend, sending, running, hasAttachments]);
+    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running, allowEmpty: hasAttachments, reason: sendDisabledReason }) });
+  }, [view, canSend, sending, running, hasAttachments, sendDisabledReason]);
   useEffect(() => {
     if (running || sending) following.current = true;
   }, [running, sending]);

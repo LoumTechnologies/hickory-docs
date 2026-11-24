@@ -188,21 +188,21 @@ export function BrowserPredictionPractice({ corrected, onResult, onInvalidate }:
     <h3>Predict with your own inputs</h3>
     <p>The implementation is a recorded example; execution is live. Seal before Run. Valid inputs restore after reload; re-enter your original prediction/rationale. Recovery settles interrupted attempts without replay. Answers stay withheld; human inspection opens separately. Browser-local storage and incomplete prior-exposure/environment knowledge remain Unknown and cannot earn host promotion.</p>
     <div className="private-prediction-fields">
-      <label>Attempt durations (JSON, ms)<input maxLength={1024} disabled={busy} value={attempts} onChange={event => field("attempts", event.target.value)} /></label>
-      <label>Total budget (ms)<input maxLength={1024} disabled={busy} value={budget} onChange={event => field("budget", event.target.value)} /></label>
-      <label>Predicted elapsed duration (ms)<input maxLength={1024} disabled={busy} value={prediction} onChange={event => field("prediction", event.target.value)} /></label>
-      <label>Prediction rationale<textarea disabled={busy} maxLength={8192} value={rationale} onChange={event => field("rationale", event.target.value)} /></label>
+      <label>Attempt durations (JSON, ms)<input maxLength={1024} disabled={busy} title={busy ? "An operation is already in progress." : undefined} value={attempts} onChange={event => field("attempts", event.target.value)} /></label>
+      <label>Total budget (ms)<input maxLength={1024} disabled={busy} title={busy ? "An operation is already in progress." : undefined} value={budget} onChange={event => field("budget", event.target.value)} /></label>
+      <label>Predicted elapsed duration (ms)<input maxLength={1024} disabled={busy} title={busy ? "An operation is already in progress." : undefined} value={prediction} onChange={event => field("prediction", event.target.value)} /></label>
+      <label>Prediction rationale<textarea disabled={busy} title={busy ? "An operation is already in progress." : undefined} maxLength={8192} value={rationale} onChange={event => field("rationale", event.target.value)} /></label>
     </div>
     <button onClick={() => { void invoke(`${parent}:source`, { open: !sourceOpen }).catch(() => {}); }}>{sourceOpen ? "Hide prediction source" : "Inspect prediction source"}</button>
     {sourceOpen && source !== null && <PracticeSource source={source} />}
     <p>Use up to eight whole-millisecond durations from 0 to 1000ms and a whole-millisecond budget from 1 to 1000ms. Short-attempt and empty-sequence checks run independently.</p>
     <div className="private-prediction-controls">
-      <button disabled={busy} onClick={() => click("seal")}>Seal browser prediction</button>
-      <button disabled={busy || !current()} onClick={() => click("run")}>Run sealed prediction</button>
-      <button disabled={!busy || !abort.current} onClick={() => click("stop")}>Stop prediction run</button>
-      <button disabled={busy || !current()} onClick={() => click("recover")}>Recover interrupted attempts</button>
-      <button disabled={busy || !current() || !history.length} onClick={() => click("promote")}>Request promotion</button>
-      <button disabled={busy || !current() || !history.length} onClick={() => click("inspect")}>Inspect actuals as a human</button>
+      <button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => click("seal")}>Seal browser prediction</button>
+      <button disabled={busy || !current()} title={busy ? "An operation is already in progress." : !current() ? "The sealed prediction no longer matches this workspace. Refresh its context." : undefined} onClick={() => click("run")}>Run sealed prediction</button>
+      <button disabled={!busy || !abort.current} title={!busy ? "There is no prediction run in progress." : !abort.current ? "This operation cannot be stopped." : undefined} onClick={() => click("stop")}>Stop prediction run</button>
+      <button disabled={busy || !current()} title={busy ? "An operation is already in progress." : !current() ? "The sealed prediction no longer matches this workspace. Refresh its context." : undefined} onClick={() => click("recover")}>Recover interrupted attempts</button>
+      <button disabled={busy || !current() || !history.length} title={busy ? "An operation is already in progress." : !current() ? "The sealed prediction no longer matches this workspace. Refresh its context." : !history.length ? "Run a sealed prediction to collect results first." : undefined} onClick={() => click("promote")}>Request promotion</button>
+      <button disabled={busy || !current() || !history.length} title={busy ? "An operation is already in progress." : !current() ? "The sealed prediction no longer matches this workspace. Refresh its context." : !history.length ? "Run a sealed prediction to collect results first." : undefined} onClick={() => click("inspect")}>Inspect actuals as a human</button>
     </div>
     {error && <p role="alert">{error}</p>}
     {recovery && <p role="status">{recovery.interrupted} interrupted attempts settled. No execution replayed; evidence remains non-passing.</p>}
@@ -370,8 +370,8 @@ function BrowserWorkflowTour({ surface, predictionOnly = false, onPredictionPrac
       {step === 2 && <label>Your objection<textarea value={objection} onChange={event => setObjection(event.target.value)} /></label>}
       {step >= 4 && <pre aria-label="Correction diff">- var allowed = budget;{"\n"}+ var allowed = Math.max(0, budget - total);</pre>}
       <div className="workflow-tour-controls">
-        <button disabled={step === 0} onClick={() => setStep(step - 1)}>Back</button>
-        {step < TOUR_STEPS.length - 1 && <button disabled={!canContinue} onClick={() => setStep(step + 1)}>Continue</button>}
+        <button disabled={step === 0} title={step === 0 ? "This is the first step." : undefined} onClick={() => setStep(step - 1)}>Back</button>
+        {step < TOUR_STEPS.length - 1 && <button disabled={!canContinue} title={!canContinue ? "Complete the current tour step before continuing." : undefined} onClick={() => setStep(step + 1)}>Continue</button>}
         <button onClick={restart}>Restart tour</button>
         <button onClick={() => setOpen(false)}>Skip / close</button>
         <button onClick={download}>{practice ? "Download default executable spec" : "Download executable spec"}</button>

@@ -94,8 +94,8 @@ struct ConstructionReadingView:View {
   HStack{Text("Construction reading").font(.headline);Spacer();Button("Close"){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?()}}
   TextField("Construction entry",text:Binding(get:{address},set:{retireReading();address=$0}),prompt:Text("Current workspace entry"))
   TextField("Contributor or output (optional)",text:Binding(get:{model.focus},set:{retireReading();model.focus=$0}))
-  Button("Read captured drafts"){Task{await read()}}.disabled(model.loading||acquiring)
-  Button("Read connected behavior and relevant verification"){Task{await read(connectedOnly:true)}}.disabled(connected.busy||acquiring)
+  Button("Read captured drafts"){Task{await read()}}.disabled(reason: model.loading ? "Wait for the current reading to load." : acquiring ? "A source capture is in progress." : nil)
+  Button("Read connected behavior and relevant verification"){Task{await read(connectedOnly:true)}}.disabled(reason: connected.busy ? "An operation is already in progress." : acquiring ? "A source capture is in progress." : nil)
   Text(model.notice).font(.caption).textSelection(.enabled)
   ScrollView{VStack(alignment:.leading,spacing:8){if let value=model.value{
    Text("Captured entry: \(value.entry) · focus: \(value.focus ?? "all")").font(.caption)

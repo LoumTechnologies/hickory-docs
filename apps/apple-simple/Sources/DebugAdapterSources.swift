@@ -59,7 +59,7 @@ struct NativeAdapterSourceView:View {
         if binding != nil || model.reading != nil || !model.notice.isEmpty {
             VStack(alignment:.leading,spacing:5){
                 Text("Adapter-owned source").font(.caption.bold())
-                Button("Read selected frame adapter source"){if let inspection{debug.readAdapterSource(inspection)}}.disabled(inspection==nil || binding==nil || !debug.canReadAdapterSource || model.busy)
+                Button("Read selected frame adapter source"){if let inspection{debug.readAdapterSource(inspection)}}.disabled(reason: inspection==nil ? "Pause the debugger and select a frame first." : binding==nil ? "This frame is not bound to the current debugger stop." : !debug.canReadAdapterSource ? "The current adapter does not provide this frame’s source." : model.busy ? "An operation is already in progress." : nil)
                 if binding != nil && !debug.canReadAdapterSource{Text("Source content capability is unavailable. Workspace or disk text is not a fallback.").font(.caption)}
                 if model.busy{Button("Cancel pending source reading"){if let inspection{model.cancel(inspection)}}}
                 if !model.notice.isEmpty{Text(model.notice).font(.caption).textSelection(.enabled)}
@@ -69,7 +69,7 @@ struct NativeAdapterSourceView:View {
                     Text("\(reading.mime ?? "MIME unavailable") · SHA256 \(reading.facts.hash)").font(.caption).textSelection(.enabled)
                     Text(reading.page(index)).font(.system(.caption,design:.monospaced)).textSelection(.enabled).accessibilityLabel("Read-only literal adapter source page \(index+1)")
                     Text("Page \(index+1)/\(reading.facts.starts.count) · \(reading.facts.scalars) Unicode scalars. No workspace mapping is implied.").font(.caption)
-                    HStack{Button("Previous adapter source page"){page=index-1}.disabled(index==0);Button("Next adapter source page"){page=index+1}.disabled(index+1>=reading.facts.starts.count)}
+                    HStack{Button("Previous adapter source page"){page=index-1}.disabled(reason: index==0 ? "You’re on the first page." : nil);Button("Next adapter source page"){page=index+1}.disabled(reason: index+1>=reading.facts.starts.count ? "You’re on the last page." : nil)}
                 }
             }.onChange(of:model.reading?.request){_,_ in page=0}
         }

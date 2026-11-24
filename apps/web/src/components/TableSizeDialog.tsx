@@ -131,7 +131,7 @@ export function TableSizeDialog({
             onChange={(event) => setWantColumns(event.target.value)}
           />
         </label>
-        <button type="submit" className="btn btn-small" disabled={!valid || tooBig || !current()}>
+        <button type="submit" className="btn btn-small" disabled={!valid || tooBig || !current()} title={!valid ? "Enter a positive whole number of rows and columns." : tooBig ? "Reduce the requested size to fit the table limits." : !current() ? "Reopen this action against current source." : undefined}>
           Apply
         </button>
         <button type="button" className="btn btn-small" onClick={() => click("cancel")}>

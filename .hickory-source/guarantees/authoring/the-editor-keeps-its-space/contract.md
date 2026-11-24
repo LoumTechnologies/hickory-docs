@@ -349,6 +349,7 @@ export function paneSearch(label: string): Extension {
           const writable = [...views].some(view => !view.state.readOnly);
           replacement.hidden = replace.hidden = !writable;
           replace.disabled = !group!.query.valid;
+          replace.title = replace.disabled ? "Fix the search expression before replacing matches." : "";
         };
         const navigate = (direction: number) => {
           const found = matches(); if (!found.length) return;

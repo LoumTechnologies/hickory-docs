@@ -25,12 +25,12 @@ struct SearchEverywhereView:View {
                 .onKeyPress(.downArrow) {selected=min(index+1,max(0,result.items.count-1));return .handled}
                 .onKeyPress(.upArrow) {selected=max(0,index-1);return .handled}
             Picker("Search scope",selection:$kind){Text("All").tag("all");Text("Files").tag("file");Text("Types").tag("type");Text("Members").tag("member");Text("Other symbols").tag("symbol");Text("Actions").tag("action")}
-            HStack {Text("\(result.items.count) of \(result.total) matches").font(.caption);Spacer();Button(workspace.analysis.running ? "Reading…":"Read workspace"){workspace.startAnalysis()}.disabled(workspace.analysis.running)}
+            HStack {Text("\(result.items.count) of \(result.total) matches").font(.caption);Spacer();Button(workspace.analysis.running ? "Reading…":"Read workspace"){workspace.startAnalysis()}.disabled(reason: workspace.analysis.running ? "Workspace analysis is in progress." : nil)}
             Text("Symbols reflect source-current provider reads; missing results may need analysis or language support. Files and actions work independently.").font(.caption)
             if SimpleCommandCatalog.descriptors.isEmpty {Text("Command catalog missing. Reinstall the app; source files remain readable.").font(.caption)}
             ScrollViewReader {proxy in ScrollView {VStack(alignment:.leading,spacing:4){ForEach(Array(result.items.enumerated()),id:\.element.id){at,target in
                 VStack(alignment:.leading,spacing:2) {
-                    Button {Task {await workspace.openEverywhere(target,commands:commands)}} label:{VStack(alignment:.leading){Text(target.label);Text(target.kind+" · "+target.detail).font(.caption)}}.disabled(target.reason != nil).buttonStyle(.plain).padding(.vertical,4).background(at==index ? Color.accentColor.opacity(0.12):Color.clear).accessibilityValue(at==index ? "Selected":"")
+                    Button {Task {await workspace.openEverywhere(target,commands:commands)}} label:{VStack(alignment:.leading){Text(target.label);Text(target.kind+" · "+target.detail).font(.caption)}}.disabled(reason: target.reason).buttonStyle(.plain).padding(.vertical,4).background(at==index ? Color.accentColor.opacity(0.12):Color.clear).accessibilityValue(at==index ? "Selected":"")
                     if let reason=target.reason {Text(reason).font(.caption)}
                 }.frame(maxWidth:.infinity,alignment:.leading).id(target.id)
             }}}.onChange(of:selected){_,_ in if result.items.indices.contains(index) {proxy.scrollTo(result.items[index].id,anchor:.center)}}}

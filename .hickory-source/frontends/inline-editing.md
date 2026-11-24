@@ -1690,10 +1690,10 @@ struct InlineEquationControl: View {
     var body: some View {
         VStack(alignment: .leading) {
             NativeMathView(source: draft).frame(height: 120)
-            TextEditor(text: $draft).font(.system(.caption, design: .monospaced)).frame(height: 64).disabled(buffer.readOnly)
+            TextEditor(text: $draft).font(.system(.caption, design: .monospaced)).frame(height: 64).disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
             Button("Apply equation") {
                 if buffer.applySourceEdits?([NativeSourceEdit(range: equation.range, text: draft)], source) != true { notice = "Equation changed. Reopen this line and try again." }
-            }.disabled(buffer.readOnly || draft == equation.body)
+            }.disabled(reason: buffer.readOnly ? "This source is read-only." : draft == equation.body ? "Edit the equation before applying it." : nil)
             if !notice.isEmpty { Text(notice).font(.caption) }
         }.onAppear { draft = equation.body }
     }
@@ -1965,7 +1965,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
     return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default + modules.terminalCss.default}>
-      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
+      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} title={buffer.dirty ? "Save the source before refreshing the recorded output." : undefined} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;

@@ -116,17 +116,17 @@ function OwnedTreePrompt({ label, initial, verb, onSubmit, onCancel, error, busy
           className="tree-prompt__input mono"
           value={value}
           onChange={(event) => change(event.target.value)}
-          disabled={busy || pending}
+          disabled={busy || pending} title={busy || pending ? "An operation is already in progress." : undefined}
           aria-label={label}
         />
       )}
       {error && <span className="tree-prompt__error">{error}</span>}
       {failure && <span role="alert">{failure}</span>}
       <span className="tree-prompt__buttons">
-        <button type="submit" className="tree-prompt__verb" disabled={busy || pending || (!confirm && !value.trim())} autoFocus={confirm}>
+        <button type="submit" className="tree-prompt__verb" disabled={busy || pending || (!confirm && !value.trim())} title={busy || pending ? "An operation is already in progress." : (!confirm && !value.trim()) ? "Enter a value first." : undefined} autoFocus={confirm}>
           {busy ? `${verb}…` : verb}
         </button>
-        <button type="button" onClick={() => act("cancel")} disabled={busy || pending}>
+        <button type="button" onClick={() => act("cancel")} disabled={busy || pending} title={busy || pending ? "An operation is already in progress." : undefined}>
           Cancel
         </button>
       </span>

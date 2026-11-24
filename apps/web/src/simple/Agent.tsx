@@ -254,8 +254,8 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
       <Document buffer={session.draft} />
       <div className="agent-send">
         {session.canStop
-          ? <button type="button" aria-label="Stop" title="Stop" disabled={session.stopPending} onClick={() => void session.stop()}>■</button>
-          : <button aria-label="Send" title="Send" disabled={running || !prompt.trim()}>↑</button>}
+          ? <button type="button" aria-label="Stop" title={session.stopPending ? "A stop request is in progress." : "Stop"} disabled={session.stopPending} onClick={() => void session.stop()}>■</button>
+          : <button aria-label="Send" title={running ? "Wait for the current operation to finish." : !prompt.trim() ? "Enter a message first." : "Send"} disabled={running || !prompt.trim()}>↑</button>}
       </div>
     </form>
   </div>;
@@ -320,17 +320,17 @@ export function AgentStatus({ session }: { session: AgentSession }) {
     <span title={`Conversation usage · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Agent settings" className="agent-settings"
       style={{ left: Math.max(8, Math.min(anchor.current?.getBoundingClientRect().left ?? 8, window.innerWidth - 298)), bottom: window.innerHeight - (anchor.current?.getBoundingClientRect().top ?? window.innerHeight) + 4 }}>
-      <label>Provider<select aria-label="Provider" disabled={session.running} value={provider} onChange={event => {
+      <label>Provider<select aria-label="Provider" disabled={session.running} title={session.running ? "Wait for the current operation to finish." : undefined} value={provider} onChange={event => {
         session.provider = event.target.value; session.model = ""; session.effort = ""; setCustom(false); session.publish();
       }}>{Object.entries(subscriptionChoices).map(([id, option]) => <option key={id} value={id}>{option.name} subscription</option>)}</select></label>
-      <label>Model<select aria-label="Model" disabled={session.running} value={custom ? "custom" : session.model} onChange={event => {
+      <label>Model<select aria-label="Model" disabled={session.running} title={session.running ? "Wait for the current operation to finish." : undefined} value={custom ? "custom" : session.model} onChange={event => {
         setCustom(event.target.value === "custom");
         if (event.target.value !== "custom") change("model", event.target.value);
       }}><option value="">Provider default ({choice.models[0]})</option>
         {models.map(model => <option key={model}>{model}</option>)}<option value="custom">Custom model…</option>
       </select></label>
-      {custom && <label>Custom model<input aria-label="Custom model" disabled={session.running} value={session.model} onChange={event => change("model", event.target.value)} /></label>}
-      <label>Effort<select aria-label="Effort" disabled={session.running || !choice.efforts.length} value={session.effort} onChange={event => change("effort", event.target.value)}>
+      {custom && <label>Custom model<input aria-label="Custom model" disabled={session.running} title={session.running ? "Wait for the current operation to finish." : undefined} value={session.model} onChange={event => change("model", event.target.value)} /></label>}
+      <label>Effort<select aria-label="Effort" disabled={session.running || !choice.efforts.length} title={session.running ? "Wait for the current operation to finish." : !choice.efforts.length ? "The selected model does not expose effort settings." : undefined} value={session.effort} onChange={event => change("effort", event.target.value)}>
         <option value="">{choice.efforts.length ? "Default" : "Managed by provider"}</option>
         {choice.efforts.map(effort => <option key={effort} value={effort}>{effort}</option>)}
       </select></label>
@@ -396,8 +396,8 @@ function RecordedPatchComment({source,turn,row,current,close}:{
     </select>}
     {thread && history?.events.filter(event=>event.thread===thread).map(event=><p key={event.id}>{event.body}</p>)}
     <textarea autoFocus aria-label={thread?"Write a reply":"Write a comment"} value={body} onChange={event=>setBody(event.target.value)}/>
-    <button type="button" disabled={!history||!target||busy||!body.trim()} onClick={()=>void save()}>{thread?"Save reply":"Save comment"}</button>
-    <button type="button" disabled={busy} onClick={()=>void load().then(value=>{if(alive.current&&current()){setHistory(value);setNotice("");}}).catch(error=>setNotice(String(error)))}>Refresh comments</button>
+    <button type="button" disabled={!history||!target||busy||!body.trim()} title={!history ? "Wait for the comment history to load." : !target ? "Select a comment target." : busy ? "An operation is already in progress." : !body.trim() ? "Enter a comment first." : undefined} onClick={()=>void save()}>{thread?"Save reply":"Save comment"}</button>
+    <button type="button" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={()=>void load().then(value=>{if(alive.current&&current()){setHistory(value);setNotice("");}}).catch(error=>setNotice(String(error)))}>Refresh comments</button>
     {notice&&<p role="status">{notice}</p>}
   </section>,document.body);
 }
@@ -587,7 +587,7 @@ export function RecordedFenceControls({ source, turn, side, view, current: sourc
     {activeComment&&current()&&<RecordedPatchComment key={activeComment.line} source={source} turn={turn} row={activeComment} current={current} close={()=>{setCommentLine(undefined);view.focus();}}/>}
     {rail && createPortal(fences.filter(fence => fence.first + lineOffset < view.state.doc.lines && (fence.kind !== "patch" || reviewRecordedPatch))
       .map(fence => <DebugRailGroup key={fence.first} view={view} at={view.state.doc.line(fence.first + lineOffset + 1).from}>
-      {fence.kind === "patch" ? <button type="button" className="debug-icon" disabled={preparing || !!sessionState?.isActive?.()}
+      {fence.kind === "patch" ? <button type="button" className="debug-icon" disabled={preparing || !!sessionState?.isActive?.()} title={preparing ? "An agent fence action is being prepared." : !!sessionState?.isActive?.() ? "Stop the current execution or wait for it to finish." : undefined}
         aria-label={`Review patch fence on line ${fence.first + 1}`}
         onClick={event => { void launch(fence, event.currentTarget, "patch"); }}>≋</button>
       : <details className="more-actions" onKeyDown={event => {
@@ -610,10 +610,10 @@ export function RecordedFenceControls({ source, turn, side, view, current: sourc
               : construction.error ? <p role="alert">{construction.error}</p>
               : construction.receipt && <RecordedConstructionReading receipt={construction.receipt} />}
           </section> : <>
-          <button type="button" disabled={preparing || !!sessionState?.isActive?.()}
+          <button type="button" disabled={preparing || !!sessionState?.isActive?.()} title={preparing ? "An agent fence action is being prepared." : !!sessionState?.isActive?.() ? "Stop the current execution or wait for it to finish." : undefined}
             aria-label={`Run ${fence.language} fence on line ${fence.first + 1}`}
             onClick={event => { void launch(fence, event.currentTarget, "run"); }}>Run</button>
-          <button type="button" disabled={preparing || !!sessionState?.isActive?.()}
+          <button type="button" disabled={preparing || !!sessionState?.isActive?.()} title={preparing ? "An agent fence action is being prepared." : !!sessionState?.isActive?.() ? "Stop the current execution or wait for it to finish." : undefined}
             aria-label={`Debug ${fence.language} fence on line ${fence.first + 1}`}
             onClick={event => {
               event.currentTarget.closest("details")?.removeAttribute("open");

@@ -63,7 +63,7 @@ export function SpatialFileEdges() {
     },
   } })));
   const act = (direction: number) => { void invoke(`${parent}:${direction}`).catch(reason => setError(String(reason))); };
-  return <div ref={root} className="spatial-file-edges">{error && <span role="alert">{error}</span>}<button data-tip="Scroll file names up" aria-label="Scroll file names up" disabled={!counts.above} onClick={() => act(-1)}>↑ {counts.above} hidden</button><button data-tip="Scroll file names down" aria-label="Scroll file names down" disabled={!counts.below} onClick={() => act(1)}>↓ {counts.below} hidden</button></div>;
+  return <div ref={root} className="spatial-file-edges">{error && <span role="alert">{error}</span>}<button data-tip={!counts.above ? "There are no file names above this view." : "Scroll file names up"} aria-label="Scroll file names up" disabled={!counts.above} onClick={() => act(-1)}>↑ {counts.above} hidden</button><button data-tip={!counts.below ? "There are no file names below this view." : "Scroll file names down"} aria-label="Scroll file names down" disabled={!counts.below} onClick={() => act(1)}>↓ {counts.below} hidden</button></div>;
 }
 </storycode:copy>
 

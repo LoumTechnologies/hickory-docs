@@ -52,11 +52,11 @@ class GitHistoryModel(val request:GitHistoryRequest=GitHistoryRequest.Log(null))
   }
   if(request is GitHistoryRequest.Log && !comparing){
   model.commits.drop(model.page*20).take(20).forEach{commit->TextButton(onClick={scope.launch{select(commit.sha)}}){Text("${commit.short} · ${commit.subject} · ${commit.author}")}}
-  Row{TextButton(enabled=model.page>0,onClick={model.page--}){Text("Previous")};Text("Page ${model.page+1}");TextButton(enabled=(model.page+1)*20<model.commits.size,onClick={model.page++}){Text("Next")}}
-  TextButton(enabled=model.limit<1000&&model.commits.size>=model.limit,onClick={scope.launch{refresh(minOf(1000,model.limit+120))}}){Text("Load more commits")}
+  Row{WithDisabledReason(if (model.page <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={model.page--}){Text("Previous")} };Text("Page ${model.page+1}");WithDisabledReason(if ((model.page+1)*20 >= model.commits.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={model.page++}){Text("Next")} }}
+  WithDisabledReason(if (model.limit >= 1000) "The history view has reached its 1,000-commit limit." else if (model.commits.size < model.limit) "There are no older commits to load." else null) { available -> TextButton(enabled = available,onClick={scope.launch{refresh(minOf(1000,model.limit+120))}}){Text("Load more commits")} }
   }
   model.reading?.takeUnless { comparing }?.let{reading->SelectionContainer{Text(reading.sha+"\n"+reading.message.take(20000),fontSize=12.sp)};if(reading.message.length>20000)Text("First 20,000 message characters shown.",fontSize=12.sp)
-   if(reading.files.isNotEmpty()){Row{TextButton(enabled=model.file>0,onClick={model.file--}){Text("Previous file")};TextButton(enabled=model.file+1<reading.files.size,onClick={model.file++}){Text("Next file")}}
+   if(reading.files.isNotEmpty()){Row{WithDisabledReason(if (model.file <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={model.file--}){Text("Previous file")} };WithDisabledReason(if (model.file+1 >= reading.files.size) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={model.file++}){Text("Next file")} }}
     val file=reading.files[model.file];Text("${file.status} · ${file.path}");Row{TextButton(onClick={model.before=true}){Text("Before commit")};TextButton(onClick={model.before=false}){Text("After commit")}};val content=if(model.before)file.before else file.after
     Text(if(file.binary)"Binary content · text reading unavailable." else if(content.length>200000)"First 200,000 characters shown." else if(content.isEmpty())"No text on this side." else "Immutable file content.",fontSize=12.sp)
     SelectionContainer{Text(if(file.binary)"" else content.take(200000),fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.horizontalScroll(rememberScrollState()))}
@@ -129,7 +129,7 @@ internal fun editorGitLines(before: String, draft: String): Map<Int, GitChangedL
     val files = listing?.optJSONArray("files")
     OutlinedTextField(from, { from = it; retire() }, label = { Text("Base commit") }, singleLine = true)
     OutlinedTextField(to, { to = it; retire() }, label = { Text("Target commit") }, singleLine = true)
-    TextButton(enabled = !busy && from.isNotBlank() && to.isNotBlank(), onClick = {
+    WithDisabledReason(if (busy) "An operation is already in progress." else if (!(from.isNotBlank())) "Enter the base Git revision." else if (!(to.isNotBlank())) "Enter the target Git revision." else null) { available -> TextButton(enabled = available, onClick = {
         retire()
         val id = ticket
         val address = query(from.trim(), to.trim())
@@ -144,17 +144,17 @@ internal fun editorGitLines(before: String, draft: String): Map<Int, GitChangedL
             catch (error: Exception) { if (current(id)) notice = error.message.orEmpty() }
             finally { if (current(id)) busy = false }
         }
-    }) { Text("Read comparison") }
+    }) { Text("Read comparison") } }
     if (files != null && files.length() == 0) Text("The selected commits have no changes in this workspace.")
     if (files != null && selected < files.length()) {
         val file = files.getJSONObject(selected)
         val path = file.getString("path")
         Text("${file.getString("status")} · $path", fontSize = 12.sp)
         Row {
-            TextButton(enabled = selected > 0, onClick = { ticket++; selected--; reading = null; busy = false }) { Text("Previous file") }
-            TextButton(enabled = selected+1 < files.length(), onClick = { ticket++; selected++; reading = null; busy = false }) { Text("Next file") }
+            WithDisabledReason(if (selected <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available, onClick = { ticket++; selected--; reading = null; busy = false }) { Text("Previous file") } }
+            WithDisabledReason(if (selected+1 >= files.length()) "You’re on the last page." else null) { available -> TextButton(enabled = available, onClick = { ticket++; selected++; reading = null; busy = false }) { Text("Next file") } }
         }
-        TextButton(enabled = !busy, onClick = {
+        WithDisabledReason(if (busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available, onClick = {
             val list = listing ?: return@TextButton
             val base = list.getString("parent")
             val target = list.getString("sha")
@@ -174,7 +174,7 @@ internal fun editorGitLines(before: String, draft: String): Map<Int, GitChangedL
                 catch (error: Exception) { if (current(id)) notice = error.message.orEmpty() }
                 finally { if (current(id)) busy = false }
             }
-        }) { Text("Read file patch") }
+        }) { Text("Read file patch") } }
     }
     reading?.let { comparison ->
         Text("${comparison.base.take(12)} → ${comparison.target.take(12)}", fontSize = 12.sp)
@@ -184,7 +184,7 @@ internal fun editorGitLines(before: String, draft: String): Map<Int, GitChangedL
                 Text(comparison.patch, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                     modifier = Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()))
             }
-            TextButton(enabled = !busy, onClick = {
+            WithDisabledReason(if (busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available, onClick = {
                 val id = ticket
                 busy = true
                 scope.launch {
@@ -193,7 +193,7 @@ internal fun editorGitLines(before: String, draft: String): Map<Int, GitChangedL
                         else if (current(id)) notice = "The working file could not be opened. Check Files and try again."
                     } finally { if (current(id)) busy = false }
                 }
-            }) { Text("Open working file with comparison") }
+            }) { Text("Open working file with comparison") } }
         }
     }
     if (notice.isNotEmpty()) Text(notice, fontSize = 12.sp)

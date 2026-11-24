@@ -356,29 +356,29 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
    }
   }
   Row {
-   TextButton(enabled=!resources.busy&&!resources.hasPending,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")}
-   TextButton(enabled=!model.loading&&!resources.busy,onClick={scope.launch{list()};scope.launch{refreshInterrupted()}}){Text("Refresh records")}
+   WithDisabledReason(if (resources.busy) "An operation is already in progress." else if (resources.hasPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")} }
+   WithDisabledReason(if (model.loading) "Wait for the current reading to load." else if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{list()};scope.launch{refreshInterrupted()}}){Text("Refresh records")} }
   }
   Text(model.notice,fontSize=12.sp)
   if(interruptedNotice.isNotEmpty())Text(interruptedNotice,fontSize=12.sp)
   interrupted?.let { evidence ->
    SelectionContainer{Text("${evidence.source} → ${evidence.destination}",fontSize=12.sp)}
    evidence.notice?.let{Text(it,fontSize=12.sp)}
-   if(evidence.canComplete)TextButton(enabled=!resources.busy,onClick={
+   if(evidence.canComplete)WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={
     val identity=interruptedRead
     scope.launch{resources.prepareEntryCompletion(workspace,evidence){workspace.showRecovery&&interruptedRead==identity}}
-   }){Text("Prepare Move completion")}
+   }){Text("Prepare Move completion")} }
   }
   if(resources.notice.isNotEmpty())Text(resources.notice,fontSize=12.sp)
-  if(resources.hasPending)TextButton(enabled=!resources.busy,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")}
-  resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")}}
-  resources.lastRecovery?.let{record->SelectionContainer{Text("Latest recovery: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.lastWorkspace)}}){Text("Review inverse / redo from latest recovery")}}
+  if(resources.hasPending)WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")} }
+  resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")} }}
+  resources.lastRecovery?.let{record->SelectionContainer{Text("Latest recovery: $record",fontSize=12.sp)};WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{read(record,expectedWorkspace=resources.lastWorkspace)}}){Text("Review inverse / redo from latest recovery")} }}
   resources.review?.let{review->
    Text(review.plan.getString("title"),style=MaterialTheme.typography.titleSmall)
    Text("Save publishes the reviewed saved states. Draft text can differ from its saved baseline. Generated output is analyzed, never materialized by this action.",fontSize=12.sp)
    val patches=resourcePatches(review.plan)
    val savedBefore=remember(review){review.proposal.optJSONObject("inputs")?.optJSONObject("saved_sources")?.let(::resourceSavedMap).orEmpty()}
-   Row{TextButton(enabled=reviewFile>0,onClick={reviewFile--}){Text("Previous source")};Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);TextButton(enabled=reviewFile+1<patches.size,onClick={reviewFile++}){Text("Next source")}}
+   Row{WithDisabledReason(if (reviewFile <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={reviewFile--}){Text("Previous source")} };Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);WithDisabledReason(if (reviewFile+1 >= patches.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={reviewFile++}){Text("Next source")} }}
    patches.getOrNull(reviewFile)?.let{patch->
     Text(patch.path,style=MaterialTheme.typography.titleSmall)
     val before=savedBefore[patch.path]
@@ -394,9 +394,9 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
     if(longest>RESOURCE_TEXT_PAGE_SIZE){
      val count=(longest-1)/RESOURCE_TEXT_PAGE_SIZE+1
      Row{
-      TextButton(enabled=textPage>0,onClick={textPage--}){Text("Previous page")}
+      WithDisabledReason(if (textPage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={textPage--}){Text("Previous page")} }
       Text("Page ${textPage+1} of $count",fontSize=12.sp)
-      TextButton(enabled=textPage+1<count,onClick={textPage++}){Text("Next page")}
+      WithDisabledReason(if (textPage+1 >= count) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={textPage++}){Text("Next page")} }
      }
     }
    }
@@ -408,17 +408,17 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
    }
    val longestOutputList=outputLayers.maxOf{it.second.length()}
    if(longestOutputList>100){Row{
-    TextButton(enabled=consequencePage>0,onClick={consequencePage--}){Text("Previous consequences")}
-    TextButton(enabled=(consequencePage+1)*100<longestOutputList,onClick={consequencePage++}){Text("Next consequences")}
+    WithDisabledReason(if (consequencePage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={consequencePage--}){Text("Previous consequences")} }
+    WithDisabledReason(if ((consequencePage+1)*100 >= longestOutputList) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={consequencePage++}){Text("Next consequences")} }
    }}
    Text("Execution evidence was not queried.",fontSize=12.sp)
-   Row{TextButton(enabled=!resources.busy,onClick={scope.launch{resources.apply(workspace,review)}}){Text(when{review.entryIntent?.interrupted!=null->"Complete reviewed Move";review.restoration->"Save reviewed restoration";else->"Save resources"})};TextButton(enabled=!resources.busy,onClick={resources.dismiss()}){Text("Discard review")}}
+   Row{WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.apply(workspace,review)}}){Text(when{review.entryIntent?.interrupted!=null->"Complete reviewed Move";review.restoration->"Save reviewed restoration";else->"Save resources"})} };WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={resources.dismiss()}){Text("Discard review")} }}
   }
-  model.page?.let{page->Box{TextButton(enabled=!model.loading,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")};DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->TextButton(enabled=!model.loading,onClick={scope.launch{list(next)}}){Text("Next 100 identities")}}}
+  model.page?.let{page->Box{WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")} };DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={scope.launch{list(next)}}){Text("Next 100 identities")} }}}
   model.value?.let{value->Text(value.title+if(value.titleTruncated)"…" else "",style=MaterialTheme.typography.titleSmall);Text((if(value.allApplied)"Every path has an applied receipt." else "The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.",fontSize=12.sp);if(value.unrecognized>0)Text("${value.unrecognized} unrecognized files in this record.",fontSize=12.sp)
-   TextButton(enabled=!model.loading&&!resources.busy&&!resources.hasPending,onClick={scope.launch{resources.restore(workspace,value)}}){Text("Prepare complete saved / draft restoration")}
-   Box{TextButton(enabled=!model.loading,onClick={pathMenu=true}){Text(path.ifEmpty{"Choose recorded source"})};DropdownMenu(expanded=pathMenu,onDismissRequest={pathMenu=false}){value.paths.forEach{item->DropdownMenuItem(text={Text(item.path)},onClick={pathMenu=false;path=item.path;scope.launch{read(value.id,path,snapshot)}})}}}
-   listOf("saved_before","draft_before","saved_after","draft_after").forEach{side->TextButton(enabled=!model.loading,onClick={snapshot=side;if(path.isNotEmpty())scope.launch{read(value.id,path,side)}}){Text((if(snapshot==side)"✓ " else "")+side.replace('_',' '))}}
+   WithDisabledReason(if (model.loading) "Wait for the current reading to load." else if (resources.busy) "An operation is already in progress." else if (resources.hasPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.restore(workspace,value)}}){Text("Prepare complete saved / draft restoration")} }
+   Box{WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={pathMenu=true}){Text(path.ifEmpty{"Choose recorded source"})} };DropdownMenu(expanded=pathMenu,onDismissRequest={pathMenu=false}){value.paths.forEach{item->DropdownMenuItem(text={Text(item.path)},onClick={pathMenu=false;path=item.path;scope.launch{read(value.id,path,snapshot)}})}}}
+   listOf("saved_before","draft_before","saved_after","draft_after").forEach{side->WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={snapshot=side;if(path.isNotEmpty())scope.launch{read(value.id,path,side)}}){Text((if(snapshot==side)"✓ " else "")+side.replace('_',' '))} }}
    value.paths.find{it.path==path}?.snapshots?.get(snapshot)?.let{selected->SelectionContainer{Text(if(selected.kind=="missing")"Source absent in this snapshot." else "${selected.bytes} UTF-8 bytes · ${selected.sha256}",fontSize=12.sp)};val text=if(snapshot.startsWith("saved"))value.savedText else value.draftText;if(text!=null){SelectionContainer{Text(text.take(32000),fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(text.length>32000)Text("First 32,000 characters shown.",fontSize=12.sp)}}
   }
  }

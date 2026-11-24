@@ -1155,7 +1155,7 @@ export function TablePanel({
           className="table-panel__formula mono"
           aria-label="Cell contents"
           value={barValue}
-          disabled={!editable || !active}
+          disabled={!editable || !active} title={!editable ? "This table is read-only." : !active ? "Select a cell first." : undefined}
           placeholder={
             !active
               ? "Select a cell"
@@ -1506,7 +1506,7 @@ export function TablePanel({
               setSelection(null);
               setEditing(false);
             }}
-            data-tip={
+            data-tip={!canRemoveRows ? "Select rows that can be removed while keeping the table valid." :
               !selection
                 ? "Select a cell or a row number first"
                 : !canRemoveRows
@@ -1533,7 +1533,7 @@ export function TablePanel({
               setSelection(null);
               setEditing(false);
             }}
-            data-tip={
+            data-tip={!canRemoveColumns ? "Select columns that can be removed while keeping the table valid." :
               !selection
                 ? "Select a cell or a column letter first"
                 : !canRemoveColumns

@@ -14,9 +14,9 @@ import androidx.compose.ui.unit.sp
         Text("Workspace analysis",fontSize=16.sp)
         Text("${model.completed}/${model.scope.files.size} attempted · ${model.knowledge.values.count {it.source!=null}} sources read · ${model.scope.generated} generated and ${model.scope.unclassified} unclassified excluded.",fontSize=11.sp)
         Text("Provider symbols and diagnostics arrive independently. Zero symbols may mean no declarations, unsupported analysis or indexing. This is not verification.",fontSize=11.sp)
-        Row {TextButton(enabled=!model.running,onClick={workspace.startAnalysis()}) {Text("Read workspace")};TextButton(enabled=model.running&&!model.stopping,onClick={model.stop()}) {Text(if(model.stopping)"Stopping…" else "Stop")}}
+        Row {WithDisabledReason(if (model.running) "Workspace analysis is in progress." else null) { available -> TextButton(enabled = available,onClick={workspace.startAnalysis()}) {Text("Read workspace")} };WithDisabledReason(if (!(model.running)) "There is no workspace analysis to stop." else if (model.stopping) "A stop request is in progress." else null) { available -> TextButton(enabled = available,onClick={model.stop()}) {Text(if(model.stopping)"Stopping…" else "Stop")} }}
         OutlinedTextField(query,{query=it;page=0},label={Text("Filter analysis")},singleLine=true)
         for(item in reports.drop(selected*100).take(100)) {Text(item.path,fontSize=12.sp);Text("${if(item.source!=null && workspace.buffers[item.path]?.text!=item.source) "stale" else item.state} · ${item.locations.size} symbols · ${item.notice}",fontSize=11.sp)}
-        if(last>0) Row {TextButton(enabled=selected>0,onClick={page=selected-1}) {Text("Previous results")};Text("${selected+1}/${last+1}");TextButton(enabled=selected<last,onClick={page=selected+1}) {Text("Next results")}}
+        if(last>0) Row {WithDisabledReason(if (selected <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={page=selected-1}) {Text("Previous results")} };Text("${selected+1}/${last+1}");WithDisabledReason(if (selected >= last) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={page=selected+1}) {Text("Next results")} }}
     }
 }

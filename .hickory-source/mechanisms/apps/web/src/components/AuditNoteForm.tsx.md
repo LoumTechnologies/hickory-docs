@@ -75,10 +75,10 @@ export function AuditNoteForm({ path }: { path: string }) {
   useUiReading("audit note draft and result", { path, statement, reason, supersedes, saving, message, receipt,
     declaration_request: `${parent}:human-declaration`, authority: "Human declaration; model audit tools retain model attribution" });
   return <form onSubmit={event => { event.preventDefault(); void invoke(`${parent}:submit`, {}).catch(error => setMessage(String(error))); }}>
-    <label>Statement<textarea required disabled={saving} value={statement} onChange={event => { if (!pending.current) setStatement(event.target.value); }} /></label>
-    <label>Reason<textarea required disabled={saving} value={reason} onChange={event => { if (!pending.current) setReason(event.target.value); }} /></label>
-    <label>Supersedes entry id (optional)<input disabled={saving} value={supersedes} onChange={event => { if (!pending.current) setSupersedes(event.target.value); }} /></label>
-    <button disabled={saving} className="btn" type="submit">Record audit note</button>
+    <label>Statement<textarea required disabled={saving} title={saving ? "A save is in progress." : undefined} value={statement} onChange={event => { if (!pending.current) setStatement(event.target.value); }} /></label>
+    <label>Reason<textarea required disabled={saving} title={saving ? "A save is in progress." : undefined} value={reason} onChange={event => { if (!pending.current) setReason(event.target.value); }} /></label>
+    <label>Supersedes entry id (optional)<input disabled={saving} title={saving ? "A save is in progress." : undefined} value={supersedes} onChange={event => { if (!pending.current) setSupersedes(event.target.value); }} /></label>
+    <button disabled={saving} title={saving ? "A save is in progress." : undefined} className="btn" type="submit">Record audit note</button>
     {message && <p role="status">{message}</p>}
   </form>;
 }

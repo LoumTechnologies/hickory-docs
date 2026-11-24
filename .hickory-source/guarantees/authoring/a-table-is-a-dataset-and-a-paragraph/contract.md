@@ -280,7 +280,7 @@ export function ContextMenu({
           role="menuitem"
           data-menu-item={item.id}
           disabled={item.disabled || pending}
-          data-tip={item.tip}
+          data-tip={item.disabled ? (item.tip ?? "This action is unavailable for the selected item.") : pending ? "A menu action is already in progress." : item.tip}
           className={`tree-menu__item${item.group ? " tree-menu__item--group" : ""}${
             item.danger ? " tree-menu__item--danger" : ""
           }`}
@@ -404,7 +404,7 @@ export function FenceTable({
             type="text"
             value={path}
             maxLength={4096}
-            disabled={!current()}
+            disabled={!current()} title={!current() ? "The code fence changed. Reopen this action on the current source." : undefined}
             placeholder="data/sales.csv"
             aria-label="File to write the CSV to"
             onChange={(event) => changePath(event.target.value)}
@@ -414,7 +414,7 @@ export function FenceTable({
             className="btn btn-small btn-primary"
             disabled={!current()}
             onClick={() => promote()}
-            data-tip={
+            data-tip={!current() ? "The code fence changed. Reopen this action on the current source." :
               path.trim()
                 ? "Convert to a <hick:table>, writing the CSV to that file"
                 : "Convert to a <hick:table> — leave the path empty for a table that writes no file"
@@ -628,7 +628,7 @@ export function TableSizeDialog({
             onChange={(event) => setWantColumns(event.target.value)}
           />
         </label>
-        <button type="submit" className="btn btn-small" disabled={!valid || tooBig || !current()}>
+        <button type="submit" className="btn btn-small" disabled={!valid || tooBig || !current()} title={!valid ? "Enter a positive whole number of rows and columns." : tooBig ? "Reduce the requested size to fit the table limits." : !current() ? "Reopen this action against current source." : undefined}>
           Apply
         </button>
         <button type="button" className="btn btn-small" onClick={() => click("cancel")}>

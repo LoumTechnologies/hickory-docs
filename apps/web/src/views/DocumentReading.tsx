@@ -59,8 +59,8 @@ export function DocumentReading({ id }: { id: string }) {
   return <section className="document-reading" aria-label="Document change review">
     <SurfaceInfo name={`Change review · ${reading.path}`} editable={!!reading.editable} destination={reading.status === "pending" ? "Accept writes the proposed change to its target. Reject leaves the target unchanged." : "This review does not save or execute a document."} />
     <header className="doc-tab-toolbar"><span>{reading.title} · {reading.path} · {reading.status}</span>
-      {reading.status === "pending" && <><button className="btn" disabled={busy || !reading.decide} onClick={() => void decide(true)}>Accept change</button>
-        <button className="btn" disabled={busy || !reading.decide} onClick={() => void decide(false)}>Reject change</button></>}
+      {reading.status === "pending" && <><button className="btn" disabled={busy || !reading.decide} title={busy ? "An operation is already in progress." : !reading.decide ? "This reading has no current change to accept or reject." : undefined} onClick={() => void decide(true)}>Accept change</button>
+        <button className="btn" disabled={busy || !reading.decide} title={busy ? "An operation is already in progress." : !reading.decide ? "This reading has no current change to accept or reject." : undefined} onClick={() => void decide(false)}>Reject change</button></>}
     </header>
     {error && <p role="alert">{error}</p>}
     <ComparisonEditor path={reading.path} model={draft ?? { sources: [

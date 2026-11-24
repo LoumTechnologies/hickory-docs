@@ -82,7 +82,7 @@ struct GitReviewView:View {
  }
  var body:some View {
   VStack(alignment:.leading,spacing:8){
-   HStack{Text("Repository changes \(model.branch)").font(.headline);Spacer();Button("Refresh"){Task{await refresh()}}.disabled(model.indexPending);Button("Close"){workspace.showReview=false;workspace.currentBuffer?.focusSource?()}}
+   HStack{Text("Repository changes \(model.branch)").font(.headline);Spacer();Button("Refresh"){Task{await refresh()}}.disabled(reason: model.indexPending ? "A Git index update is in progress." : nil);Button("Close"){workspace.showReview=false;workspace.currentBuffer?.focusSource?()}}
    Text(model.notice).font(.caption).textSelection(.enabled)
    Text("Saved working tree and index. Unsaved editor drafts are not included.").font(.caption)
    ScrollView{VStack(alignment:.leading){ForEach(Array(model.files.dropFirst(model.page*20).prefix(20))){file in
@@ -91,12 +91,12 @@ struct GitReviewView:View {
      HStack {
       sideControl(for: file, staged: false)
       sideControl(for: file, staged: true)
-     }.disabled(model.indexPending)
+     }.disabled(reason: model.indexPending ? "A Git index update is in progress." : nil)
     }
    }}}
-   HStack{Button("Previous"){model.page-=1}.disabled(model.page==0);Text("\(model.files.count) changed files · page \(model.page+1)");Button("Next"){model.page+=1}.disabled((model.page+1)*20>=model.files.count)}.font(.caption)
+   HStack{Button("Previous"){model.page-=1}.disabled(reason: model.page==0 ? "You’re on the first page." : nil);Text("\(model.files.count) changed files · page \(model.page+1)");Button("Next"){model.page+=1}.disabled(reason: (model.page+1)*20>=model.files.count ? "You’re on the last page." : nil)}.font(.caption)
    if model.needsRefresh && !model.indexPending{Text("Refresh Git state before another index action.").font(.caption)}
-   if let selected=model.selected{Text("\(selected) · \(model.staged ? "Staged":"Working tree")").font(.headline);GitConflictView(workspace:workspace,path:selected).id(selected);HStack{Button("Stage saved file"){Task{await changeIndex(selected,false)}}.disabled(model.indexPending || model.needsRefresh || model.files.first(where:{exactUTF8($0.path,selected)})?.tree==" ");Button("Unstage file"){Task{await changeIndex(selected,true)}}.disabled(model.indexPending || model.needsRefresh || [" ","?","!"].contains(model.files.first(where:{exactUTF8($0.path,selected)})?.index ?? " "))};ScrollView([.horizontal,.vertical]){Text(model.detail).font(.system(.caption,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading)}}
+   if let selected=model.selected{Text("\(selected) · \(model.staged ? "Staged":"Working tree")").font(.headline);GitConflictView(workspace:workspace,path:selected).id(selected);HStack{Button("Stage saved file"){Task{await changeIndex(selected,false)}}.disabled(reason: model.indexPending ? "A Git index update is in progress." : model.needsRefresh ? "Refresh repository changes after the previous Git operation." : model.files.first(where:{exactUTF8($0.path,selected)})?.tree==" " ? "The selected file has no saved changes to stage." : nil);Button("Unstage file"){Task{await changeIndex(selected,true)}}.disabled(reason: model.indexPending ? "A Git index update is in progress." : model.needsRefresh ? "Refresh repository changes after the previous Git operation." : [" ","?","!"].contains(model.files.first(where:{exactUTF8($0.path,selected)})?.index ?? " ") ? "The selected file has no staged changes to unstage." : nil)};ScrollView([.horizontal,.vertical]){Text(model.detail).font(.system(.caption,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading)}}
   }.padding().frame(idealWidth:640,idealHeight:520).task{await refresh()}.onDisappear{model.close()}
  }
 }

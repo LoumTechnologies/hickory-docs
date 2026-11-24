@@ -461,6 +461,8 @@ struct GridCellField: UIViewRepresentable {
         context.coordinator.parent = self
         if !exactUTF8(field.text,text) { context.coordinator.applyingRequest = true; field.text = text; context.coordinator.applyingRequest = false }
         field.isEnabled = !readOnly
+        field.accessibilityHint = readOnly ? "This cell is read-only." : nil
+        field.toolTip = field.accessibilityHint
         guard let request, context.coordinator.applied != request.id else { return }
         DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
             guard let field, let coordinator, coordinator.parent.request?.id == request.id, field.window != nil else { return }
@@ -2690,19 +2692,19 @@ struct NativeFindPanel: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack { Text("Find and replace").font(.caption); Spacer(); Button("×") { buffer.closeFind() }.accessibilityLabel("Close search") }
             TextField("Find", text: $buffer.findQuery).focused($queryFocused).onSubmit { move() }.accessibilityLabel("Find")
-            TextField("Replace with", text: $buffer.findReplacement).accessibilityLabel("Replace with").disabled(buffer.readOnly)
+            TextField("Replace with", text: $buffer.findReplacement).accessibilityLabel("Replace with").disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
             HStack { Toggle("Match case", isOn: $buffer.findCase); Toggle("Regex", isOn: $buffer.findRegex) }.toggleStyle(.switch)
             HStack { Button("Previous") { move(true) }; Button("Next") { move() }
-                Button("Replace") { replace(false) }.disabled(buffer.readOnly)
-                Button("Replace all") { replace(true) }.disabled(buffer.readOnly)
+                Button("Replace") { replace(false) }.disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
+                Button("Replace all") { replace(true) }.disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
             }
             HStack {
                 Button("Select all matches") {
                     if buffer.selectMultiple(result.edits.map(\.range), source: request.source) { buffer.closeFind() }
                     else { notice = "Select between 2 and 256 current matches." }
-                }.disabled(!current || result.edits.count < 2)
+                }.disabled(reason: !current ? "Refresh the results against the current source." : result.edits.count < 2 ? "There is only one replacement to review." : nil)
                 if buffer.multiRanges.count > 1 { Button("Clear selections") { buffer.clearMulti() } }
-            }.disabled(!current || result.edits.isEmpty)
+            }.disabled(reason: !current ? "Refresh the results against the current source." : result.edits.isEmpty ? "There are no matching replacements." : nil)
             Text(!notice.isEmpty ? notice : measured != request ? "Searching…" : !result.error.isEmpty ? result.error : "\(result.edits.count) matches").font(.caption).accessibilityLabel("Search status")
             if buffer.readOnly { Text("Read-only · searching is available").font(.caption) }
         }.padding(8).background(.regularMaterial).overlay(Rectangle().stroke(.secondary.opacity(0.4))).shadow(radius: 4)
@@ -2945,7 +2947,7 @@ struct LanguageEditor: View {
                             if !language.locationStatus.isEmpty { Text(language.locationStatus).font(.caption).textSelection(.enabled) }
                             ForEach(language.locations) { location in
                                 Button(location.label) { language.open(location) }
-                                    .disabled(location.path == nil || !exactUTF8(buffer.text,language.locationSource) || buffer.selection != language.locationSelection)
+                                    .disabled(reason: location.path == nil ? "The provider gave no path for this location." : !exactUTF8(buffer.text,language.locationSource) ? "Refresh the location against the current source." : buffer.selection != language.locationSelection ? "Request a new location from the current selection." : nil)
                             }
                             if !language.hover.isEmpty || !language.signature.isEmpty {
                                 Text("Last received information; refresh for current position.").font(.caption).foregroundStyle(.secondary)
@@ -2955,7 +2957,7 @@ struct LanguageEditor: View {
                             if !language.diagnostics.isEmpty {
                                 if !exactUTF8(language.diagnosticSource,buffer.text) { Text("Cached diagnostics; refresh pending.").font(.caption) }
                                 ForEach(Array(language.diagnostics.prefix(100))) { item in
-                                    if item.range != nil { Button(item.message) { language.reveal(item) }.disabled(!exactUTF8(language.diagnosticSource,buffer.text)) }
+                                    if item.range != nil { Button(item.message) { language.reveal(item) }.disabled(reason: !exactUTF8(language.diagnosticSource,buffer.text) ? "Refresh diagnostics against the current source." : nil) }
                                     else { Text(item.message + " (server message; source version unavailable)").font(.caption).textSelection(.enabled) }
                                 }
                             }
@@ -2965,7 +2967,7 @@ struct LanguageEditor: View {
                                     ForEach(language.suggestions) { item in
                                         Button { Task {await language.accept(item)} } label: {
                                             VStack(alignment: .leading) { Text(item.label).font(.system(.body, design: .monospaced)); Text(item.detail).font(.caption).foregroundStyle(.secondary) }
-                                        }.disabled(!exactUTF8(item.source,buffer.text) || item.selection != buffer.selection || buffer.readOnly)
+                                        }.disabled(reason: !exactUTF8(item.source,buffer.text) ? "Request a new completion from the current source." : item.selection != buffer.selection ? "Request a new completion from the current selection." : buffer.readOnly ? "This source is read-only." : nil)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)
@@ -2984,7 +2986,7 @@ struct LanguageEditor: View {
                 }.font(.caption).padding(3).background(.regularMaterial)
                     .popover(isPresented: Binding(get: { buffer.showMulti }, set: { buffer.showMulti = $0 })) {
                         VStack { TextField("Insert at selections", text: Binding(get: { buffer.multiText }, set: { buffer.multiText = $0 }))
-                            Button("Apply to selections") { _ = buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?() }.disabled(buffer.readOnly)
+                            Button("Apply to selections") { _ = buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?() }.disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
                         }.padding().frame(width: 280)
                     }
             }
@@ -3031,7 +3033,7 @@ struct InlineCellControl: View {
             Button("Apply") {
                 guard !exactUTF8(draft,cell.value) else { return }
                 if buffer.applySourceEdits?([NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter))], source) != true { notice = "Table changed. Reopen this row and try again." }
-            }.disabled(buffer.readOnly)
+            }.disabled(reason: buffer.readOnly ? "This source is read-only." : nil)
             if !notice.isEmpty { Text(notice).font(.caption) }
         }.onAppear { draft = cell.value }
     }
@@ -3158,6 +3160,7 @@ struct NativeDebugRail: View {
         return action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized
     }
     @ViewBuilder private func icon(_ action: String, line: Int, fromOverflow: Bool = false) -> some View {
+        let cannotStartDebug = action == "debug" && !debug.hasSessionReading && (buffer.dirty || buffer.saving)
         Button {
             if action == "tests" || action.hasPrefix("coverage:") {
                 let reading = LineReading(action: action, line: line, path: buffer.file.path,
@@ -3212,7 +3215,9 @@ struct NativeDebugRail: View {
             .frame(width: 20, height: 18)
         }
         .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
-        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && !debug.hasSessionReading && (buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
+        .buttonStyle(SimpleChromeButtonStyle())
+        .disabled(reason: cannotStartDebug ? "Save the current source before starting the debugger." : nil,
+                  fallbackHelp: actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
     }
     private var runOutput: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -3398,15 +3403,15 @@ struct NativeDebugInspector: View, Identifiable {
     @ViewBuilder private var threadControls:some View {
         let snapshot=debug.threadSnapshot
         VStack(alignment:.leading,spacing:4) {
-            HStack{Button(debug.threadBusy ? "Reading threads…":"Read threads"){debug.readThreads()}.disabled(!debug.canReadThreads);Button("Refresh paused state"){debug.refreshPausedState()}.disabled(debug.threadBusy || debug.refreshingPause)}
+            HStack{Button(debug.threadBusy ? "Reading threads…":"Read threads"){debug.readThreads()}.disabled(reason: !debug.canReadThreads ? "Pause at a current debugger stop to read its threads." : nil);Button("Refresh paused state"){debug.refreshPausedState()}.disabled(reason: debug.threadBusy ? "Wait for the debugger thread request to finish." : debug.refreshingPause ? "A debugger stop refresh is in progress." : nil)}
             if !debug.threadNotice.isEmpty {Text(debug.threadNotice).font(.caption).textSelection(.enabled)}
             if let selected=debug.selectedThread {Text("Reported thread \(selected)").font(.caption)}
             ForEach(debug.visibleThreads){thread in
                 Button("\(thread.id==debug.selectedThread ? "●":"○") \(thread.name.isEmpty ? "Thread":thread.name) (\(thread.id))"){debug.selectThread(thread.id,snapshot:snapshot)}
-                    .disabled(!debug.canSelectThreads).accessibilityAddTraits(thread.id==debug.selectedThread ? .isSelected:[])
+                    .disabled(reason: !debug.canSelectThreads ? "Wait for the current debugger thread reading." : nil).accessibilityAddTraits(thread.id==debug.selectedThread ? .isSelected:[])
                     .accessibilityHint("Requests this reported thread’s stopped stack without changing source.")
             }
-            if debug.threadPages>1 {HStack{Button("Previous threads"){debug.threadPage=max(0,debug.threadPage-1)}.disabled(debug.threadPage==0 || debug.threadBusy);Text("Page \(debug.threadPage+1) of \(debug.threadPages)").font(.caption);Button("Next threads"){debug.threadPage=min(debug.threadPages-1,debug.threadPage+1)}.disabled(debug.threadPage>=debug.threadPages-1 || debug.threadBusy)}}
+            if debug.threadPages>1 {HStack{Button("Previous threads"){debug.threadPage=max(0,debug.threadPage-1)}.disabled(reason: debug.threadPage==0 ? "You’re on the first page." : debug.threadBusy ? "Wait for the debugger thread request to finish." : nil);Text("Page \(debug.threadPage+1) of \(debug.threadPages)").font(.caption);Button("Next threads"){debug.threadPage=min(debug.threadPages-1,debug.threadPage+1)}.disabled(reason: debug.threadPage>=debug.threadPages-1 ? "You’re on the last page." : debug.threadBusy ? "Wait for the debugger thread request to finish." : nil)}}
         }
     }
 
@@ -3440,17 +3445,17 @@ struct NativeDebugInspector: View, Identifiable {
             if buffer.dirty { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
                 if ordinaryLaunch {
-                    Button("Debug",systemImage:"play"){Task{await debug.prepare(buffer,line:line)}}.disabled(debug.active || buffer.dirty || buffer.saving)
-                    Button("Launch profiles",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(debug.active || buffer.dirty || buffer.saving)
+                    Button("Debug",systemImage:"play"){Task{await debug.prepare(buffer,line:line)}}.disabled(reason: debug.active ? "Stop the current debugger session first." : buffer.dirty ? "Save the current source before launching." : buffer.saving ? "Wait for this source to finish saving." : nil)
+                    Button("Launch profiles",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(reason: debug.active ? "Stop the current debugger session first." : buffer.dirty ? "Save the current source before launching." : buffer.saving ? "Wait for this source to finish saving." : nil)
                 }
                 if let recordedDebug, let fence = recordedFences[line] {
-                    Button("Debug recorded fence", systemImage: "play") { Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence) } }.disabled(debug.active)
+                    Button("Debug recorded fence", systemImage: "play") { Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence) } }.disabled(reason: debug.active ? "Stop the current debugger session first." : nil)
                 }
                 if code { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer, line: line) } }
                 if showsSession, debug.status == "paused" {
-                    Button("Continue", systemImage: "play.fill") { debug.step("continue") }.disabled(!debug.canResume); Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }.disabled(!debug.canInspectFrame)
-                    Button("Step in", systemImage: "arrow.down") { debug.step("in") }.disabled(!debug.canInspectFrame); Button("Step out", systemImage: "arrow.up") { debug.step("out") }.disabled(!debug.canInspectFrame)
-                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") }.disabled(!debug.canInspectFrame) }
+                    Button("Continue", systemImage: "play.fill") { debug.step("continue") }.disabled(reason: !debug.canResume ? "Wait for a confirmed paused debugger session." : nil); Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }.disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil)
+                    Button("Step in", systemImage: "arrow.down") { debug.step("in") }.disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil); Button("Step out", systemImage: "arrow.up") { debug.step("out") }.disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil)
+                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") }.disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil) }
                 }
                 if showsSession, debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
@@ -3461,7 +3466,7 @@ struct NativeDebugInspector: View, Identifiable {
             if let showRunTerminal {
                 ForEach(debug.commandProfiles, id: \.exactID) { profile in
                     Button("Run \(profile.name)") { Task { await debug.runProfile(profile, buffer: buffer, terminal: showRunTerminal) } }
-                        .disabled(debug.runningProfile || debug.active || buffer.dirty || buffer.saving)
+                        .disabled(reason: debug.runningProfile ? "A launch profile is already running." : debug.active ? "Stop the current debugger session first." : buffer.dirty ? "Save the current source before launching." : buffer.saving ? "Wait for this source to finish saving." : nil)
                 }
             }
             if let notice=debug.attachReading{Text(notice).font(.caption).textSelection(.enabled)}
@@ -3472,7 +3477,7 @@ struct NativeDebugInspector: View, Identifiable {
             if !debug.breakpointNotice.isEmpty {Text(debug.breakpointNotice).font(.caption).textSelection(.enabled)}
             let retained=debug.retainedBreakpointReading(buffer.file.path),readingPage=max(0,min(breakpointPage,max(0,(retained.count-1)/64)))
             if !retained.isEmpty {Text("Retained breakpoint intentions · \(retained.count)").font(.caption);Text("Readonly wishes for earlier source; no coordinates are applied. Latest 4096 historical wishes per path remain in memory.").font(.caption)
-                if retained.count>64 {HStack{Button("Previous intentions"){breakpointPage=readingPage-1}.disabled(readingPage==0);Text("\(readingPage+1) / \((retained.count+63)/64)").font(.caption);Button("Next intentions"){breakpointPage=readingPage+1}.disabled((readingPage+1)*64>=retained.count)}}
+                if retained.count>64 {HStack{Button("Previous intentions"){breakpointPage=readingPage-1}.disabled(reason: readingPage==0 ? "You’re on the first page." : nil);Text("\(readingPage+1) / \((retained.count+63)/64)").font(.caption);Button("Next intentions"){breakpointPage=readingPage+1}.disabled(reason: (readingPage+1)*64>=retained.count ? "You’re on the last page." : nil)}}
                 ForEach(Array(retained.dropFirst(readingPage*64).prefix(64).enumerated()),id: \.offset){_,reading in Text(reading).font(.caption).textSelection(.enabled)}
             }
             if showsSession, code, debug.capabilities["conditional_breakpoints"] as? Bool == true {
@@ -3482,25 +3487,25 @@ struct NativeDebugInspector: View, Identifiable {
             NativeAdapterSourceView(debug:debug,inspection:adapterInspection)
             if showsSession, debug.status == "paused" {
                 threadControls
-                HStack {Button("Run to this source line"){debug.moveToSource(buffer,line:line,how:"run_to")}.disabled(!debug.canMoveToSource(buffer,how:"run_to"));Button("Move instruction pointer here"){debug.moveToSource(buffer,line:line,how:"jump")}.disabled(!debug.canMoveToSource(buffer,how:"jump"))}
+                HStack {Button("Run to this source line"){debug.moveToSource(buffer,line:line,how:"run_to")}.disabled(reason: !debug.canMoveToSource(buffer,how:"run_to") ? "Select a line in saved source at a current stop with Run to Line support." : nil);Button("Move instruction pointer here"){debug.moveToSource(buffer,line:line,how:"jump")}.disabled(reason: !debug.canMoveToSource(buffer,how:"jump") ? "Select a line in saved source at a current stop with instruction movement support." : nil)}
                 Text("Position movement requires unchanged captured primary source; instruction-pointer movement also requires adapter goto-target support.").font(.caption)
                 Text("Source positions compare captured launch/construction text; loaded runtime inputs are not frozen or proven by those captures.").font(.caption)
                 let frameSnapshot=debug.frameSnapshot
                 if !debug.stackNotice.isEmpty {Text(debug.stackNotice).font(.caption).textSelection(.enabled)}
                 if !debug.sourceReferenceNotice.isEmpty {Text(debug.sourceReferenceNotice).font(.caption).textSelection(.enabled)}
-                Button(debug.frameBusy ? "Reading frame variables…":"Read selected-frame variables"){debug.readFrameLocals()}.disabled(!debug.canReadFrameLocals)
+                Button(debug.frameBusy ? "Reading frame variables…":"Read selected-frame variables"){debug.readFrameLocals()}.disabled(reason: !debug.canReadFrameLocals ? "Select a current paused frame to read its local variables." : nil)
                 if !debug.frameNotice.isEmpty {Text(debug.frameNotice).font(.caption).textSelection(.enabled)}
                 TextField("Expression", text: $expression)
-                HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }.disabled(!debug.canEvaluate || expression.isEmpty); Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) }.disabled(!debug.canEvaluate || expression.isEmpty) }
+                HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }.disabled(reason: !debug.canEvaluate ? "Select a frame at the current debugger stop." : expression.isEmpty ? "Enter an expression to evaluate." : nil); Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) }.disabled(reason: !debug.canEvaluate ? "Select a frame at the current debugger stop." : expression.isEmpty ? "Enter an expression to evaluate." : nil) }
                 if !debug.evaluationNotice.isEmpty {Text(debug.evaluationNotice).font(.caption).textSelection(.enabled)}
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame,snapshot:frameSnapshot) }.disabled(!debug.canInspectFrame) }
+                        ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame,snapshot:frameSnapshot) }.disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil) }
                         ForEach(debug.visibleVariableRows) { row in
                             VStack(alignment:.leading,spacing:2) {
-                                HStack {if row.reference>0 {Button(row.expanded ? "−":"+"){debug.toggleVariable(row.id)}.accessibilityLabel("\(row.expanded ? "Collapse":"Expand") variable \(row.name)").disabled(!debug.canInspectFrame)};Text("\(row.name) = \(row.value)").textSelection(.enabled)}
+                                HStack {if row.reference>0 {Button(row.expanded ? "−":"+"){debug.toggleVariable(row.id)}.accessibilityLabel("\(row.expanded ? "Collapse":"Expand") variable \(row.name)").disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil)};Text("\(row.name) = \(row.value)").textSelection(.enabled)}
                                 if row.pending {Text("Reading child variables…").font(.caption)}
-                                if !row.notice.isEmpty {Text(row.notice).font(.caption);if row.retryable {Button("Retry expansion"){debug.readChildren(row.id)}.accessibilityLabel("Retry expansion of \(row.name)").disabled(!debug.canInspectFrame)}}
+                                if !row.notice.isEmpty {Text(row.notice).font(.caption);if row.retryable {Button("Retry expansion"){debug.readChildren(row.id)}.accessibilityLabel("Retry expansion of \(row.name)").disabled(reason: !debug.canInspectFrame ? "Select a frame at the current debugger stop." : nil)}}
                             }.padding(.leading,CGFloat(row.depth)*10)
                         }
                         ForEach(debug.values.readings) { reading in HStack { Text("\(reading.expression) = \(reading.value)"); if debug.isWatched(reading.expression) { Button("×") { debug.removeWatch(reading.expression) }.accessibilityLabel("Remove watch \(reading.expression)") } } }

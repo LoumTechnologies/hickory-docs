@@ -355,9 +355,9 @@ struct SourceRecoveryView:View {
   }catch{if interruptedRead==identity && workspace.showRecovery {interruptedNotice=error.localizedDescription}}
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
-  HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
+  HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(reason: workspace.resourceRestoration.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
   Button("Refresh records"){Task{await list()};Task{await refreshInterrupted()}}
-   .disabled(model.loading || workspace.resourceRestoration.busy)
+   .disabled(reason: model.loading ? "Wait for the current reading to load." : workspace.resourceRestoration.busy ? "An operation is already in progress." : nil)
   Text(model.notice).font(.caption).textSelection(.enabled)
   if !interruptedNotice.isEmpty {Text(interruptedNotice).font(.caption).textSelection(.enabled)}
   if let interrupted {
@@ -368,22 +368,22 @@ struct SourceRecoveryView:View {
      let reading=interruptedRead
      Task{await workspace.resourceRestoration.prepareEntryCompletion(workspace,reading:interrupted,
       current:{workspace.showRecovery && interruptedRead==reading})}
-    }.disabled(workspace.resourceRestoration.busy)
+    }.disabled(reason: workspace.resourceRestoration.busy ? "An operation is already in progress." : nil)
    }
   }
   ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
   ScrollView{VStack(alignment:.leading,spacing:8){
-   if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(model.loading)
+   if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
     if page.ignored>0 {Text("\(page.ignored) unrecognized entries omitted.").font(.caption)}
-    if let next=page.next {Button("Next 100 identities"){Task{await list(next)}}.disabled(model.loading)}
+    if let next=page.next {Button("Next 100 identities"){Task{await list(next)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)}
    }
    if let value=model.value {
     Text(value.title+(value.title_truncated ? "…":"")).font(.headline)
-    Button("Prepare restoration"){Task{await workspace.resourceRestoration.prepare(workspace,record:value)}}.disabled(model.loading || workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending)
+    Button("Prepare restoration"){Task{await workspace.resourceRestoration.prepare(workspace,record:value)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : workspace.resourceRestoration.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)
     Text((value.all_paths_recorded_applied ? "Every path has an applied receipt.":"The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.").font(.caption)
     if !value.unrecognized_files.isEmpty {Text("\(value.unrecognized_files.count) unrecognized files in this record.").font(.caption)}
-    Picker("Recorded source",selection:Binding(get:{path},set:{next in path=next;Task{await read(value.id,next,snapshot)}})){Text("Choose source").tag("");ForEach(Array(value.paths.enumerated()),id:\.offset){_,item in Text(item.path).tag(item.path)}}.disabled(model.loading)
-    Picker("Snapshot",selection:Binding(get:{snapshot},set:{next in snapshot=next;if !path.isEmpty{Task{await read(value.id,path,next)}}})){ForEach(["saved_before","draft_before","saved_after","draft_after"],id:\.self){Text($0.replacingOccurrences(of:"_",with:" ")).tag($0)}}.disabled(model.loading)
+    Picker("Recorded source",selection:Binding(get:{path},set:{next in path=next;Task{await read(value.id,next,snapshot)}})){Text("Choose source").tag("");ForEach(Array(value.paths.enumerated()),id:\.offset){_,item in Text(item.path).tag(item.path)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
+    Picker("Snapshot",selection:Binding(get:{snapshot},set:{next in snapshot=next;if !path.isEmpty{Task{await read(value.id,path,next)}}})){ForEach(["saved_before","draft_before","saved_after","draft_after"],id:\.self){Text($0.replacingOccurrences(of:"_",with:" ")).tag($0)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
     if let selected=value.paths.first(where:{exactUTF8($0.path,path)}) {let summary=selected.summary(snapshot)
      Text(summary.kind=="missing" ? "Source absent in this snapshot.":"\(summary.bytes ?? 0) UTF-8 bytes · \(summary.sha256 ?? "")").font(.caption).textSelection(.enabled)
      if let text=snapshot.hasPrefix("saved") ? value.saved_text:value.draft_text {Text(String(text.prefix(32000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled);if text.count>32000 {Text("First 32,000 characters shown.").font(.caption)}}
@@ -409,8 +409,8 @@ struct ResourceRestorationPreview:View {
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
   if !model.notice.isEmpty {Text(model.notice).font(.caption).textSelection(.enabled)}
-  if let request=model.pendingRequest {Text("Resource request: "+request).font(.caption).textSelection(.enabled);Text(model.confirmedReceipt==nil ? "Publication result unknown. Preserve local editors until status or recovery confirms it.":"Saved publication confirmed; editor adoption is incomplete.").font(.caption);Button("Inspect publication status"){Task{await model.status(workspace)}}.disabled(model.busy)}
-  if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(model.busy || model.hasPending)}
+  if let request=model.pendingRequest {Text("Resource request: "+request).font(.caption).textSelection(.enabled);Text(model.confirmedReceipt==nil ? "Publication result unknown. Preserve local editors until status or recovery confirms it.":"Saved publication confirmed; editor adoption is incomplete.").font(.caption);Button("Inspect publication status"){Task{await model.status(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
+  if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : model.hasPending ? "Inspect the pending publication before starting another change." : nil)}
   if let review=model.review {
    Text("Review source change: \(review.result.restoration.plan.title)").font(.headline)
    Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0;textPage=0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
@@ -424,9 +424,9 @@ struct ResourceRestorationPreview:View {
      if longest>pageSize {
       let count=(longest-1)/pageSize+1
       HStack {
-       Button("Previous source text"){textPage-=1}.disabled(textPage==0)
+       Button("Previous source text"){textPage-=1}.disabled(reason: textPage==0 ? "You’re on the first page." : nil)
        Text("Page \(textPage+1) of \(count)").font(.caption)
-       Button("Next source text"){textPage+=1}.disabled(textPage+1>=count)
+       Button("Next source text"){textPage+=1}.disabled(reason: textPage+1>=count ? "You’re on the last page." : nil)
       }
      }
     }
@@ -434,7 +434,7 @@ struct ResourceRestorationPreview:View {
     Text("Draft construction outputs: "+review.result.consequences.draft.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Construction consequences are observed relationships; no tests or coverage were executed by this preview.").font(.caption)
    }.frame(maxWidth:.infinity,alignment:.leading)}.frame(maxHeight:240)
-   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
+   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : model.hasPending ? "Inspect the pending publication before starting another change." : nil);Button("Discard preview"){model.cancel()}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
   }
  }.onChange(of:model.review?.identity){_,_ in textPage=0}}
 }

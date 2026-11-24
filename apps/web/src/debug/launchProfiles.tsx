@@ -112,8 +112,8 @@ export function LaunchProfiles() {
         {state.catalog.profiles.map(profile=><section key={profile.id} className="launch-profile-option">
           <strong>{profile.name}</strong><span className="muted">{profile.origin}{profile.default?" · default":""}</span>
           <code>{profile.attach ? `Attach · loopback port ${profile.attach.port} · external source revision unverified` : profile.program ?? profile.command.join(" ")}</code>
-          <span>{profile.id !== "fence-debug" && <button type="button" disabled={!!profile.attach} onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>}
-          <button type="button" disabled={!profile.can_debug||!supportsDebugProtocol(state.catalog!)} data-tip={!profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
+          <span>{profile.id !== "fence-debug" && <button type="button" disabled={!!profile.attach} title={!!profile.attach ? "This profile attaches a debugger. Use Debug to start it." : undefined} onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>}
+          <button type="button" disabled={!profile.can_debug||!supportsDebugProtocol(state.catalog!)} data-tip={!profile.can_debug ? "This profile has no debugger configured." : !supportsDebugProtocol(state.catalog!) ? "The workspace host does not support this debugger protocol." : !profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
             onClick={()=>state.settle({profile,mode:"debug"})}>Debug {profile.name}</button></span>
         </section>)}
         <p className="muted">Manual profiles: {state.catalog.configuration} in this project. A declared document must construct this file in its project.</p>

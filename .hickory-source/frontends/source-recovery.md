@@ -82,7 +82,7 @@ Render the selected retained evidence in a floating reading, reached through exi
 <ui:copy id="source-recovery-browser-1">
 export function ResourceConsequencesView({review}:{review:Pick<ResourceRestoreReview,"facts">}){
  const [page,setPage]=useState(0),[layer,setLayer]=useState<'saved'|'draft'>('saved');const value=review.facts[layer],rows=[...value.entries.map(path=>'Construction entry: '+path),...value.removed_entries.map(path=>'Removed entry: '+path),...value.output_paths.map(path=>'Generated output: '+path)],last=Math.max(0,Math.ceil(rows.length/100)-1),selected=Math.min(page,last);
- return <section aria-label="Construction consequences"><label>Construction layer <select aria-label="Construction layer" value={layer} onChange={event=>{setLayer(event.target.value as 'saved'|'draft');setPage(0);}}><option value="saved">Saved construction</option><option value="draft">Draft construction</option></select></label><p>{value.output_paths.length} generated output paths · relationships observed by compiler analysis; no checks or coverage queried.</p><pre>{rows.slice(selected*100,(selected+1)*100).join('\n')||'No construction entries or outputs reported.'}</pre>{last>0&&<><button disabled={!selected} onClick={()=>setPage(selected-1)}>Previous consequences</button><span>{selected+1}/{last+1}</span><button disabled={selected===last} onClick={()=>setPage(selected+1)}>Next consequences</button></>}</section>;
+ return <section aria-label="Construction consequences"><label>Construction layer <select aria-label="Construction layer" value={layer} onChange={event=>{setLayer(event.target.value as 'saved'|'draft');setPage(0);}}><option value="saved">Saved construction</option><option value="draft">Draft construction</option></select></label><p>{value.output_paths.length} generated output paths · relationships observed by compiler analysis; no checks or coverage queried.</p><pre>{rows.slice(selected*100,(selected+1)*100).join('\n')||'No construction entries or outputs reported.'}</pre>{last>0&&<><button disabled={!selected} title={!selected ? "You’re on the first page." : undefined} onClick={()=>setPage(selected-1)}>Previous consequences</button><span>{selected+1}/{last+1}</span><button disabled={selected===last} title={selected===last ? "You’re on the last page." : undefined} onClick={()=>setPage(selected+1)}>Next consequences</button></>}</section>;
 }
 export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,editorSessions}:{editorSessions?:()=>void;close:()=>void;buffers:Buffers;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[],inverse:string|null)=>void;alive:()=>boolean;epoch:()=>number}) {
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new RecoveryReader(route=>request('GET',route),paint),[]),panel=useRef<HTMLElement>(null);
@@ -149,24 +149,24 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
  useEffect(()=>{void refreshInterrupted();return()=>{interruptedRead.current++;};},[workspace,namespace]);
  const value=model.value,selected=value?.paths.find(item=>item.path===path),text=value?.[snapshot.startsWith('saved')?'saved_text':'draft_text'];
  return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Source recovery" className="simple-workspace-problems simple-source-tests" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)close();}}}>
- <header><strong>Source recovery</strong>{editorSessions&&<button disabled={busy} onClick={editorSessions}>Editor sessions…</button>}<button disabled={busy} onClick={close}>Close</button></header>
- <button disabled={model.loading||busy} onClick={()=>{setReview(null);setPath('');void model.list();void refreshInterrupted();}}>Refresh records</button><p role="status">{model.notice}</p>
+ <header><strong>Source recovery</strong>{editorSessions&&<button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={editorSessions}>Editor sessions…</button>}<button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={close}>Close</button></header>
+ <button disabled={model.loading||busy} title={model.loading ? "Wait for the current reading to load." : busy ? "An operation is already in progress." : undefined} onClick={()=>{setReview(null);setPath('');void model.list();void refreshInterrupted();}}>Refresh records</button><p role="status">{model.notice}</p>
  {interruptedNotice&&<p role="status">{interruptedNotice}</p>}
  {interrupted&&<section aria-label="Interrupted Move"><p>{interrupted.source} → {interrupted.destination}</p>{interrupted.notice&&<p role="status">{interrupted.notice}</p>}
-  {interrupted.canComplete&&<button disabled={busy} onClick={()=>{void prepareCompletion();}}>Prepare Move completion</button>}
+  {interrupted.canComplete&&<button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={()=>{void prepareCompletion();}}>Prepare Move completion</button>}
  </section>}
- {model.page&&<><label>Retained record <select aria-label="Retained record" value={value?.id??''} disabled={model.loading||busy} onChange={event=>{if(event.target.value){setReview(null);setPath('');void model.read(event.target.value);}}}><option value="">Choose record</option>{model.page.ids.map(id=><option key={id} value={id}>{id}</option>)}</select></label>{model.page.ignored>0&&<p>{model.page.ignored} unrecognized entries omitted.</p>}{model.page.next&&<button disabled={model.loading||busy} onClick={()=>{setPath('');void model.list(model.page!.next);}}>Next 100 identities</button>}</>}
- {message&&<p role="status">{message}</p>}{inverse&&<button disabled={busy||model.loading} onClick={()=>{void prepareInverse();}}>Prepare inverse restoration</button>}
+ {model.page&&<><label>Retained record <select aria-label="Retained record" value={value?.id??''} disabled={model.loading||busy} title={model.loading ? "Wait for the current reading to load." : busy ? "An operation is already in progress." : undefined} onChange={event=>{if(event.target.value){setReview(null);setPath('');void model.read(event.target.value);}}}><option value="">Choose record</option>{model.page.ids.map(id=><option key={id} value={id}>{id}</option>)}</select></label>{model.page.ignored>0&&<p>{model.page.ignored} unrecognized entries omitted.</p>}{model.page.next&&<button disabled={model.loading||busy} title={model.loading ? "Wait for the current reading to load." : busy ? "An operation is already in progress." : undefined} onClick={()=>{setPath('');void model.list(model.page!.next);}}>Next 100 identities</button>}</>}
+ {message&&<p role="status">{message}</p>}{inverse&&<button disabled={busy||model.loading} title={busy ? "An operation is already in progress." : model.loading ? "Wait for the current reading to load." : undefined} onClick={()=>{void prepareInverse();}}>Prepare inverse restoration</button>}
  {value&&<><h3>{value.title}{value.title_truncated?'…':''}</h3><p>{value.all_paths_recorded_applied?'Every path has an applied receipt.':'The record does not confirm every path was applied.'} These receipts describe the recorded operation, not current disk state.</p>{value.unrecognized_files.length>0&&<p>{value.unrecognized_files.length} unrecognized files in this record.</p>}
- <button disabled={busy||model.loading} onClick={()=>{void prepare();}}>Prepare restoration</button>
- <label>Recorded source <select aria-label="Recorded source" value={path} disabled={model.loading||busy} onChange={event=>{setPath(event.target.value);void model.read(value.id,event.target.value,snapshot);}}><option value="" disabled>Choose source</option>{value.paths.map(item=><option key={item.path} value={item.path}>{item.path}</option>)}</select></label>
- <label>Snapshot <select aria-label="Snapshot" value={snapshot} disabled={model.loading||busy} onChange={event=>{const next=event.target.value as RecoverySnapshot;setSnapshot(next);if(path)void model.read(value.id,path,next);}}>{(['saved_before','draft_before','saved_after','draft_after'] as RecoverySnapshot[]).map(side=><option key={side} value={side}>{side.replace('_',' ')}</option>)}</select></label>
+ <button disabled={busy||model.loading} title={busy ? "An operation is already in progress." : model.loading ? "Wait for the current reading to load." : undefined} onClick={()=>{void prepare();}}>Prepare restoration</button>
+ <label>Recorded source <select aria-label="Recorded source" value={path} disabled={model.loading||busy} title={model.loading ? "Wait for the current reading to load." : busy ? "An operation is already in progress." : undefined} onChange={event=>{setPath(event.target.value);void model.read(value.id,event.target.value,snapshot);}}><option value="" disabled title={"Choose a recorded source from the list."}>Choose source</option>{value.paths.map(item=><option key={item.path} value={item.path}>{item.path}</option>)}</select></label>
+ <label>Snapshot <select aria-label="Snapshot" value={snapshot} disabled={model.loading||busy} title={model.loading ? "Wait for the current reading to load." : busy ? "An operation is already in progress." : undefined} onChange={event=>{const next=event.target.value as RecoverySnapshot;setSnapshot(next);if(path)void model.read(value.id,path,next);}}>{(['saved_before','draft_before','saved_after','draft_after'] as RecoverySnapshot[]).map(side=><option key={side} value={side}>{side.replace('_',' ')}</option>)}</select></label>
  {selected&&<><p>{selected[snapshot].kind==='missing'?'Source absent in this snapshot.':`${selected[snapshot].bytes} UTF-8 bytes · ${selected[snapshot].sha256}`}</p>{text!==null&&text!==undefined&&<><pre style={{whiteSpace:'pre-wrap'}}>{text.slice(0,32000)}</pre>{text.length>32000&&<p>First 32,000 characters shown.</p>}</>}</>}
  </>}
  {review&&<section aria-label="Restoration preview"><h3>{review.entryIntent?.interrupted?review.plan.title:'Restore saved sources and drafts'}</h3><p>{review.patches.length} paths · source and construction revisions are checked again on publication.</p>
  <label>Restoration source <select aria-label="Restoration source" value={path} onChange={event=>{setPath(event.target.value);setReviewPage(0);}}>{review.patches.map(item=><option key={item.path} value={item.path}>{item.path}</option>)}</select></label>
- {review.patches.filter(item=>item.path===path).map(item=><div key={item.path}><strong>Current draft</strong><pre>{item.before?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Restored draft</strong><pre>{item.after?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Current saved baseline</strong><pre>{review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><strong>Restored saved baseline</strong><pre>{review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><p>Text page {reviewPage+1} · 16,000 characters per side. Draft text and saved text may differ.</p><button disabled={!reviewPage} onClick={()=>setReviewPage(reviewPage-1)}>Previous restoration text</button><button disabled={Math.max(item.before?.text.length??0,item.after?.text.length??0,review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.length:0,review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.length:0)<=(reviewPage+1)*16000} onClick={()=>setReviewPage(reviewPage+1)}>Next restoration text</button></div>)}
- <ResourceConsequencesView review={review}/><button disabled={busy} onClick={()=>{void publish();}}>{review.entryIntent?.interrupted?'Complete reviewed Move':'Restore reviewed saved sources and drafts'}</button></section>}
+ {review.patches.filter(item=>item.path===path).map(item=><div key={item.path}><strong>Current draft</strong><pre>{item.before?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Restored draft</strong><pre>{item.after?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Current saved baseline</strong><pre>{review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><strong>Restored saved baseline</strong><pre>{review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><p>Text page {reviewPage+1} · 16,000 characters per side. Draft text and saved text may differ.</p><button disabled={!reviewPage} title={!reviewPage ? "You’re on the first page." : undefined} onClick={()=>setReviewPage(reviewPage-1)}>Previous restoration text</button><button disabled={Math.max(item.before?.text.length??0,item.after?.text.length??0,review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.length:0,review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.length:0)<=(reviewPage+1)*16000} title={Math.max(item.before?.text.length??0,item.after?.text.length??0,review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.length:0,review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.length:0)<=(reviewPage+1)*16000 ? "You’re on the last page." : undefined} onClick={()=>setReviewPage(reviewPage+1)}>Next restoration text</button></div>)}
+ <ResourceConsequencesView review={review}/><button disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={()=>{void publish();}}>{review.entryIntent?.interrupted?'Complete reviewed Move':'Restore reviewed saved sources and drafts'}</button></section>}
  </section>,document.body);
 }
 </ui:copy>
@@ -562,9 +562,9 @@ struct SourceRecoveryView:View {
   }catch{if interruptedRead==identity && workspace.showRecovery {interruptedNotice=error.localizedDescription}}
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
-  HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
+  HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(reason: workspace.resourceRestoration.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
   Button("Refresh records"){Task{await list()};Task{await refreshInterrupted()}}
-   .disabled(model.loading || workspace.resourceRestoration.busy)
+   .disabled(reason: model.loading ? "Wait for the current reading to load." : workspace.resourceRestoration.busy ? "An operation is already in progress." : nil)
   Text(model.notice).font(.caption).textSelection(.enabled)
   if !interruptedNotice.isEmpty {Text(interruptedNotice).font(.caption).textSelection(.enabled)}
   if let interrupted {
@@ -575,22 +575,22 @@ struct SourceRecoveryView:View {
      let reading=interruptedRead
      Task{await workspace.resourceRestoration.prepareEntryCompletion(workspace,reading:interrupted,
       current:{workspace.showRecovery && interruptedRead==reading})}
-    }.disabled(workspace.resourceRestoration.busy)
+    }.disabled(reason: workspace.resourceRestoration.busy ? "An operation is already in progress." : nil)
    }
   }
   ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
   ScrollView{VStack(alignment:.leading,spacing:8){
-   if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(model.loading)
+   if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
     if page.ignored>0 {Text("\(page.ignored) unrecognized entries omitted.").font(.caption)}
-    if let next=page.next {Button("Next 100 identities"){Task{await list(next)}}.disabled(model.loading)}
+    if let next=page.next {Button("Next 100 identities"){Task{await list(next)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)}
    }
    if let value=model.value {
     Text(value.title+(value.title_truncated ? "…":"")).font(.headline)
-    Button("Prepare restoration"){Task{await workspace.resourceRestoration.prepare(workspace,record:value)}}.disabled(model.loading || workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending)
+    Button("Prepare restoration"){Task{await workspace.resourceRestoration.prepare(workspace,record:value)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : workspace.resourceRestoration.busy ? "An operation is already in progress." : workspace.resourceRestoration.hasPending ? "Inspect the pending publication before starting another change." : nil)
     Text((value.all_paths_recorded_applied ? "Every path has an applied receipt.":"The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.").font(.caption)
     if !value.unrecognized_files.isEmpty {Text("\(value.unrecognized_files.count) unrecognized files in this record.").font(.caption)}
-    Picker("Recorded source",selection:Binding(get:{path},set:{next in path=next;Task{await read(value.id,next,snapshot)}})){Text("Choose source").tag("");ForEach(Array(value.paths.enumerated()),id:\.offset){_,item in Text(item.path).tag(item.path)}}.disabled(model.loading)
-    Picker("Snapshot",selection:Binding(get:{snapshot},set:{next in snapshot=next;if !path.isEmpty{Task{await read(value.id,path,next)}}})){ForEach(["saved_before","draft_before","saved_after","draft_after"],id:\.self){Text($0.replacingOccurrences(of:"_",with:" ")).tag($0)}}.disabled(model.loading)
+    Picker("Recorded source",selection:Binding(get:{path},set:{next in path=next;Task{await read(value.id,next,snapshot)}})){Text("Choose source").tag("");ForEach(Array(value.paths.enumerated()),id:\.offset){_,item in Text(item.path).tag(item.path)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
+    Picker("Snapshot",selection:Binding(get:{snapshot},set:{next in snapshot=next;if !path.isEmpty{Task{await read(value.id,path,next)}}})){ForEach(["saved_before","draft_before","saved_after","draft_after"],id:\.self){Text($0.replacingOccurrences(of:"_",with:" ")).tag($0)}}.disabled(reason: model.loading ? "Wait for the current reading to load." : nil)
     if let selected=value.paths.first(where:{exactUTF8($0.path,path)}) {let summary=selected.summary(snapshot)
      Text(summary.kind=="missing" ? "Source absent in this snapshot.":"\(summary.bytes ?? 0) UTF-8 bytes · \(summary.sha256 ?? "")").font(.caption).textSelection(.enabled)
      if let text=snapshot.hasPrefix("saved") ? value.saved_text:value.draft_text {Text(String(text.prefix(32000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled);if text.count>32000 {Text("First 32,000 characters shown.").font(.caption)}}
@@ -616,8 +616,8 @@ struct ResourceRestorationPreview:View {
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
   if !model.notice.isEmpty {Text(model.notice).font(.caption).textSelection(.enabled)}
-  if let request=model.pendingRequest {Text("Resource request: "+request).font(.caption).textSelection(.enabled);Text(model.confirmedReceipt==nil ? "Publication result unknown. Preserve local editors until status or recovery confirms it.":"Saved publication confirmed; editor adoption is incomplete.").font(.caption);Button("Inspect publication status"){Task{await model.status(workspace)}}.disabled(model.busy)}
-  if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(model.busy || model.hasPending)}
+  if let request=model.pendingRequest {Text("Resource request: "+request).font(.caption).textSelection(.enabled);Text(model.confirmedReceipt==nil ? "Publication result unknown. Preserve local editors until status or recovery confirms it.":"Saved publication confirmed; editor adoption is incomplete.").font(.caption);Button("Inspect publication status"){Task{await model.status(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
+  if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : model.hasPending ? "Inspect the pending publication before starting another change." : nil)}
   if let review=model.review {
    Text("Review source change: \(review.result.restoration.plan.title)").font(.headline)
    Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0;textPage=0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
@@ -631,9 +631,9 @@ struct ResourceRestorationPreview:View {
      if longest>pageSize {
       let count=(longest-1)/pageSize+1
       HStack {
-       Button("Previous source text"){textPage-=1}.disabled(textPage==0)
+       Button("Previous source text"){textPage-=1}.disabled(reason: textPage==0 ? "You’re on the first page." : nil)
        Text("Page \(textPage+1) of \(count)").font(.caption)
-       Button("Next source text"){textPage+=1}.disabled(textPage+1>=count)
+       Button("Next source text"){textPage+=1}.disabled(reason: textPage+1>=count ? "You’re on the last page." : nil)
       }
      }
     }
@@ -641,7 +641,7 @@ struct ResourceRestorationPreview:View {
     Text("Draft construction outputs: "+review.result.consequences.draft.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Construction consequences are observed relationships; no tests or coverage were executed by this preview.").font(.caption)
    }.frame(maxWidth:.infinity,alignment:.leading)}.frame(maxHeight:240)
-   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
+   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(reason: model.busy ? "An operation is already in progress." : model.hasPending ? "Inspect the pending publication before starting another change." : nil);Button("Discard preview"){model.cancel()}.disabled(reason: model.busy ? "An operation is already in progress." : nil)}
   }
  }.onChange(of:model.review?.identity){_,_ in textPage=0}}
 }
@@ -1095,29 +1095,29 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
    }
   }
   Row {
-   TextButton(enabled=!resources.busy&&!resources.hasPending,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")}
-   TextButton(enabled=!model.loading&&!resources.busy,onClick={scope.launch{list()};scope.launch{refreshInterrupted()}}){Text("Refresh records")}
+   WithDisabledReason(if (resources.busy) "An operation is already in progress." else if (resources.hasPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")} }
+   WithDisabledReason(if (model.loading) "Wait for the current reading to load." else if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{list()};scope.launch{refreshInterrupted()}}){Text("Refresh records")} }
   }
   Text(model.notice,fontSize=12.sp)
   if(interruptedNotice.isNotEmpty())Text(interruptedNotice,fontSize=12.sp)
   interrupted?.let { evidence ->
    SelectionContainer{Text("${evidence.source} → ${evidence.destination}",fontSize=12.sp)}
    evidence.notice?.let{Text(it,fontSize=12.sp)}
-   if(evidence.canComplete)TextButton(enabled=!resources.busy,onClick={
+   if(evidence.canComplete)WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={
     val identity=interruptedRead
     scope.launch{resources.prepareEntryCompletion(workspace,evidence){workspace.showRecovery&&interruptedRead==identity}}
-   }){Text("Prepare Move completion")}
+   }){Text("Prepare Move completion")} }
   }
   if(resources.notice.isNotEmpty())Text(resources.notice,fontSize=12.sp)
-  if(resources.hasPending)TextButton(enabled=!resources.busy,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")}
-  resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")}}
-  resources.lastRecovery?.let{record->SelectionContainer{Text("Latest recovery: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.lastWorkspace)}}){Text("Review inverse / redo from latest recovery")}}
+  if(resources.hasPending)WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")} }
+  resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")} }}
+  resources.lastRecovery?.let{record->SelectionContainer{Text("Latest recovery: $record",fontSize=12.sp)};WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{read(record,expectedWorkspace=resources.lastWorkspace)}}){Text("Review inverse / redo from latest recovery")} }}
   resources.review?.let{review->
    Text(review.plan.getString("title"),style=MaterialTheme.typography.titleSmall)
    Text("Save publishes the reviewed saved states. Draft text can differ from its saved baseline. Generated output is analyzed, never materialized by this action.",fontSize=12.sp)
    val patches=resourcePatches(review.plan)
    val savedBefore=remember(review){review.proposal.optJSONObject("inputs")?.optJSONObject("saved_sources")?.let(::resourceSavedMap).orEmpty()}
-   Row{TextButton(enabled=reviewFile>0,onClick={reviewFile--}){Text("Previous source")};Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);TextButton(enabled=reviewFile+1<patches.size,onClick={reviewFile++}){Text("Next source")}}
+   Row{WithDisabledReason(if (reviewFile <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={reviewFile--}){Text("Previous source")} };Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);WithDisabledReason(if (reviewFile+1 >= patches.size) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={reviewFile++}){Text("Next source")} }}
    patches.getOrNull(reviewFile)?.let{patch->
     Text(patch.path,style=MaterialTheme.typography.titleSmall)
     val before=savedBefore[patch.path]
@@ -1133,9 +1133,9 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
     if(longest>RESOURCE_TEXT_PAGE_SIZE){
      val count=(longest-1)/RESOURCE_TEXT_PAGE_SIZE+1
      Row{
-      TextButton(enabled=textPage>0,onClick={textPage--}){Text("Previous page")}
+      WithDisabledReason(if (textPage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={textPage--}){Text("Previous page")} }
       Text("Page ${textPage+1} of $count",fontSize=12.sp)
-      TextButton(enabled=textPage+1<count,onClick={textPage++}){Text("Next page")}
+      WithDisabledReason(if (textPage+1 >= count) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={textPage++}){Text("Next page")} }
      }
     }
    }
@@ -1147,17 +1147,17 @@ internal fun reviewedResourceTextPage(text:String,page:Int):String {
    }
    val longestOutputList=outputLayers.maxOf{it.second.length()}
    if(longestOutputList>100){Row{
-    TextButton(enabled=consequencePage>0,onClick={consequencePage--}){Text("Previous consequences")}
-    TextButton(enabled=(consequencePage+1)*100<longestOutputList,onClick={consequencePage++}){Text("Next consequences")}
+    WithDisabledReason(if (consequencePage <= 0) "You’re on the first page." else null) { available -> TextButton(enabled = available,onClick={consequencePage--}){Text("Previous consequences")} }
+    WithDisabledReason(if ((consequencePage+1)*100 >= longestOutputList) "You’re on the last page." else null) { available -> TextButton(enabled = available,onClick={consequencePage++}){Text("Next consequences")} }
    }}
    Text("Execution evidence was not queried.",fontSize=12.sp)
-   Row{TextButton(enabled=!resources.busy,onClick={scope.launch{resources.apply(workspace,review)}}){Text(when{review.entryIntent?.interrupted!=null->"Complete reviewed Move";review.restoration->"Save reviewed restoration";else->"Save resources"})};TextButton(enabled=!resources.busy,onClick={resources.dismiss()}){Text("Discard review")}}
+   Row{WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.apply(workspace,review)}}){Text(when{review.entryIntent?.interrupted!=null->"Complete reviewed Move";review.restoration->"Save reviewed restoration";else->"Save resources"})} };WithDisabledReason(if (resources.busy) "An operation is already in progress." else null) { available -> TextButton(enabled = available,onClick={resources.dismiss()}){Text("Discard review")} }}
   }
-  model.page?.let{page->Box{TextButton(enabled=!model.loading,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")};DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->TextButton(enabled=!model.loading,onClick={scope.launch{list(next)}}){Text("Next 100 identities")}}}
+  model.page?.let{page->Box{WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")} };DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={scope.launch{list(next)}}){Text("Next 100 identities")} }}}
   model.value?.let{value->Text(value.title+if(value.titleTruncated)"…" else "",style=MaterialTheme.typography.titleSmall);Text((if(value.allApplied)"Every path has an applied receipt." else "The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.",fontSize=12.sp);if(value.unrecognized>0)Text("${value.unrecognized} unrecognized files in this record.",fontSize=12.sp)
-   TextButton(enabled=!model.loading&&!resources.busy&&!resources.hasPending,onClick={scope.launch{resources.restore(workspace,value)}}){Text("Prepare complete saved / draft restoration")}
-   Box{TextButton(enabled=!model.loading,onClick={pathMenu=true}){Text(path.ifEmpty{"Choose recorded source"})};DropdownMenu(expanded=pathMenu,onDismissRequest={pathMenu=false}){value.paths.forEach{item->DropdownMenuItem(text={Text(item.path)},onClick={pathMenu=false;path=item.path;scope.launch{read(value.id,path,snapshot)}})}}}
-   listOf("saved_before","draft_before","saved_after","draft_after").forEach{side->TextButton(enabled=!model.loading,onClick={snapshot=side;if(path.isNotEmpty())scope.launch{read(value.id,path,side)}}){Text((if(snapshot==side)"✓ " else "")+side.replace('_',' '))}}
+   WithDisabledReason(if (model.loading) "Wait for the current reading to load." else if (resources.busy) "An operation is already in progress." else if (resources.hasPending) "Inspect the pending publication before starting another change." else null) { available -> TextButton(enabled = available,onClick={scope.launch{resources.restore(workspace,value)}}){Text("Prepare complete saved / draft restoration")} }
+   Box{WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={pathMenu=true}){Text(path.ifEmpty{"Choose recorded source"})} };DropdownMenu(expanded=pathMenu,onDismissRequest={pathMenu=false}){value.paths.forEach{item->DropdownMenuItem(text={Text(item.path)},onClick={pathMenu=false;path=item.path;scope.launch{read(value.id,path,snapshot)}})}}}
+   listOf("saved_before","draft_before","saved_after","draft_after").forEach{side->WithDisabledReason(if (model.loading) "Wait for the current reading to load." else null) { available -> TextButton(enabled = available,onClick={snapshot=side;if(path.isNotEmpty())scope.launch{read(value.id,path,side)}}){Text((if(snapshot==side)"✓ " else "")+side.replace('_',' '))} }}
    value.paths.find{it.path==path}?.snapshots?.get(snapshot)?.let{selected->SelectionContainer{Text(if(selected.kind=="missing")"Source absent in this snapshot." else "${selected.bytes} UTF-8 bytes · ${selected.sha256}",fontSize=12.sp)};val text=if(snapshot.startsWith("saved"))value.savedText else value.draftText;if(text!=null){SelectionContainer{Text(text.take(32000),fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(text.length>32000)Text("First 32,000 characters shown.",fontSize=12.sp)}}
   }
  }

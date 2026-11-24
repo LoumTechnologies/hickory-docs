@@ -126,7 +126,7 @@ export function AgentProject({ doc, turn, getContext, applyChange }: { doc: stri
   if (!capture && !error) return null;
   return <section className="agent-project" aria-label="Literate project changes">
     <ProjectStatusReading value={statusReading} />
-    <button className="btn" disabled={busy || !!draft} onClick={() => human("review")}>Review completed project changes</button>
+    <button className="btn" disabled={busy || !!draft} title={busy ? "An operation is already in progress." : !!draft ? "Finish or discard the open revision draft first." : undefined} onClick={() => human("review")}>Review completed project changes</button>
     {error && <p role="alert">{error}</p>}
     {capture && <>
       <p>{capture.workspace ? capture.workspace.root ? `Workspace ${capture.workspace.root}` : "Open editors · no folder" : capture.entry} · Old is the captured starting state, including pre-existing work. New is the actual completed state.</p>
@@ -134,7 +134,7 @@ export function AgentProject({ doc, turn, getContext, applyChange }: { doc: stri
       {capture.error && <p role="alert">Incomplete capture: {capture.error}</p>}
       {capture.ambiguous.length > 0 && <fieldset><legend>Resolve attribution before finalizing</legend>
         <p className="muted">These writes do not have an exclusive agent identity. Confirm which belong in this transition; unconfirmed paths prevent finalization.</p>
-        {capture.ambiguous.map(path => <label key={path}><input type="checkbox" checked={chosen.has(path)} disabled={busy} onChange={event => human("attribution", { path, selected: event.target.checked })} />{path}</label>)}
+        {capture.ambiguous.map(path => <label key={path}><input type="checkbox" checked={chosen.has(path)} disabled={busy} title={busy ? "An operation is already in progress." : undefined} onChange={event => human("attribution", { path, selected: event.target.checked })} />{path}</label>)}
       </fieldset>}
       {!capture.response && capture.completed && [...new Set([...Object.keys(capture.starting.entries),...Object.keys(capture.completed.entries)])].map(file => {
         const old = capture.starting.entries[file], next = capture.completed!.entries[file];
@@ -148,20 +148,20 @@ export function AgentProject({ doc, turn, getContext, applyChange }: { doc: stri
         ],old:"old",new:"new",policy:"neither",evidence:"unverified"};
         return <ComparisonEditor key={file} path={file} model={model} />;
       })}
-      {(!capture.response || capture.ambiguous.length > 0) && <button className="btn" disabled={busy || !!capture.error || chosen.size !== capture.ambiguous.length} onClick={() => human("finalize")}>Verify A-to-B explanation</button>}
+      {(!capture.response || capture.ambiguous.length > 0) && <button className="btn" disabled={busy || !!capture.error || chosen.size !== capture.ambiguous.length} title={busy ? "An operation is already in progress." : !!capture.error ? "Refresh the capture after resolving its reported error." : chosen.size !== capture.ambiguous.length ? "Choose a source owner for each ambiguous change." : undefined} onClick={() => human("finalize")}>Verify A-to-B explanation</button>}
       {capture.response && <>
         <p role="status">A-to-B source equality verified. Runtime behavior and explanatory accuracy are separate checks.</p>
         <ChangesetDocument identity={`final:${doc}:${turn}`} entry={capture.artifact?.entry ?? "response.md"}
           tools={!capture.workspace || capture.workspace.root !== null} filesystemOnly={!!capture.workspace} sources={capture.artifact?.sources ?? {"response.md":capture.response}} input={starting} />
-        {!draft && <button className="btn" disabled={busy || !!capture.error || capture.ambiguous.length > 0} onClick={() => human("revise")}>Revise New</button>}
+        {!draft && <button className="btn" disabled={busy || !!capture.error || capture.ambiguous.length > 0} title={busy ? "An operation is already in progress." : !!capture.error ? "Refresh the capture after resolving its reported error." : capture.ambiguous.length > 0 ? "Resolve the ambiguous source owners first." : undefined} onClick={() => human("revise")}>Revise New</button>}
         {draft && <section aria-label="Authored final changeset draft">
           <p>Authored revision of the agent result · Old remains captured A. This draft constructs C; Apply replaces accepted B with C. Inherited verification claims do not apply. Runtime checks are unrun.</p>
           <p role="status">{pending ? "Draft has unchecked edits; application is disabled." : "C construction succeeded. Destinations have not been changed by editing."}</p>
           <ChangesetDocument identity={`revision:${doc}:${turn}`} entry={capture.artifact?.entry ?? "response.md"} sources={draft} input={starting}
             tools={!capture.workspace || capture.workspace.root !== null} filesystemOnly={!!capture.workspace}
             onEdit={receipt || busy ? undefined : next => { current.current.draft = next; setDraft(next); }} onPending={next => { current.current.pending = next; setPending(next); }} />
-          <button className="btn" disabled={busy || pending || !!receipt && !retryable} onClick={() => human("apply")}>Apply revision</button>
-          <button className="btn" disabled={busy} onClick={() => human("discard")}>Discard draft</button>
+          <button className="btn" disabled={busy || pending || !!receipt && !retryable} title={busy || pending ? "An operation is already in progress." : !!receipt && !retryable ? "This result cannot be retried. Review the recorded outcome." : undefined} onClick={() => human("apply")}>Apply revision</button>
+          <button className="btn" disabled={busy} title={busy ? "An operation is already in progress." : undefined} onClick={() => human("discard")}>Discard draft</button>
           <p className="muted">Application is guarded per destination, not atomic across files and editors. Editor undo is retained where supported. Discarding an applied draft does not undo its writes. On partial failure, preserve this receipt and restore landed disk paths individually against their after bytes.</p>
         </section>}
         {receipt && <div>
@@ -170,7 +170,7 @@ export function AgentProject({ doc, turn, getContext, applyChange }: { doc: stri
           {receipt.recordError && <p role="alert">{receipt.recordError}</p>}
           <EvidenceDisclosure label="Application and recovery receipt" value={receipt}><pre>{JSON.stringify(receipt,null,2)}</pre></EvidenceDisclosure>
         </div>}
-        <button className="btn" disabled={!!capture.workspace || !!draft || busy || capture.ambiguous.length > 0 || !!job && ["generating","reviewing","applying"].includes(job.status)} onClick={() => human("incorporate")}>Apply to literate source</button>
+        <button className="btn" disabled={!!capture.workspace || !!draft || busy || capture.ambiguous.length > 0 || !!job && ["generating","reviewing","applying"].includes(job.status)} title={!!capture.workspace ? "This capture belongs to a workspace. Use its workspace review." : !!draft ? "Finish or discard the open revision draft first." : busy ? "An operation is already in progress." : capture.ambiguous.length > 0 ? "Resolve the ambiguous source owners first." : !!job && ["generating","reviewing","applying"].includes(job.status) ? "A project revision job is in progress." : undefined} onClick={() => human("incorporate")}>Apply to literate source</button>
       </>}
       {job && <p role={job.error ? "alert" : "status"}>{job.error ?? (job.status === "reviewing" ? "Verified candidate ready in Document edits. Review every source change before applying." : `Incorporation · ${job.status}`)}</p>}
     </>}

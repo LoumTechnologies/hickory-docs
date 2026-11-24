@@ -469,10 +469,10 @@ struct NativeAgentStatus: View {
                     Picker("Effort", selection: $session.effort) {
                         Text(efforts.isEmpty ? "Managed by provider" : "Default").tag("")
                         ForEach(efforts, id: \.self) { Text($0).tag($0) }
-                    }.disabled(efforts.isEmpty)
+                    }.disabled(reason: efforts.isEmpty ? "The selected model does not expose effort settings." : nil)
                     Text("Model presets depend on subscription access. Sign in on the workspace server with \(login).")
                         .font(.caption).foregroundStyle(.secondary)
-                }.disabled(session.running).padding(12).frame(idealWidth: 320)
+                }.disabled(reason: session.running ? "Wait for the current agent turn to finish." : nil).padding(12).frame(idealWidth: 320)
                  .task(id: session.provider) {
                      guard session.provider == "codex-subscription", let engine else { return }
                      struct Catalog: Decodable { let models: [String] }
@@ -583,12 +583,12 @@ struct AgentPane: View {
                     if session.canStop {
                         Button { Task { await session.stop(engine) } } label: {
                             Image(systemName: "stop.fill").frame(width: 24, height: 24)
-                        }.accessibilityLabel("Stop").disabled(session.stopPending)
+                        }.accessibilityLabel("Stop").disabled(reason: session.stopPending ? "A stop request is in progress." : nil)
                     } else {
                         Button { Task { await send() } } label: {
                             Image(systemName: "arrow.up").frame(width: 24, height: 24)
                         }.accessibilityLabel("Send")
-                            .disabled(session.running || session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine == nil)
+                            .disabled(reason: session.running ? "Wait for the current agent turn to finish." : session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Enter a message first." : engine == nil ? "Connect to a workspace server first." : nil)
                     }
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
@@ -751,8 +751,8 @@ struct NativePatchCommentView: View {
                 .textFieldStyle(.roundedBorder).lineLimit(2...5)
             HStack {
                 Button(selectedThread == nil ? "Save comment" : "Save reply") { Task { await save() } }
-                    .disabled(busy || history == nil || !anchor.current() || bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Refresh comments") { Task { await refresh() } }.disabled(busy)
+                    .disabled(reason: busy ? "An operation is already in progress." : history == nil ? "Wait for the comment history to load." : !anchor.current() ? "Refresh comments against the current source." : bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Enter a comment first." : nil)
+                Button("Refresh comments") { Task { await refresh() } }.disabled(reason: busy ? "An operation is already in progress." : nil)
             }
             if !notice.isEmpty { Text(notice).font(.caption).textSelection(.enabled) }
         }.padding(12).frame(idealWidth: 350).task { await refresh() }
