@@ -20,6 +20,12 @@ CSV declarations and standalone CSV files use the same grid as prose tables. Gro
 
 Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells admitted by the prose or CSV scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
 
+The shared table surface renders workspace links in Markdown cell text. A
+link button owns its pointer and keyboard gestures. The cell still opens the
+original Markdown for editing. The native bridge sends only the link and
+table revision, and the host checks that the table still matches its source
+before handing navigation to the workspace.
+
 Captured program bytes and authored expectations share a read-only terminal
 screen. The browser binds its existing watching emulator; native previews load
 the same locked xterm package from local resources. No channel names, source

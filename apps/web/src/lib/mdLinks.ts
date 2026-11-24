@@ -78,6 +78,11 @@ export function findLinks(text: string): MdLink[] {
   return found;
 }
 
+/** The inline code syntax shared by prose decoration and table links. */
+export function inlineCodePattern(): RegExp {
+  return /`([^`\n]+)`/g;
+}
+
 /** Index of the `]` closing a `[` at `from`, or -1. Nesting counts. */
 function closingBracket(text: string, from: number): number {
   let depth = 0;

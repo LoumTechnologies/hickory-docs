@@ -9046,6 +9046,21 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .table-panel--fit-prose .table-panel__cell {
   white-space: pre-wrap;
   height: auto;
+  overflow-wrap: anywhere;
+}
+.table-panel__link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.table-panel__link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
 }
 
 /* Every view identifies its write destination; action feedback stays local. */

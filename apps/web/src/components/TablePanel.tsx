@@ -123,6 +123,7 @@ export interface TablePanelProps {
   laneRight?: boolean;
   /** Markdown tables default to fitting the prose measure; CSV does not. */
   fitProseDefault?: boolean;
+  renderCellText?: (value: string) => React.ReactNode;
 }
 
 /** Apply `step` to the table `n` times (at least once).
@@ -192,6 +193,7 @@ export function TablePanel({
   onLayout,
   laneRight = false,
   fitProseDefault = false,
+  renderCellText,
 }: TablePanelProps) {
   const [chosenLanguage, setChosenLanguage] = useState("auto");
   const automaticPython = chooseFormulaLanguage && !declaredLanguage && chosenLanguage === "auto";
@@ -1314,6 +1316,7 @@ export function TablePanel({
                   {rowNumber(row)}
                   {Array.from({ length: width }, (_, column) => {
                     const label = cellLabel(column, row);
+                    const value = cellAt(table, row, column), shown = shownAt(row, column);
                     const referenced = pointing && reference !== null && containsCell(reference, row, column);
                     return (
                       <td
@@ -1329,15 +1332,19 @@ export function TablePanel({
                         onPointerUp={finishSweep}
                         onPointerCancel={clearSweep}
                         onLostPointerCapture={clearSweep}
-                        onClickCapture={event => { if ("pointerType" in event.nativeEvent && ["touch", "pen"].includes(String(event.nativeEvent.pointerType))) { event.preventDefault(); event.stopPropagation(); } }}
+                        onClickCapture={event => {
+                          if (event.target instanceof Element && event.target.closest(".table-panel__link")) return;
+                          if ("pointerType" in event.nativeEvent && ["touch", "pen"].includes(String(event.nativeEvent.pointerType))) { event.preventDefault(); event.stopPropagation(); }
+                        }}
                         onMouseEnter={() => fill.over(row, column)}
                         onContextMenu={(event) => openMenu(event, row, column)}
                       >
                         <TableCell
                           row={row}
                           column={column}
-                          value={cellAt(table, row, column)}
-                          shown={shownAt(row, column)}
+                          value={value}
+                          shown={shown}
+                          renderedText={value === shown && value && !value.trimStart().startsWith("=") ? renderCellText?.(value) : undefined}
                           problem={computed.errors[label]}
                           selected={
                             active?.row === row && active.column === column

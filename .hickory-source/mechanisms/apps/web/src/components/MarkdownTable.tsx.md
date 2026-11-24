@@ -31,17 +31,44 @@ import { TablePanel, type TableLayout, type TablePanelProps } from "./TablePanel
 import { parseCsv, writeCsv } from "../lib/csv";
 import { splitFormatComment, withFormatComment } from "../lib/tableFormats";
 import { markdownRows, writeMarkdownTable } from "../lib/markdownTable";
+import { findLinks, inlineCodePattern } from "../lib/mdLinks";
+import { workspaceLinkTarget } from "../lib/revealLine";
+
+export type TableLinkResolver = (href: string) => (() => void) | undefined;
+
+function linkedCell(text: string, linkFor: TableLinkResolver): ReactNode {
+  const code = [...text.matchAll(inlineCodePattern())];
+  const parts: ReactNode[] = [];
+  let end = 0;
+  for (const link of findLinks(text)) {
+    if (link.image || code.some(span => link.from < span.index! + span[0].length && link.to > span.index!)) continue;
+    const open = linkFor(link.target);
+    if (!open) continue;
+    parts.push(text.slice(end, link.from), <button
+      key={link.from} type="button" className="table-panel__link"
+      onPointerDown={event => event.stopPropagation()}
+      onMouseDown={event => event.stopPropagation()}
+      onKeyDown={event => event.stopPropagation()}
+      onDoubleClick={event => event.stopPropagation()}
+      onClick={event => { event.stopPropagation(); open(); }}
+    >{link.text}</button>);
+    end = link.to;
+  }
+  return parts.length ? [...parts, text.slice(end)] : text;
+}
 
 /** The existing spreadsheet surface, backed by Markdown rather than CSV. */
-export function MarkdownTable({ source, onChange, ...props }: TablePanelProps) {
+export function MarkdownTable({ source, onChange, linkFor, ...props }: TablePanelProps & { linkFor?: TableLinkResolver }) {
   const { body, formats } = splitFormatComment(source);
   const csv = writeCsv({ rows: markdownRows(body), delimiter: ",", newline: "\n", trailingNewline: false });
   return <TablePanel fitProseDefault {...props} source={csv} formats={formats} delimiter="," header
+    renderCellText={linkFor ? value => linkedCell(value, linkFor) : undefined}
     onChange={onChange ? (next, formats = "", actor) => { const text = withFormatComment(writeMarkdownTable(body, parseCsv(next, ",").rows), formats); if (actor) onChange(text, undefined, actor); else onChange(text); } : undefined} />;
 }
 
 export interface NativeTableSnapshot {
   revision: string; source: string; format: "csv" | "markdown"; readonly: boolean;
+  documentPath?: string;
   delimiter?: string; language?: string; header?: boolean;
   scope?: import("../api/types").FormulaScope;
   calculationRevision?: string;
@@ -70,7 +97,14 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
     ]);
     const [layout, setLayout] = useState<TableLayout>({});
     const Panel = snapshot.format === "markdown" ? MarkdownTable : TablePanel;
+    const documentPath = snapshot.documentPath;
     return <Panel source={snapshot.source} delimiter={snapshot.delimiter} language={snapshot.language} header={snapshot.header} chooseFormulaLanguage formulaApi={scopedApi}
+      linkFor={documentPath ? (href: string) => {
+        if (!workspaceLinkTarget(href, documentPath)) return undefined;
+        return () => {
+          if (current === snapshot && !writing) post({ kind: "link", revision: snapshot.revision, href });
+        };
+      } : undefined}
       sourceIdentity="native-inline-table" sourceCurrent={() => current === snapshot && !writing && !current.readonly}
       layout={layout} onLayout={next => { if (next.height !== undefined) host.classList.remove("native-table-fill"); setLayout(next); }}
       onChange={snapshot.readonly ? undefined : source => {

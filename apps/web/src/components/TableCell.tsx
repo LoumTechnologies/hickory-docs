@@ -21,6 +21,7 @@ export interface TableCellProps {
   column: number;
   value: string;
   shown: string;
+  renderedText?: React.ReactNode;
   problem?: string;
   selected: boolean;
   within: boolean;
@@ -51,6 +52,7 @@ export function TableCell({
   column,
   value,
   shown,
+  renderedText,
   problem,
   selected,
   within,
@@ -110,7 +112,7 @@ export function TableCell({
         onDoubleClick={editable ? onEdit : undefined}
         onKeyDown={editable ? onKeys : undefined}
       >
-        {shown === "" ? " " : shown}
+        {renderedText ?? (shown === "" ? " " : shown)}
       </span>
     );
   return (

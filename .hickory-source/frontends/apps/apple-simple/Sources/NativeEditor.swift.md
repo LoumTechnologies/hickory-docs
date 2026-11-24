@@ -526,7 +526,8 @@ struct GridCellField: UIViewRepresentable {
         let document = buffer.file.doc_id
         let readOnly = !writable
         let hasFormulaEngine = buffer.receiptEngine != nil
-        let key = [source, String(readOnly), String(hasFormulaEngine), NSStringFromRange(table.range), format, delimiter,
+        let documentPath = buffer.openDiagramFile == nil ? nil : buffer.file.path
+        let key = [source, String(readOnly), String(hasFormulaEngine), NSStringFromRange(table.range), format, delimiter, documentPath,
                    String(header), language, tableID, document].map { $0.map(ExactSourceText.init) }
         if key != identity { identity = key; revision = UUID().uuidString }
         // Geometry refreshes share this same source snapshot. Replacing it
@@ -542,6 +543,7 @@ struct GridCellField: UIViewRepresentable {
         snapshot["calculationRevision"] = calculationRevision
         snapshot["hasFormulaEngine"] = hasFormulaEngine
         snapshot["language"] = language
+        snapshot["documentPath"] = documentPath
         if let tableID {
             var context: [String: Any] = ["source": source, "table": tableID]
             context["document"] = document
@@ -573,6 +575,10 @@ struct GridCellField: UIViewRepresentable {
             return
         }
         guard event["revision"] as? String == revision, exactUTF8(buffer.text,source) else { display(force: kind == "change"); return }
+        if kind == "link", table.rows.first?.first?.format == "markdown", let href = event["href"] as? String {
+            buffer.openDiagramFile?(href)
+            return
+        }
         if kind == "height", let height = event["height"] as? Double, height.isFinite {
             buffer.tableHeights[table.id] = min(1200, max(30, height)); buffer.renderMarkup?(); return
         }

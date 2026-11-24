@@ -753,6 +753,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
             .put("format", table.rows.firstOrNull()?.firstOrNull()?.format ?: "csv").put("delimiter", table.rows.firstOrNull()?.firstOrNull()?.delimiter ?: ",")
             .put("calculationRevision", buffer.receipts.toString()).put("readonly", readOnly).put("language", inlineTableAttribute("language", table, source))
             .put("header", inlineTableAttribute("header", table, source) != "false")
+        if (buffer.followWorkspaceLink != null) snapshot.put("documentPath", buffer.file.path)
         inlineTableAttribute("id", table, source)?.let { id -> snapshot.put("scope", org.json.JSONObject().put("source", source).put("table", id).put("document", buffer.file.docID)) }
         view?.evaluateJavascript("globalThis.hickoryTable?.update($snapshot)", null)
     }
@@ -779,6 +780,10 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                     catch (error: Exception) { reply(id, org.json.JSONObject.NULL, error.message ?: "Formula request failed. Check the workspace connection and retry.") }
                 }
+            }
+            "link" -> if (event.optString("revision") == revision && buffer.text == source &&
+                table?.rows?.firstOrNull()?.firstOrNull()?.format == "markdown") {
+                buffer.followWorkspaceLink?.invoke(event.optString("href"))
             }
             "height" -> if (event.optString("revision") == revision && buffer.text == source) {
                 val height = event.optDouble("height")

@@ -124,6 +124,11 @@ export function findLinks(text: string): MdLink[] {
   return found;
 }
 
+/** The inline code syntax shared by prose decoration and table links. */
+export function inlineCodePattern(): RegExp {
+  return /`([^`\n]+)`/g;
+}
+
 </storycode:copy>
 <a id="f-b86c148dc6ce-closingBracket"></a>
 ### `closingBracket`

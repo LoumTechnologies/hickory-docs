@@ -12,6 +12,47 @@ const source = '| Name | Count |\n| :--- | ---: |\n| North | 120 |';
 afterEach(cleanup);
 
 describe("Markdown tables", () => {
+  it("follows valid cell links and retains the Markdown while editing", () => {
+    const open = vi.fn(), onChange = vi.fn();
+    const text = '| Task | Route |\n| --- | --- |\n| Read | See [Details](notes.md) and `[example](sample.md)` |';
+    const { container } = render(<MarkdownTable source={text} onChange={onChange}
+      linkFor={href => ["notes.md", "sample.md"].includes(href) ? open : undefined} />);
+    const action = screen.getByRole("button", { name: "Details" });
+    fireEvent.pointerDown(action, { pointerType: "touch" });
+    fireEvent.click(action);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "example" })).toBeNull();
+    fireEvent.doubleClick(container.querySelector('[data-row="1"][data-column="1"]')!);
+    expect((screen.getByRole("textbox", { name: /cell/i }) as HTMLInputElement).value)
+      .toContain("[Details](notes.md)");
+  });
+  it("scopes native table links to the current snapshot and the workspace", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const post = vi.fn();
+    const text = '| Route |\n| --- |\n| [Details](notes.md) and [Outside](../../outside.md) |';
+    let bridge!: ReturnType<typeof mountNativeTable>;
+    await act(async () => {
+      bridge = mountNativeTable(host, post);
+      bridge.update({ revision: "one", source: text, format: "markdown", readonly: true, documentPath: "docs/audit.md" });
+    });
+    try {
+      const previous = screen.getByRole("button", { name: "Details" });
+      expect(screen.queryByRole("button", { name: "Outside" })).toBeNull();
+      fireEvent.click(previous);
+      expect(post).toHaveBeenLastCalledWith({ kind: "link", revision: "one", href: "notes.md" });
+      await act(async () => {
+        bridge.update({ revision: "two", source: source, format: "markdown", readonly: true, documentPath: "docs/audit.md" });
+      });
+      fireEvent.click(previous);
+      expect(post.mock.calls.filter(([message]) => message.kind === "link")).toHaveLength(1);
+    } finally {
+      await act(async () => bridge.dispose());
+      host.remove();
+    }
+  });
+
   it("edits through the existing grid and writes Markdown with alignment intact", () => {
     const onChange = vi.fn();
     render(<MarkdownTable source={source} onChange={onChange} />);

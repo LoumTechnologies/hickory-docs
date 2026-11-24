@@ -24,12 +24,14 @@ import { markdownTableBlocks } from "../../editor/markdownTables";
 import { structureOf } from "../../editor/wysiwyg";
 import { replaceTable } from "../../editor/tableEdit";
 import { MarkdownTable } from "../../components/MarkdownTable";
+import type { TableLinkResolver } from "../../components/MarkdownTable";
+import { openLocation, workspaceLinkTarget } from "../../lib/revealLine";
 import { Engaged } from "../../components/Engaged";
 import { TablePanel } from "../../components/TablePanel";
 import { tableKey } from "../../lib/uiState";
 import type { ElementView } from "../types";
 
-function DocumentTable({ scope, markdown, revision, ...props }: TablePanelProps & { scope?: FormulaScope; markdown: boolean; revision?: string }) {
+function DocumentTable({ scope, markdown, revision, ...props }: TablePanelProps & { scope?: FormulaScope; markdown: boolean; revision?: string; linkFor?: TableLinkResolver }) {
   const formulaApi = useMemo(() => ({
     formulaLanguages: api.formulaLanguages,
     evaluateFormulas: (language: string, rows: string[][]) => api.evaluateFormulas(language, rows, scope),
@@ -50,7 +52,8 @@ export const tableView: ElementView = {
     const structure = cx.view ? structureOf(cx.view.state) : null;
     const block = structure && document ? structure.blocks.find(b => b.from === slot.at) ?? markdownTableBlocks(structure, document.toString()).find(b => b.from === slot.at) : null;
     const anchored = !!block && cx.view?.state.doc.sliceString(block.contentFrom, block.contentTo) === slot.text;
-    const sourceCurrent = () => anchored && !!cx.view?.dom.isConnected && !cx.view.state.readOnly && cx.view.state.doc === document;
+    const readingCurrent = () => anchored && !!cx.view?.dom.isConnected && cx.view.state.doc === document;
+    const sourceCurrent = () => readingCurrent() && !cx.view?.state.readOnly;
     const key = tableKey(cx.path, slot.index, slot.table?.path);
     return (
       // Behind the engage gate: at rest the wheel scrolls the DOCUMENT
@@ -63,6 +66,11 @@ export const tableView: ElementView = {
           scope={block?.attrs.id && document ? { source: document.toString(), table: block.attrs.id, document: cx.docId } : undefined}
           chooseFormulaLanguage={cx.simpleTables}
           sourceCurrent={sourceCurrent}
+          linkFor={cx.path ? href => {
+            const target = workspaceLinkTarget(href, cx.path!);
+            if (!target) return undefined;
+            return () => { if (readingCurrent()) openLocation(target.path, target.line); };
+          } : undefined}
           sourceIdentity={`${cx.path ?? "unnamed document"}#table:${slot.index}@${slot.at}`}
           laneRight
           layout={cx.tableLayouts?.[key]}

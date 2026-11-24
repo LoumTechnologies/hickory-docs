@@ -49,6 +49,7 @@ about prose, not about hick, and the language has no opinion on it.
 // about prose, not about hick, and the language has no opinion on it.
 
 import { languageFromPath, normalizeLanguage } from "./languages";
+import { inlineCodePattern } from "../lib/mdLinks";
 import type { LanguageId } from "./languages";
 import { rawStructure } from "./hickLang";
 
@@ -391,7 +392,7 @@ Inline code first (it suppresses other marks inside), then strong, then em.
 
 <storycode:copy id="f-c2f7bc821e36-CODE_RE">
 // Inline code first (it suppresses other marks inside), then strong, then em.
-const CODE_RE = /`([^`\n]+)`/g;
+const CODE_RE = inlineCodePattern();
 </storycode:copy>
 <a id="f-c2f7bc821e36-STRONG_RE"></a>
 ### `STRONG_RE`

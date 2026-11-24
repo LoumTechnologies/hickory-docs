@@ -16,6 +16,7 @@
 // about prose, not about hick, and the language has no opinion on it.
 
 import { languageFromPath, normalizeLanguage } from "./languages";
+import { inlineCodePattern } from "../lib/mdLinks";
 import type { LanguageId } from "./languages";
 import { rawStructure } from "./hickLang";
 
@@ -242,7 +243,7 @@ const QUOTE_RE = /^ {0,3}(?:>[ \t]?)+/;
 // bare `[ ]` in prose is text about brackets, not a checkbox.
 const TASK_RE = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\](?=[ \t])/;
 // Inline code first (it suppresses other marks inside), then strong, then em.
-const CODE_RE = /`([^`\n]+)`/g;
+const CODE_RE = inlineCodePattern();
 const STRONG_RE = /\*\*([^*\n]+)\*\*|__([^_\n]+)__/g;
 // Emphasis content may not start or end with whitespace (so `2 * 3 * 4` in
 // prose never turns into italics).
