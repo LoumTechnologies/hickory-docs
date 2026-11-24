@@ -18507,6 +18507,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "history-and-guidance",
       "sha256": "85f1c8fd3a2b6d6a1239e3340eba813a0a099b25765b4786a9256f1eb0fa6016"
     },
+    ".codex/skills/prewarm-simple-dev-apple/SKILL.md": {
+      "source": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "history-and-guidance"
+    },
     ".codex/skills/recommend-saas-pricing-strategy/SKILL.md": {
       "source": ".hickory-source/support/files/.codex/skills/recommend-saas-pricing-strategy/SKILL.md.md",
       "owner": "support",
