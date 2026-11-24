@@ -1346,7 +1346,9 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
 }
 @Composable private fun PaneContent(workspace: Workspace, tab: String?, group: String) {
     when (tab) {
-        "files" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(5.dp)) { FileRows(workspace.files, workspace) }
+        "files" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
+            FileRows(workspace.files, workspace)
+        }
         "terminal" -> TerminalPane(workspace)
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1372,9 +1374,9 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         key(node.path) {
             var expanded by remember { mutableStateOf(false) }
             if (node.dir) {
-                Text((if (expanded) "▾ " else "▸ ") + node.name, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp))
+                Text((if (expanded) "▾ " else "▸ ") + node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 4.dp))
                 if (expanded) Column(Modifier.padding(start = 12.dp)) { FileRows(node.children, workspace) }
-            } else Text(node.name, fontSize = 13.sp, modifier = Modifier.clickable { scope.launch { workspace.open(node) } }.padding(vertical = 4.dp))
+            } else Text(node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { scope.launch { workspace.open(node) } }.padding(vertical = 4.dp))
         }
     }
 }

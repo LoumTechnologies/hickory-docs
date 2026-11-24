@@ -500,7 +500,7 @@ struct PaneView: View {
     }
     @ViewBuilder private func content(_ tab: String?) -> some View {
         if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .files {
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) { FileRows(nodes: workspace.files, workspace: workspace) }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityLabel("Files")
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
@@ -613,9 +613,22 @@ struct FileRows: View {
     var body: some View {
         ForEach(nodes) { node in
             if node.dir {
-                DisclosureGroup(node.name) { AnyView(FileRows(nodes: node.children ?? [], workspace: workspace)).padding(.leading, 8) }.padding(.vertical, 2)
+                DisclosureGroup {
+                    AnyView(FileRows(nodes: node.children ?? [], workspace: workspace)).padding(.leading, 8)
+                } label: {
+                    Text(node.name).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
             } else {
-                Button(node.name) { Task { await workspace.open(node) } }.help(node.path).frame(height: 23).accessibilityIdentifier(node.path)
+                Button {
+                    Task { await workspace.open(node) }
+                } label: {
+                    Text(node.name)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 23, alignment: .leading)
+                }
+                .help(node.path)
+                .accessibilityIdentifier(node.path)
             }
         }
     }

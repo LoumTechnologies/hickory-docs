@@ -598,7 +598,7 @@ struct PaneView: View {
     }
     @ViewBuilder private func content(_ tab: String?) -> some View {
         if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .files {
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) { FileRows(nodes: workspace.files, workspace: workspace) }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityLabel("Files")
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
@@ -667,7 +667,7 @@ A provider reply may arrive after the destination has changed. Decode its custom
 
 ## Keep file browsing independent of pane drops
 
-The file list below opens source text through the workspace. Edge docking wraps its existing content without changing file identity or introducing another file-loading path.
+Files opens source through the workspace and keeps the full filename visible when the pane is narrow. Pass the pane width into the rows through a vertical scroll view and let long labels grow in height. Resizing the Files pane still uses the ordinary split control.
 
 <ui:copy id="simple-apple-file-rows">
 struct FileRows: View {
@@ -676,9 +676,22 @@ struct FileRows: View {
     var body: some View {
         ForEach(nodes) { node in
             if node.dir {
-                DisclosureGroup(node.name) { AnyView(FileRows(nodes: node.children ?? [], workspace: workspace)).padding(.leading, 8) }.padding(.vertical, 2)
+                DisclosureGroup {
+                    AnyView(FileRows(nodes: node.children ?? [], workspace: workspace)).padding(.leading, 8)
+                } label: {
+                    Text(node.name).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
             } else {
-                Button(node.name) { Task { await workspace.open(node) } }.help(node.path).frame(height: 23).accessibilityIdentifier(node.path)
+                Button {
+                    Task { await workspace.open(node) }
+                } label: {
+                    Text(node.name)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 23, alignment: .leading)
+                }
+                .help(node.path)
+                .accessibilityIdentifier(node.path)
             }
         }
     }

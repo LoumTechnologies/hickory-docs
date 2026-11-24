@@ -13,6 +13,9 @@ colors as the editor. Keep its controls sized for narrow browser windows.
 
 Use one fixed menu row, flexible content and one status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
+Keep full file and folder names readable within their pane. A long label
+wraps inside its own row so the editor and split keep their width.
+
 Keep the text close to the left edge: line numbers grow only with their digits,
 fold controls use a narrow slot, and the breakpoint column fits its nine-pixel dot.
 Use a four-pixel text inset rather than a separate reading margin. These rules
@@ -91,7 +94,10 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .file-tree { height: 100%; overflow: auto; padding: 5px; }
 .file-tree ul { list-style: none; padding-left: 12px; margin: 0; }
 .file-tree > ul { padding-left: 0; }
-.file-tree button, .file-tree summary { white-space: nowrap; line-height: 22px; padding: 0 4px; }
+.file-tree button, .file-tree summary {
+  max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: start;
+  line-height: 22px; padding: 0 4px;
+}
 .empty { margin: 16px; color: GrayText; }
 .simple-problems-status { float: right; min-width: 88px; text-align: right; padding: 0; font-size: 11px; }
 .simple-workspace-problems { position: fixed; z-index: 40; right: 8px; top: 32px; width: min(420px, calc(100dvw - 16px)); max-height: calc(100dvh - 64px); overflow: auto; padding: 8px; background: Canvas; color: CanvasText; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
