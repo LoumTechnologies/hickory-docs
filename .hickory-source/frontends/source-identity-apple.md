@@ -111,7 +111,8 @@ The pure witnesses distinguish two byte spellings even on a filesystem that alia
 
 The mounted launch witness chooses an exact nested address containing literal
 URL punctuation. The source and sibling reach the initial Files and document
-groups before the controlled provider publishes. Editing the real NSTextView
+groups before the controlled provider publishes. Wait for the initial text
+preview to acquire editing authority before exercising native input. Editing the real NSTextView
 releases the provider response. The AppKit editor, selected range, viewport
 and draft must survive the current response, and native history must still
 replay the edit. A response for the earlier version cannot put a problem on
@@ -519,8 +520,10 @@ final class NativeSourceIdentityTests:XCTestCase {
             XCTFail(message + " · " + workspace.status)
             throw EngineError(message: message)
         }
-        try await wait("AppKit did not mount the requested source") {
-            exactUTF8(workspace.currentBuffer?.file.path, path) && nativeEditor(in: host) != nil
+        try await wait("AppKit did not open the requested source for editing") {
+            exactUTF8(workspace.currentBuffer?.file.path, path)
+                && workspace.currentBuffer?.startupObservation == nil
+                && nativeEditor(in: host)?.isEditable == true
         }
         let buffer = try XCTUnwrap(workspace.currentBuffer)
         let editor = try XCTUnwrap(nativeEditor(in: host))

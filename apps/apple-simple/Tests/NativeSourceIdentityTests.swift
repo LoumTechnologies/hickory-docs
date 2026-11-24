@@ -374,8 +374,10 @@ final class NativeSourceIdentityTests:XCTestCase {
             XCTFail(message + " · " + workspace.status)
             throw EngineError(message: message)
         }
-        try await wait("AppKit did not mount the requested source") {
-            exactUTF8(workspace.currentBuffer?.file.path, path) && nativeEditor(in: host) != nil
+        try await wait("AppKit did not open the requested source for editing") {
+            exactUTF8(workspace.currentBuffer?.file.path, path)
+                && workspace.currentBuffer?.startupObservation == nil
+                && nativeEditor(in: host)?.isEditable == true
         }
         let buffer = try XCTUnwrap(workspace.currentBuffer)
         let editor = try XCTUnwrap(nativeEditor(in: host))
