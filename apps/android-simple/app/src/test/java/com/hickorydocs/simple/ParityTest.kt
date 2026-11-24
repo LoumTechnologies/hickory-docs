@@ -1185,6 +1185,17 @@ class ParityTest {
         assertNull(workspaceLinkTarget("%2e%2e/%2e%2e/private", "sample/workbook.md"))
     }
 
+    @org.junit.Test fun localMarkdownLinkCaretRequiresCurrentSource() {
+        val source = "😀 [Open source](../../code.kt) next\n`[literal](ignored.kt)`"
+        val snapshot = computeInlineMarkup(source, "docs/literate/audit.md")
+        val position = source.indexOf("code.kt")
+        assertEquals("../../code.kt", snapshot.linkAtCaret(source, position, position)?.href)
+        assertNull(snapshot.linkAtCaret(source, position, position + 12))
+        assertNull(snapshot.linkAtCaret(source + "!", position, position))
+        val literal = source.indexOf("ignored.kt")
+        assertNull(snapshot.linkAtCaret(source, literal, literal))
+    }
+
     @org.junit.Test fun diagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "😀\n```xml\n<h:diagram>ignored</h:diagram>\n```\n<h:file path=\"x.xml\">\n<h:diagram>also ignored</h:diagram>\n</h:file>\n<h:diagram renderer=\"graph\">{\"topology\":{\"nodes\":[]}}</h:diagram>\n<h:diagram>graph TD; A-->B</h:diagram>"

@@ -5,6 +5,11 @@ For maintainers implementing rich source editing on native platforms.
 
 Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. The same bounded scan supplies local syntax colors for standalone source files and embedded code. Standalone files skip Markdown presentation rules. Large files retain readable text while the optional scanner is bounded to 200,000 UTF-16 units.
 
+For native Markdown links the label remains the touch target and the whole
+authored link is the caret target. Both refer to the same workspace destination.
+Keep their ranges in the same UTF-16 snapshot so an action can reject obsolete
+markup when the editor already contains a newer draft.
+
 Ordinary executable-language fences in a recorded message need an opening-line
 action and breakpoint targets in their body. Unified diff examples need their
 own review action. The scan publishes a candidate only after matching its
@@ -77,7 +82,15 @@ func workspaceLinkTarget(_ href: String, relativeTo source: String) -> (path: St
     let line = parts.count == 2 && parts[1].hasPrefix("L") ? Int(parts[1].dropFirst()) : nil
     return (path, line.flatMap { $0 > 0 ? $0 - 1 : nil })
 }
-struct InlineLink: Sendable { var range: NSRange; var href: String }
+struct InlineLink: Equatable, Sendable {
+    var range: NSRange
+    var sourceRange: NSRange
+    var href: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.range == rhs.range && lhs.sourceRange == rhs.sourceRange && exactUTF8(lhs.href, rhs.href)
+    }
+}
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -572,7 +585,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             let label = match.range(at: 1), href = ns.substring(with: match.range(at: 2))
             guard workspaceLinkTarget(href, relativeTo: path) != nil else { continue }
             let range = NSRange(location: offset + label.location, length: label.length)
-            result.links.append(InlineLink(range: range, href: href))
+            let syntax = NSRange(location: offset + match.range.location, length: match.range.length)
+            result.links.append(InlineLink(range: range, sourceRange: syntax, href: href))
             result.marks.append(InlineMark(kind: "link", range: range))
         }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil
@@ -620,7 +634,11 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to, val displayBlock: Boolean = false)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
-data class InlineLink(val from: Int, val to: Int, val href: String)
+data class InlineLink(val from: Int, val to: Int, val href: String, val sourceFrom: Int, val sourceTo: Int)
+fun InlineSnapshot.linkAtCaret(currentSource: String, from: Int, to: Int): InlineLink? {
+    if (source != currentSource) return null
+    return links.firstOrNull { from in it.sourceFrom until it.sourceTo && to <= it.sourceTo }
+}
 data class WorkspaceLinkTarget(val path: String, val line: Int?)
 fun workspaceLinkTarget(href: String, source: String): WorkspaceLinkTarget? {
     val parts = href.split('#', limit = 2)
@@ -1085,7 +1103,8 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             val href = match.groupValues[2]
             if (workspaceLinkTarget(href, path) == null) continue
             val label = match.groups[1]!!.range
-            links.add(InlineLink(start + label.first, start + label.last + 1, href))
+            links.add(InlineLink(start + label.first, start + label.last + 1, href,
+                start + match.range.first, start + match.range.last + 1))
             marks.add(InlineMark("link", start + label.first, start + label.last + 1))
         }
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true

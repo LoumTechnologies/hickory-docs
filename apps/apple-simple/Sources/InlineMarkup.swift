@@ -18,7 +18,15 @@ func workspaceLinkTarget(_ href: String, relativeTo source: String) -> (path: St
     let line = parts.count == 2 && parts[1].hasPrefix("L") ? Int(parts[1].dropFirst()) : nil
     return (path, line.flatMap { $0 > 0 ? $0 - 1 : nil })
 }
-struct InlineLink: Sendable { var range: NSRange; var href: String }
+struct InlineLink: Equatable, Sendable {
+    var range: NSRange
+    var sourceRange: NSRange
+    var href: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.range == rhs.range && lhs.sourceRange == rhs.sourceRange && exactUTF8(lhs.href, rhs.href)
+    }
+}
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -513,7 +521,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             let label = match.range(at: 1), href = ns.substring(with: match.range(at: 2))
             guard workspaceLinkTarget(href, relativeTo: path) != nil else { continue }
             let range = NSRange(location: offset + label.location, length: label.length)
-            result.links.append(InlineLink(range: range, href: href))
+            let syntax = NSRange(location: offset + match.range.location, length: match.range.length)
+            result.links.append(InlineLink(range: range, sourceRange: syntax, href: href))
             result.marks.append(InlineMark(kind: "link", range: range))
         }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil

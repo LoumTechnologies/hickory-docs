@@ -4,7 +4,11 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to, val displayBlock: Boolean = false)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
-data class InlineLink(val from: Int, val to: Int, val href: String)
+data class InlineLink(val from: Int, val to: Int, val href: String, val sourceFrom: Int, val sourceTo: Int)
+fun InlineSnapshot.linkAtCaret(currentSource: String, from: Int, to: Int): InlineLink? {
+    if (source != currentSource) return null
+    return links.firstOrNull { from in it.sourceFrom until it.sourceTo && to <= it.sourceTo }
+}
 data class WorkspaceLinkTarget(val path: String, val line: Int?)
 fun workspaceLinkTarget(href: String, source: String): WorkspaceLinkTarget? {
     val parts = href.split('#', limit = 2)
@@ -469,7 +473,8 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             val href = match.groupValues[2]
             if (workspaceLinkTarget(href, path) == null) continue
             val label = match.groups[1]!!.range
-            links.add(InlineLink(start + label.first, start + label.last + 1, href))
+            links.add(InlineLink(start + label.first, start + label.last + 1, href,
+                start + match.range.first, start + match.range.last + 1))
             marks.add(InlineMark("link", start + label.first, start + label.last + 1))
         }
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true

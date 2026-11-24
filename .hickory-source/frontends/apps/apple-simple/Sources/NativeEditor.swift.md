@@ -10,6 +10,11 @@ mirrors and records source history after the native widget has committed.
 
 Each cached native text view owns its UndoManager. Switching tabs must not make one source undo another source's last edit through a shared window manager. Snippet and guarded draft transactions reuse that same per-editor manager, so reparenting preserves both native typing and coordinated source history.
 
+On Apple platforms the focused text view follows a workspace link through its
+native context menu or Command+Shift+Return. The caret lookup requires the
+view and link snapshot to agree with the current buffer. Outside a link, or
+during marked input, the original platform editing commands handle the event.
+
 An ordinary completion across several carets commits its complete plan through
 the same native draft history. Check the original range roster against the live
 editor immediately before editing, then restore the full roster for each
@@ -746,6 +751,9 @@ final class SimpleMacTextView: NSTextView {
     // Intercept only explicitly configured arrow chords. All other editing stays in AppKit.
     private var wordSelection = SimpleWordSelection()
     override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+        if event.charactersIgnoringModifiers == "\r", modifiers == [.command, .shift],
+           !hasMarkedText(), let link = linkAtCaret?(), openLink?(link) == true { return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function, .shift])
         let key = flags == .control ? "editor.controlArrow" : flags == .option ? "editor.altArrow" : ""
         let mode = UserDefaults.standard.string(forKey: key) ?? "native"
@@ -757,6 +765,23 @@ final class SimpleMacTextView: NSTextView {
     }
     var toggleEquationAtPoint: ((CGPoint) -> Bool)?
     var followLinkAtPoint: ((CGPoint) -> Bool)?
+    var linkAtCaret: (() -> InlineLink?)?
+    var openLink: ((InlineLink) -> Bool)?
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard !hasMarkedText(), let link = linkAtCaret?() else { return menu }
+        let contextual = menu?.copy() as? NSMenu ?? NSMenu()
+        let item = NSMenuItem(title: "Open Link", action: #selector(openContextLink(_:)), keyEquivalent: "\r")
+        item.keyEquivalentModifierMask = [.command, .shift]
+        item.target = self
+        item.representedObject = link
+        contextual.insertItem(item, at: 0)
+        return contextual
+    }
+    @objc private func openContextLink(_ sender: NSMenuItem) {
+        guard !hasMarkedText(), let link = sender.representedObject as? InlineLink else { return }
+        _ = openLink?(link)
+    }
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if !hasMarkedText() {
@@ -825,11 +850,18 @@ private final class SimpleTextView: UITextView {
     override var undoManager:UndoManager? {sourceUndoManager}
     var snippetActive:(()->Bool)?
     var snippetCommand:((Int)->Bool)?
+    var linkAtCaret: (() -> InlineLink?)?
+    var openLink: ((InlineLink) -> Bool)?
     // UIKit retains native input and composition; hardware arrows only change selection.
     private var wordSelection = SimpleWordSelection()
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return super.keyCommands }
         var commands = super.keyCommands ?? []
+        if linkAtCaret?() != nil {
+            let command = UIKeyCommand(input: "\r", modifierFlags: [.command, .shift], action: #selector(openCaretLink))
+            command.discoverabilityTitle = "Open Link"
+            commands.append(command)
+        }
         if snippetActive?()==true {
             for (input,flags) in [("\t",UIKeyModifierFlags()),("\t",.shift),(UIKeyCommand.inputEscape,UIKeyModifierFlags())] {
                 let command=UIKeyCommand(input:input,modifierFlags:flags,action:#selector(navigateTemplate(_:)));command.wantsPriorityOverSystemBehavior=true;commands.append(command)
@@ -845,6 +877,10 @@ private final class SimpleTextView: UITextView {
             }
         }
         return commands
+    }
+    @objc private func openCaretLink() {
+        guard markedTextRange == nil, let link = linkAtCaret?() else { return }
+        _ = openLink?(link)
     }
     @objc private func navigateTemplate(_ command:UIKeyCommand){guard markedTextRange==nil else{return};_ = snippetCommand?(command.input==UIKeyCommand.inputEscape ? 0:command.modifierFlags.contains(.shift) ? -1:1)}
     @objc private func moveIdentifier(_ command: UIKeyCommand) {
@@ -1198,6 +1234,14 @@ private struct EquationLayout: Equatable {
             guard let self, let manager = self.text.layoutManager, let container = self.text.textContainer else { return false }
             let origin = self.text.textContainerOrigin
             return self.buffer.followInlineLink(at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), layout: manager, container: container)
+        }
+        text.linkAtCaret = { [weak self] in
+            guard let self else { return nil }
+            return self.buffer.inlineLink(at: self.text.selectedRange(), in: self.text.string)
+        }
+        text.openLink = { [weak self] link in
+            guard let self, self.text.linkAtCaret?() == link else { return false }
+            return self.buffer.followInlineLink(link)
         }
         text.beginSnippetComposition = { [weak self] range in
             guard let self else{return false}
@@ -1938,6 +1982,14 @@ import UIKit
                 apply:{[weak self] edits,source,selection in self?.applySourceEdits(edits,source:source,resultSelection:selection,manageUndo:false) ?? false}
             )
         }
+        text.linkAtCaret = { [weak self] in
+            guard let self else { return nil }
+            return self.buffer.inlineLink(at: self.text.selectedRange, in: self.text.text)
+        }
+        text.openLink = { [weak self] link in
+            guard let self, self.text.linkAtCaret?() == link else { return false }
+            return self.buffer.followInlineLink(link)
+        }
         text.snippetActive={ [weak self] in self?.buffer.snippets.isActive == true }
         text.snippetCommand={ [weak self] direction in guard let self else{return false};return direction==0 ? self.buffer.snippets.finish():self.buffer.snippets.move(direction) }
 
@@ -2249,6 +2301,14 @@ import UIKit
         if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
         let hidden = folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
         unfoldAll(); return !hidden
+    }
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard textView.markedTextRange == nil, let link = text.linkAtCaret?() else { return nil }
+        let open = UIAction(title: "Open Link") { [weak self] _ in
+            guard let self, self.text.markedTextRange == nil else { return }
+            _ = self.text.openLink?(link)
+        }
+        return UIMenu(children: [open] + suggestedActions)
     }
     func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -2753,9 +2813,21 @@ struct NativeFindPanel: View {
         return inlineMarkup.links.first { NSLocationInRange(layout.characterIndexForGlyph(at: glyph), $0.range) }
     }
 
+    func inlineLink(at selection: NSRange, in source: String) -> InlineLink? {
+        guard openDiagramFile != nil, exactUTF8(source, text), exactUTF8(inlineMarkup.source, text) else { return nil }
+        return inlineMarkup.links.first {
+            NSLocationInRange(selection.location, $0.sourceRange) && NSMaxRange(selection) <= NSMaxRange($0.sourceRange)
+        }
+    }
+
     @discardableResult func followInlineLink(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> Bool {
         guard let link = inlineLink(at: point, layout: layout, container: container) else { return false }
-        openDiagramFile?(link.href)
+        return followInlineLink(link)
+    }
+
+    func followInlineLink(_ link: InlineLink) -> Bool {
+        guard let openDiagramFile, exactUTF8(inlineMarkup.source, text) else { return false }
+        openDiagramFile(link.href)
         return true
     }
 

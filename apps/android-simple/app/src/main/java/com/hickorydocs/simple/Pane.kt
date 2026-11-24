@@ -769,6 +769,20 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         if (buffer.text == source) buffer.inlineMarkup = result
     }
     val selection = buffer.state.selection
+    // The accessibility action and hardware shortcut share a current-source
+    // lookup. The action can outlive the semantics node that exposed it.
+    fun currentCaretLink(): InlineLink? {
+        val range = buffer.state.selection
+        if (buffer.state.composition != null || buffer.followWorkspaceLink == null) return null
+        return buffer.inlineMarkup.linkAtCaret(buffer.text, range.min, range.max)
+    }
+    fun followCaretLink(link: InlineLink): Boolean {
+        val follow = buffer.followWorkspaceLink ?: return false
+        if (currentCaretLink() != link) return false
+        follow(link.href)
+        return true
+    }
+    val caretLink = currentCaretLink()
     val folds = buffer.activeFolds()
     val presentation = tablePresentation(inline, source)
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable }.map { table -> buffer.tableHeights[table.from]?.let { height -> table.copy(visibleRows = kotlin.math.ceil(height / (13f * LocalDensity.current.fontScale.coerceAtLeast(.1f))).toInt()) } ?: table } else emptyList()
@@ -1075,7 +1089,11 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                     val selected = buffer.state.selection
                     val hiddenTyping = hiddenRanges.any { selected.min < it.to && selected.max > it.from || selected.collapsed && selected.min in it.from until it.to }
                     val navigationMode = if (event.isCtrlPressed && !event.isAltPressed) controlArrow else if (event.isAltPressed && !event.isCtrlPressed) altArrow else "native"
-                    if (event.type == KeyEventType.KeyDown && !event.isMetaPressed && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) && navigationMode in listOf("word", "pieces") && buffer.state.composition == null) {
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && event.isCtrlPressed &&
+                        event.isShiftPressed && !event.isAltPressed && !event.isMetaPressed &&
+                        currentCaretLink()?.let(::followCaretLink) == true) {
+                        true
+                    } else if (event.type == KeyEventType.KeyDown && !event.isMetaPressed && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) && navigationMode in listOf("word", "pieces") && buffer.state.composition == null) {
                         val forward = event.key == Key.DirectionRight
                         val selection = buffer.state.selection
                         val head = if (!event.isShiftPressed && !selection.collapsed) {
@@ -1108,7 +1126,12 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         if (range.start == range.end) { val rect = layout.getCursorRect(range.start); drawLine(color, Offset(rect.left, rect.top - scroll.value), Offset(rect.left, rect.bottom - scroll.value), 2f) }
                         else { val path = layout.getPathForRange(range.min, range.max); path.translate(Offset(0f, -scroll.value.toFloat())); drawPath(path, color.copy(alpha = .2f)) }
                     }
-                }.clipToBounds().semantics { contentDescription = buffer.file.path },
+                }.clipToBounds().semantics {
+                    contentDescription = buffer.file.path
+                    if (caretLink != null) customActions = listOf(
+                        CustomAccessibilityAction("Open Link") { followCaretLink(caretLink) },
+                    )
+                },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
             }

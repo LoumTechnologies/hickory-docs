@@ -730,6 +730,34 @@ final class ParityTests: XCTestCase {
         XCTAssertNil(simpleBackspaceRange("\t", at: 1))
     }
     #if os(macOS)
+    @MainActor func testLocalMarkdownLinkShortcutRequiresCurrentSourceAndCaret() throws {
+        let source = "😀 [Open source](../../code.kt) next"
+        let file = FileNode(name: "audit.md", path: "docs/literate/audit.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path)
+        var opened: [String] = []
+        buffer.openDiagramFile = { opened.append($0) }
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll
+        defer { window.orderOut(nil) }
+        let view = editor.text
+        XCTAssertTrue(window.makeFirstResponder(view))
+        let position = (source as NSString).range(of: "code.kt").location
+        view.setSelectedRange(NSRange(location: position, length: 0))
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift],
+            timestamp: 0, windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: event)
+        XCTAssertEqual(opened, ["../../code.kt"])
+        XCTAssertEqual(view.string, source)
+        XCTAssertNil(buffer.inlineLink(at: NSRange(location: position, length: 12), in: source))
+        XCTAssertNil(buffer.inlineLink(at: NSRange(location: position, length: 0), in: source + "!"))
+        buffer.text = source.replacingOccurrences(of: "code.kt", with: "else.kt")
+        XCTAssertNil(view.linkAtCaret?())
+        XCTAssertEqual(opened.count, 1)
+    }
+
     @MainActor func testConfiguredWordKeysPreserveNativeTextAndShiftAnchor() throws {
         let key = "editor.altArrow", old = UserDefaults.standard.object(forKey: "editor.altArrow")
         defer { if let old { UserDefaults.standard.set(old, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
