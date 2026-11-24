@@ -73,7 +73,26 @@ pub struct EditorBuffer {
 }
 
 /// Stable conversation subject; it is an identity, never a file to create.
+/// A named workspace conversation uses a virtual subject, not an indexed file.
+/// Validate the opaque key before deriving a path so an API caller cannot turn
+/// a conversation identifier into a path outside the open folder.
+fn conversation_key(id: &str) -> ApiResult<Option<&str>> {
+    match id.strip_prefix("conversation:") {
+        Some(key) if key.len() == 32 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => Ok(Some(key)),
+        Some(_) => Err(ApiError::bad_request("Invalid agent conversation identifier.")),
+        None => Ok(None),
+    }
+}
+
 pub fn subject(state: &LocalState, id: &str) -> ApiResult<std::path::PathBuf> {
+    if let Some(key) = conversation_key(id)? {
+        // A fallback execution directory is not an open folder and must not
+        // become the home of a named workspace conversation.
+        if !state.folder_open {
+            return Err(ApiError::bad_request("Open a folder before using a named agent conversation."));
+        }
+        return Ok(state.index.root().join(format!(".hick-conversation-{key}")));
+    }
     if let Some(lens) = id.strip_prefix("lens:") {
         if lens.len() != 16 || !lens.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(ApiError::bad_request(
@@ -156,6 +175,18 @@ pub fn model_projection(mut context: serde_json::Value) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn conversation_keys_are_canonical_and_cannot_name_paths() {
+        use super::conversation_key;
+
+        let key = "0123456789abcdef0123456789abcdef";
+        assert!(matches!(conversation_key(&format!("conversation:{key}")), Ok(Some(value)) if value == key));
+        assert!(matches!(conversation_key("workspace"), Ok(None)));
+        for id in ["conversation:", "conversation:../other", "conversation:0123456789ABCDEF0123456789ABCDEF"] {
+            assert!(conversation_key(id).is_err());
+        }
+    }
+
     #[test]
     fn attachments_validate_bytes_before_delivery() {
         use super::ChatAttachment;
