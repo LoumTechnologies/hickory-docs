@@ -101,6 +101,7 @@ The file-based journal places valuable user data at three boundaries. The device
 | P1 | The earlier build classpath resolved six Maven coordinates with OSV advisories. Laura-app `810df8a` removed the previous Kotlin match. Laura-app `fa74240` upgrades AGP and Gradle and sets patched build-classpath minimums for the remaining packages. | OSV matched zero of 116 final build coordinates and zero of 130 release-runtime coordinates. The runtime coordinates were identical to the baseline. A signed, minified APK built with a disposable key. Production signing and device installation remain open. [AGP 9.5 compatibility](https://developer.android.com/build/releases/agp-9-5-0-release-notes). |
 | P1 | Gradle previously accepted Maven artifacts without project checksum pins. Laura-app `c9d4907` adds 664 reviewed SHA-256 pins, including metadata and AAPT2 for macOS, Linux and Windows. | Both APKs packaged under strict verification on macOS. An incorrect Guava JRE pin failed the build. First-time Linux and Windows builds and publisher signature verification remain open. [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html). |
 | P2 | The release graph also resolves Coil `2.7.0` and ExifInterface `1.3.7`. Maven package advisories cover only part of the decoding surface. | Review Android media decoder exposure across supported API levels and exercise normal malformed-file error handling in disposable storage. [AndroidX Media3 release notes](https://developer.android.com/jetpack/androidx/releases/media3). |
+| P1 | FloJo's EXIF warnings copied journal filenames, raw capture-time metadata or decoder exception messages into Android logs. Time-zone listener setup also printed the raw exception. Laura-app `2eaeaa4` uses fixed messages at all three sites. | Hickory reached the original and revised EXIF warning from the captured time chapter. Both APKs contain the fixed text. Check installed-app Logcat with disposable media. ExifInterface's own diagnostics and transitive media logging still require runtime review. [Android log disclosure guidance](https://developer.android.com/privacy-and-security/risks/log-info-disclosure). |
 
 First acceptance for Laura-app requires an ordinary journey on an isolated Android device. Grant access to an explicitly disposable vault, create and reopen a text entry, import known media, apply combined filters and export a safe bundle. Then check the recovery and permission cases above. The initial review did not inspect the user's Android vault.
 
@@ -314,5 +315,19 @@ zero skips. Its SHA-256 was
 `f7364cb5ba84d8a2a707d3e14714e8c87f500d6d8c8fc7e9cf89f93fc2be8af0`.
 Hickory did not ingest that receipt. It remains external evidence for
 that selected run. [Coverage renderer and focused witnesses](../mechanisms/coverage-surface.md).
+
+Hickory Simple Browser opened the captured time chapter and used **Find in
+workspace** to land on the app's EXIF warning in the authoritative
+`app/flojo/util/TimestampUtils.kt`, before and after Laura-app `2eaeaa4`.
+The Android build ran three focused date tests and six journal-file tests.
+Strict Gradle verification, fatal release lint, debug packaging and R8 release
+packaging passed. Disassembly of the two changed methods in debug and
+release showed three two-argument warning calls with constant messages.
+Both APKs retained the fixed messages and omitted the old interpolated
+warning prefixes. The source of the resolved ExifInterface library includes
+separate metadata logging, including its debug-only attribute dump. Android
+device acceptance still needs to check Logcat for a synthetic filename and
+metadata sentinel during a normal vault scan. [Android log disclosure
+guidance](https://developer.android.com/privacy-and-security/risks/log-info-disclosure).
 
 </review:doc>
