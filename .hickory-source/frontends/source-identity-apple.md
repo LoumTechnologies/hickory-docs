@@ -131,6 +131,11 @@ A current file read advances a provisional buffer after an intervening disk
 write. The same refresh path preserves a draft and its original authority
 when a later disk revision arrives.
 
+Mount the AppKit editor with the file already loaded. Check that the native
+caret agrees with the status model before making any selection gesture. An
+external prefix should then map the caret through the insertion. Hold a
+second disk read to check that a newer selection and viewport survive its reply.
+
 Mount the workspace to check file navigation at the preview boundary. The
 rendered graph sends the same messages as a pointer or keyboard action.
 Refusing a destination keeps the originating document, draft and selection.
@@ -246,7 +251,8 @@ final class NativeSourceIdentityTests:XCTestCase {
         let scroll = try XCTUnwrap(editor.enclosingScrollView)
         XCTAssertTrue(window.makeFirstResponder(editor))
         let oldSelection = NSRange(location: 0, length: 0)
-        editor.setSelectedRange(oldSelection)
+        XCTAssertEqual(buffer.selection, oldSelection)
+        XCTAssertEqual(editor.selectedRange(), oldSelection)
         let beforeScroll = scroll.contentView.bounds.origin
         let prefix = "// External line\n"
         let changed = prefix + source

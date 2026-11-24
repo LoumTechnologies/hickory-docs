@@ -106,7 +106,8 @@ final class NativeSourceIdentityTests:XCTestCase {
         let scroll = try XCTUnwrap(editor.enclosingScrollView)
         XCTAssertTrue(window.makeFirstResponder(editor))
         let oldSelection = NSRange(location: 0, length: 0)
-        editor.setSelectedRange(oldSelection)
+        XCTAssertEqual(buffer.selection, oldSelection)
+        XCTAssertEqual(editor.selectedRange(), oldSelection)
         let beforeScroll = scroll.contentView.bounds.origin
         let prefix = "// External line\n"
         let changed = prefix + source

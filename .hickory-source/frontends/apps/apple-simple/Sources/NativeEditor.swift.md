@@ -51,6 +51,11 @@ When an empty pane closes, the surviving editor can move to a new position in th
 
 SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache native views by buffer identity so changing a tab parent does not reconstruct text, undo history, selection or scroll. Delegates update only that buffer.
 
+AppKit moves the insertion point to the end when the initial source string is
+assigned. Set the native selection from the buffer before attaching the delegate.
+The caret, status bar and first external refresh then start from the same position,
+even if the reviewer has only used the workspace search sheet.
+
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Apple capabilities use the real backend LSP channel and retain their own snapshot guards. Native semantic styling does not replace text, preserving the platform undo and selection model.
 
 Search matches are computed off the main actor against an exact source/options snapshot. A stale result cannot navigate or replace. The reusable source-edit callback checks source bytes, permissions, composition and non-overlapping UTF-16 ranges before unfolding and applying edits through native input APIs in one undo group. The floating panel keeps editor geometry intact. A 10,000-match limit refuses replacement of a truncated result set. Native searches skip zero-width regex matches.
@@ -1229,6 +1234,7 @@ private struct EquationLayout: Equatable {
         text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true
         text.textContainerInset = NSSize(width: 8, height: 8)
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
+        text.setSelectedRange(buffer.selection)
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
         text.toggleEquationAtPoint = { [weak self] point in
             guard let self, let manager = self.text.layoutManager, let container = self.text.textContainer else { return false }

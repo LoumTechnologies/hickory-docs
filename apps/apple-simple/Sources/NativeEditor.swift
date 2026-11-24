@@ -967,6 +967,7 @@ private struct EquationLayout: Equatable {
         text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true
         text.textContainerInset = NSSize(width: 8, height: 8)
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
+        text.setSelectedRange(buffer.selection)
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
         text.toggleEquationAtPoint = { [weak self] point in
             guard let self, let manager = self.text.layoutManager, let container = self.text.textContainer else { return false }
