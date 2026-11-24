@@ -87,7 +87,18 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val horizontal = node.axis == "horizontal"
             val size = if (horizontal) maxWidth else maxHeight
-            val firstSize = ((size - 5.dp) * node.ratio.toFloat()).coerceAtLeast(0.dp)
+            val hidden = workspace.collapsedFilesPane
+            val firstHidden = hidden == node.first
+            val secondHidden = hidden == node.second
+            val gripSize = if (firstHidden || secondHidden) 0.dp else 5.dp
+            val contentSize = (size - gripSize).coerceAtLeast(0.dp)
+            val firstSize = when {
+                firstHidden -> 0.dp
+                secondHidden -> contentSize
+                else -> contentSize * node.ratio.toFloat()
+            }
+            val firstVisibility = if (firstHidden) Modifier.clipToBounds().clearAndSetSemantics {} else Modifier
+            val secondVisibility = if (secondHidden) Modifier.clipToBounds().clearAndSetSemantics {} else Modifier
             val density = androidx.compose.ui.platform.LocalDensity.current
             val pixels = with(density) { size.toPx() }.coerceAtLeast(1f)
             val handle = Modifier.background(MaterialTheme.colorScheme.outlineVariant)
@@ -98,13 +109,13 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                     workspace.layout = workspace.layout.resize(id, current + (if (horizontal) amount.x else amount.y) / pixels)
                 } }
             if (horizontal) Row(Modifier.fillMaxSize()) {
-                Box(Modifier.width(firstSize).fillMaxHeight()) { Pane(workspace, node.first) }
-                Box(handle.width(5.dp).fillMaxHeight())
-                Box(Modifier.weight(1f).fillMaxHeight()) { Pane(workspace, node.second) }
+                Box(Modifier.width(firstSize).fillMaxHeight().then(firstVisibility)) { Pane(workspace, node.first) }
+                if (gripSize > 0.dp) Box(handle.width(gripSize).fillMaxHeight())
+                Box(Modifier.weight(1f).fillMaxHeight().then(secondVisibility)) { Pane(workspace, node.second) }
             } else Column(Modifier.fillMaxSize()) {
-                Box(Modifier.height(firstSize).fillMaxWidth()) { Pane(workspace, node.first) }
-                Box(handle.height(5.dp).fillMaxWidth())
-                Box(Modifier.weight(1f).fillMaxWidth()) { Pane(workspace, node.second) }
+                Box(Modifier.height(firstSize).fillMaxWidth().then(firstVisibility)) { Pane(workspace, node.first) }
+                if (gripSize > 0.dp) Box(handle.height(gripSize).fillMaxWidth())
+                Box(Modifier.weight(1f).fillMaxWidth().then(secondVisibility)) { Pane(workspace, node.second) }
             }
         }
         return

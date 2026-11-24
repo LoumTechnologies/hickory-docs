@@ -5,6 +5,11 @@ For maintainers changing workspace services independently of the editor renderer
 
 Menus and action search need one vocabulary and one availability decision. The same bundled descriptors name existing operations on every simple platform; platform adapters provide callbacks and current context. A missing adapter stays explicitly unavailable. Searching never grants authority: executing an enabled command still enters the existing source, save or change-preview guard. Keep the menu group and stable ID independent of a translated label or renderer. The ordinary eligibility function can be tested without mounting UI.
 
+**Toggle Files pane** is available when a separate Files pane sits beside an
+open document. The split measures Files at zero while it is hidden, so toggling
+restores the existing split and retains mounted editors. The ordinary Files
+command still brings Files into view.
+
 <ui:copy id="simple-workspace-command-descriptors">
 [
   {
@@ -342,6 +347,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "label": "Files",
     "group": "View",
     "requires": "always"
+  },
+  {
+    "id": "view.toggleFiles",
+    "label": "Toggle Files pane",
+    "group": "View",
+    "requires": "separateFiles"
   },
   {
     "id": "view.agent",

@@ -356,6 +356,21 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     var navigationTrail by mutableStateOf(NavigationTrail())
     var layout by mutableStateOf(PaneLayout())
+    private var hiddenFilesPane by mutableStateOf<String?>(null)
+    private val visibleDocumentPane: PaneNode?
+        get() = layout.groups().firstOrNull { group -> bufferForTab(group.active) != null }
+    val separateFilesPane: String?
+        get() = if (visibleDocumentPane == null) null else layout.groups().firstOrNull { it.tabs == listOf("files") }?.id
+    val collapsedFilesPane: String?
+        get() = hiddenFilesPane?.takeIf { it == separateFilesPane }
+
+    fun toggleFilesPane() {
+        val files = separateFilesPane ?: return
+        hiddenFilesPane = if (collapsedFilesPane == null) files else null
+        if (hiddenFilesPane != null && focused == files) {
+            visibleDocumentPane?.let { focused = it.id }
+        }
+    }
     private var foregroundNavigation = 0L
     private var focusedGroup by mutableStateOf("document-group")
     var focused: String
@@ -914,6 +929,7 @@ Open the destination before checking a cross-file provider name. If the current 
         show("terminal"); terminal.open(server)
     }
     fun show(tab: String, group: String? = null) {
+        if (tab == "files") hiddenFilesPane = null
         val target = group ?: layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
         newestOpen.remove(target)
         foregroundNavigation++

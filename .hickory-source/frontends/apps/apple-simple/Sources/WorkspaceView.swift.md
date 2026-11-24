@@ -474,18 +474,29 @@ struct PaneView: View {
             if let first = node.first, let second = node.second {
                 GeometryReader { geometry in
                     let horizontal = node.axis == "horizontal"
-                    let length = max(0, (horizontal ? geometry.size.width : geometry.size.height) - 5)
+                    let hidden = workspace.collapsedFilesPane
+                    let firstHidden = hidden == first
+                    let secondHidden = hidden == second
+                    let separator: CGFloat = firstHidden || secondHidden ? 0 : 5
+                    let length = max(0, (horizontal ? geometry.size.width : geometry.size.height) - separator)
+                    let firstSize = firstHidden ? 0 : secondHidden ? length : length * node.ratio
                     if horizontal {
                         HStack(spacing: 0) {
-                            AnyView(PaneView(workspace: workspace, id: first)).frame(width: length * node.ratio)
-                            handle(node, length: length, horizontal: true).frame(width: 5)
-                            AnyView(PaneView(workspace: workspace, id: second))
+                            AnyView(PaneView(workspace: workspace, id: first)).frame(width: firstSize)
+                                .clipped().accessibilityHidden(firstHidden).allowsHitTesting(!firstHidden)
+                            handle(node, length: length, horizontal: true).frame(width: separator)
+                                .accessibilityHidden(separator == 0).allowsHitTesting(separator > 0)
+                            AnyView(PaneView(workspace: workspace, id: second)).frame(width: secondHidden ? 0 : nil)
+                                .clipped().accessibilityHidden(secondHidden).allowsHitTesting(!secondHidden)
                         }
                     } else {
                         VStack(spacing: 0) {
-                            AnyView(PaneView(workspace: workspace, id: first)).frame(height: length * node.ratio)
-                            handle(node, length: length, horizontal: false).frame(height: 5)
-                            AnyView(PaneView(workspace: workspace, id: second))
+                            AnyView(PaneView(workspace: workspace, id: first)).frame(height: firstSize)
+                                .clipped().accessibilityHidden(firstHidden).allowsHitTesting(!firstHidden)
+                            handle(node, length: length, horizontal: false).frame(height: separator)
+                                .accessibilityHidden(separator == 0).allowsHitTesting(separator > 0)
+                            AnyView(PaneView(workspace: workspace, id: second)).frame(height: secondHidden ? 0 : nil)
+                                .clipped().accessibilityHidden(secondHidden).allowsHitTesting(!secondHidden)
                         }
                     }
                 }
@@ -667,7 +678,7 @@ A provider reply may arrive after the destination has changed. Decode its custom
 
 ## Keep file browsing independent of pane drops
 
-Files opens source through the workspace and keeps the full filename visible when the pane is narrow. Pass the pane width into the rows through a vertical scroll view and let long labels grow in height. Resizing the Files pane still uses the ordinary split control.
+Files opens source through the workspace and keeps the full filename visible when the pane is narrow. Pass the pane width into the rows through a vertical scroll view and let long labels grow in height. Resizing the Files pane uses the ordinary split control. **Toggle Files pane** gives the neighboring document the width temporarily. Measure both children in the same split so the native editor and its undo history stay mounted.
 
 <ui:copy id="simple-apple-file-rows">
 struct FileRows: View {

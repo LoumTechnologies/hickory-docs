@@ -34,10 +34,10 @@ internal fun WithDisabledReason(reason: String?, content: @Composable (Boolean) 
 }
 
 data class CommandDescriptor(val id:String,val label:String,val group:String,val requires:String)
-data class CommandContext(val editor:Boolean,val writable:Boolean,val dirty:Boolean,val saving:Boolean,val back:Boolean,val forward:Boolean,val tab:Boolean,val groups:Int,val snippet:Boolean=false,val snippetChoices:Boolean=false,val sourceUndo:Boolean=false,val sourceRedo:Boolean=false)
+data class CommandContext(val editor:Boolean,val writable:Boolean,val dirty:Boolean,val saving:Boolean,val back:Boolean,val forward:Boolean,val tab:Boolean,val groups:Int,val snippet:Boolean=false,val snippetChoices:Boolean=false,val sourceUndo:Boolean=false,val sourceRedo:Boolean=false,val separateFiles:Boolean=false)
 data class WorkspaceCommand(val id:String,val label:String,val group:String,val reason:String?,val run:()->Unit)
 fun commandReason(requires:String,context:CommandContext):String? {
-    if(requires !in listOf("always","editor","writable","save","back","forward","tab","multi","template","templateChoice","sourceUndo","sourceRedo"))return "Command unavailable. Reinstall the app."
+    if(requires !in listOf("always","editor","writable","save","back","forward","tab","multi","template","templateChoice","sourceUndo","sourceRedo","separateFiles"))return "Command unavailable. Reinstall the app."
     if(requires in listOf("editor","writable","save","template","templateChoice","sourceUndo","sourceRedo")&&!context.editor)return "Open a source file first."
     if(requires in listOf("writable","save","templateChoice","sourceUndo","sourceRedo")&&!context.writable)return "Choose an authored, editable source file."
     if(requires in listOf("writable","save","templateChoice")&&context.saving)return "Wait for this file to finish saving."
@@ -47,6 +47,7 @@ fun commandReason(requires:String,context:CommandContext):String? {
     if(requires=="save"&&!context.dirty)return "No unsaved changes."
     if(requires=="back"&&!context.back||requires=="forward"&&!context.forward)return "No navigation history in this direction."
     if(requires=="tab"&&!context.tab)return "Open a tab first."
+    if(requires=="separateFiles"&&!context.separateFiles)return "Open a document beside a separate Files pane."
     if(requires=="multi"&&(!context.tab||context.groups<2))return "Open a tab and split the workspace first."
     return null
 }

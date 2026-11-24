@@ -5,6 +5,9 @@ For maintainers changing workspace services independently of the editor renderer
 
 A search result may outlive the workspace state that enabled it. Resolve Save once, change the state and invoke that retained command: it must refuse while saving, read-only or without an editor, then use current eligibility when valid again. Unknown requirements and missing adapters must not become enabled. Native witnesses load the same bundled descriptors as production, catching packaging failures without opening an editor.
 
+A retained View action rechecks whether Files still occupies its own pane
+beside a source editor. A mixed group must stay visible.
+
 <ui:copy id="simple-workspace-commands-browser-tests">
 import {it,expect} from "vitest";
 import {workspaceCommands,commandReason,type CommandContext} from "./WorkspaceCommands";
@@ -20,6 +23,23 @@ it("template menus recheck current fields, choices and write availability",()=>{
  const context:CommandContext={editor:true,writable:true,dirty:true,saving:false,back:false,forward:false,tab:true,groups:1};let called=0;
  expect(commandReason('template',context)).not.toBeNull();context.snippet=true;expect(commandReason('template',context)).toBeNull();expect(commandReason('templateChoice',context)).not.toBeNull();context.snippetChoices=true;expect(commandReason('templateChoice',context)).toBeNull();context.saving=true;expect(commandReason('templateChoice',context)).not.toBeNull();expect(commandReason('template',context)).toBeNull();context.saving=false;
  const command=workspaceCommands(()=>context,{'editor.snippetNext':()=>called++}).find(item=>item.id==='editor.snippetNext')!;expect(command.reason).toBeNull();context.snippet=false;command.run();expect(called).toBe(0);
+});
+it("rechecks a retained Files toggle after the panes change", () => {
+  const context: CommandContext = {
+    editor: true, writable: true, dirty: true, saving: false,
+    back: false, forward: false, tab: true, groups: 2, separateFiles: true,
+  };
+  let toggles = 0;
+  const command = workspaceCommands(() => context, { "view.toggleFiles": () => toggles++ })
+    .find(item => item.id === "view.toggleFiles")!;
+  expect(command.reason).toBeNull();
+  context.separateFiles = false;
+  command.run();
+  expect(toggles).toBe(0);
+  expect(commandReason("separateFiles", context)).toContain("separate Files pane");
+  context.separateFiles = true;
+  command.run();
+  expect(toggles).toBe(1);
 });
 </ui:copy>
 

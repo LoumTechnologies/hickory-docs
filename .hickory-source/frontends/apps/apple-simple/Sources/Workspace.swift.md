@@ -350,6 +350,27 @@ struct StartupSourceObservation {
     }
     var navigationTrail = NavigationTrail()
     var layout = PaneLayout()
+    private var hiddenFilesPane: String?
+    private var visibleDocumentPane: PaneNode? {
+        layout.groups().first { group in
+            group.active.flatMap { bufferForTab($0) } != nil
+        }
+    }
+    var separateFilesPane: String? {
+        guard visibleDocumentPane != nil else { return nil }
+        return layout.groups().first { $0.tabs == [NativeUtilityTab.files.rawValue] }?.id
+    }
+    var collapsedFilesPane: String? {
+        guard hiddenFilesPane == separateFilesPane else { return nil }
+        return hiddenFilesPane
+    }
+    func toggleFilesPane() {
+        guard let files = separateFilesPane else { return }
+        hiddenFilesPane = collapsedFilesPane == nil ? files : nil
+        if hiddenFilesPane != nil, focused == files, let document = visibleDocumentPane {
+            focused = document.id
+        }
+    }
     var focused = "document-group" {
         didSet { if oldValue != focused { paneInteraction = UUID() } }
     }
@@ -963,6 +984,7 @@ exercise these decisions.
     func showSource(_ path:String){show(nativeSourceTab(path))}
     func showUtility(_ utility:NativeUtilityTab){show(utility.rawValue)}
     func show(_ tab: String, in group: String? = nil) {
+        if tab == NativeUtilityTab.files.rawValue { hiddenFilesPane = nil }
         let groups = layout.groups()
         let target = group ?? groups.first(where: { $0.tabs.containsTab(tab) })?.id
             ?? (tab != "files" ? groups.first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id

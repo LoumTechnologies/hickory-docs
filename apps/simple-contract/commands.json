@@ -336,6 +336,12 @@
     "requires": "always"
   },
   {
+    "id": "view.toggleFiles",
+    "label": "Toggle Files pane",
+    "group": "View",
+    "requires": "separateFiles"
+  },
+  {
     "id": "view.agent",
     "label": "Agent",
     "group": "View",

@@ -1713,10 +1713,49 @@ three alert choices. Reopening through Files distinguishes a discarded draft
 from a saved one. The runner starts with an empty file and independently checks
 that the only final bytes are the text submitted through Save.
 
+The View toggle witness uses the native menu twice around an unsaved edit.
+The editor widens and returns to its original frame with the same draft.
+
 <ui:copy id="ios-recorded-run-ui-test">
 import XCTest
 
 final class RecordedRunUITests: XCTestCase {
+    @MainActor func testViewTogglePreservesEditorAndItsDraft() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = environment["HICKORY_IOS_STARTUP_PATH"] ?? "note.txt"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = path
+        app.launch()
+
+        let editor = app.textViews[path].firstMatch
+        let viewMenu = app.buttons["View"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        let width = editor.frame.width
+        editor.tap()
+        editor.typeText("nested-draft")
+        let draft = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(draft.contains("nested-draft"))
+        func toggle() {
+            viewMenu.tap()
+            let item = app.buttons["Toggle Files pane"].firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 5))
+            item.tap()
+        }
+
+        toggle()
+        XCTAssertTrue(editor.waitForExistence(timeout: 6))
+        XCTAssertGreaterThan(editor.frame.width, width + 50)
+        XCTAssertEqual(editor.value as? String, draft)
+        toggle()
+        XCTAssertTrue(editor.waitForExistence(timeout: 6))
+        XCTAssertEqual(editor.frame.width, width, accuracy: 2)
+        XCTAssertEqual(editor.value as? String, draft)
+
+    }
+
     @MainActor func testNativeDirtyTabCloseChoices() throws {
         continueAfterFailure = false
         let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])

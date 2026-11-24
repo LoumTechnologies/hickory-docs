@@ -78,6 +78,7 @@ type OpenFileOptions = {
 type OpenedFile = {buffer: Buffer; current: () => boolean};
 export function App() {
   const [layout, setLayout] = useState<Layout>(initialLayout);
+  const [hiddenFilesPane, setHiddenFilesPane] = useState<string | null>(null);
   const liveLayout=useRef(layout);liveLayout.current=layout;
   const [focused, updateFocused] = useState("document-group");
   const [terminal] = useState(() => new TerminalSession());
@@ -312,6 +313,7 @@ export function App() {
     setFocused(group);
   }
   function openTab(tab: string) {
+    if (tab === "files") setHiddenFilesPane(null);
     const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
     activateTab(owner?.id ?? currentGroup.id, tab);
   }
@@ -543,7 +545,17 @@ export function App() {
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
-  const context:CommandContext={...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly&&!buffer.resourceDeleted,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
+  const visibleDocumentPane = groups(layout).find(pane => pane.active && bufferForTab(pane.active));
+  const separateFilesPane = visibleDocumentPane
+    ? groups(layout).find(pane => pane.tabs.length === 1 && pane.tabs[0] === "files")?.id
+    : undefined;
+  const collapsedFilesPane = hiddenFilesPane === separateFilesPane ? hiddenFilesPane : null;
+  function toggleFilesPane() {
+    if (!separateFilesPane) return;
+    setHiddenFilesPane(collapsedFilesPane ? null : separateFilesPane);
+    if (!collapsedFilesPane && focused === separateFilesPane && visibleDocumentPane) setFocused(visibleDocumentPane.id);
+  }
+  const context:CommandContext={separateFiles:!!separateFilesPane,...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly&&!buffer.resourceDeleted,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
     "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
@@ -551,7 +563,7 @@ export function App() {
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
     "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
-    "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
+    "view.files":()=>openTab("files"),"view.toggleFiles":toggleFilesPane,"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
   for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
@@ -582,7 +594,7 @@ export function App() {
     </div></details><details><summary>View</summary><div className="menu">
       {commandMenu("View")}
     </div></details><span className="app-name">Hickory Simple</span></nav>
-    <div className="workspace"><LayoutView node={layout} focused={focused} focus={setFocused} label={label} content={content} close={close}
+    <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} content={content} close={close}
       drop={(tab, target, before) => { retireTabMove(tab, target); setLayout(current => move(current, tab, target, before)); setFocused(target); }}
       activate={activateTab}
       dock={(tab, target, edge) => {
@@ -701,7 +713,7 @@ function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => vo
     : <button title={node.path} onClick={() => open(node)}>{node.name}</button>}</li>)}</ul>;
 }
 interface LayoutProps {
-  node: Layout; focused: string; focus: (id: string) => void; label: (tab: string) => string;
+  node: Layout; collapsedFilesPane: string | null; focused: string; focus: (id: string) => void; label: (tab: string) => string;
   content: (tab: string) => React.ReactNode; close: (tab: string) => void;
   drop: (tab: string, target: string, before?: string) => void; activate: (group: string, tab: string) => void;
   dock: (tab: string, target: string, edge: Edge) => void;
@@ -718,7 +730,8 @@ function LayoutView(props: LayoutProps) {
     window.addEventListener("dragend", clear);
     return () => window.removeEventListener("dragend", clear);
   }, []);
-  if (isGroup(node)) return <section className={`group ${props.focused === node.id ? "focused" : ""}`} onFocusCapture={() => props.focus(node.id)}>
+  if (isGroup(node)) return <section className={`group ${props.focused === node.id ? "focused" : ""}`}
+    style={props.collapsedFilesPane === node.id ? {visibility: "hidden"} : undefined} onFocusCapture={() => props.focus(node.id)}>
     <div className="tabs" role="tablist" aria-label="Pane tabs"
       onDragOver={event => { if (event.dataTransfer.types.includes("application/x-hickory-tab")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
       onDrop={event => { event.preventDefault(); setDropBefore(null); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id); }}>
@@ -762,9 +775,14 @@ function LayoutView(props: LayoutProps) {
     const end = () => { window.removeEventListener("pointermove", track); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); };
     window.addEventListener("pointermove", track); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
   }
-  return <div ref={host} className={`split ${node.axis}`} style={{ gridTemplateColumns: horizontal ? `${node.ratio}fr 5px ${1 - node.ratio}fr` : undefined, gridTemplateRows: horizontal ? undefined : `${node.ratio}fr 5px ${1 - node.ratio}fr` }}>
+  const firstHidden = props.collapsedFilesPane === node.first.id;
+  const secondHidden = props.collapsedFilesPane === node.second.id;
+  const collapsed = firstHidden || secondHidden;
+  const tracks = firstHidden ? "0px 0px minmax(0,1fr)" : secondHidden ? "minmax(0,1fr) 0px 0px"
+    : `${node.ratio}fr 5px ${1 - node.ratio}fr`;
+  return <div ref={host} className={`split ${node.axis}`} style={{ gridTemplateColumns: horizontal ? tracks : undefined, gridTemplateRows: horizontal ? undefined : tracks }}>
     <LayoutView {...props} node={node.first} />
-    <div className="resize" role="separator" tabIndex={0} aria-label="Resize panes" aria-orientation={horizontal ? "vertical" : "horizontal"} aria-valuenow={Math.round(node.ratio * 100)}
+    <div className="resize" role="separator" style={collapsed ? {visibility: "hidden"} : undefined} tabIndex={collapsed ? -1 : 0} aria-label="Resize panes" aria-orientation={horizontal ? "vertical" : "horizontal"} aria-valuenow={Math.round(node.ratio * 100)}
       onPointerDown={resize} onKeyDown={event => { const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? .05 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -.05 : 0; if (delta) { event.preventDefault(); props.resize(node.id, Math.max(.1, Math.min(.9, node.ratio + delta))); } }} />
     <LayoutView {...props} node={node.second} />
   </div>;
