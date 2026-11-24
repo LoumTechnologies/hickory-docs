@@ -1741,6 +1741,10 @@ fn cmd_diagram(args: DiagramArgs) -> Result<ExitCode> {
 <a id="f-5607f2721a2d-cmd_search"></a>
 ### `cmd_search`
 
+Keep the range in the result heading and cite each preview line within that
+range. An explicit query selects matching source lines. Related search uses
+the window's source as context.
+
 <storycode:copy id="f-5607f2721a2d-cmd_search">
 async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
     let root = match &args.root {
@@ -1785,10 +1789,15 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
         println!("no matches");
         return Ok(ExitCode::SUCCESS);
     }
+    let preview_query = if args.related.is_none() {
+        args.query.as_deref()
+    } else {
+        None
+    };
     for hit in hits {
         println!("{}:{}-{}", hit.path, hit.start_line, hit.end_line);
-        for line in hit.snippet.lines().filter(|l| !l.trim().is_empty()).take(3) {
-            println!("    {line}");
+        for (number, line) in hit.preview_lines(preview_query, 3) {
+            println!("    {number}: {line}");
         }
         println!();
     }

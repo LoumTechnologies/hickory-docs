@@ -45,6 +45,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P0 | Prevent open tabs from implicitly contributing source text to the Simple Agent prompt. The original Send omitted a projection, leaving full editor text in the model description. | Simple now sends an explicit empty projection with the full edit snapshot reserved for the host. The composer points users to the message for excerpts. Direct source selection and a preview remain open. Verify selected and unselected synthetic text on every Simple client when that workflow is available. |
 | P1 | Verify the read-only agent audit, then its guarded edit path. | Show which open files are captured and which text will be sent to the selected model. Exercise a local or approved model against the same repository, then compare the provider-visible payload and delivery receipt with the selection. The browser's request to the local host and its draft retention on refusal have focused evidence. Separately review a patch against exact preimages, with explicit user action before publication. |
 | P1 | Check web/native preview isolation and permission boundaries during normal review. | Confirm external URLs are handled by the appropriate policy, unsupported content remains readable, actions require current workspace authority, and unrelated local data stays outside review scope. |
+| P1 | Render repository-controlled text safely in terminal search results. | The CLI writes paths and excerpts directly to standard output. Check that terminal control characters become visible text while Unicode, indentation, and source line numbers remain readable. Keep the original indexed source available for editor navigation. |
 | P2 | Rank and group ordinary source with its captured reading. | Lexical search keeps a window when it adds a matching line for that file. Still verify grouping using an explicit relationship between Kotlin and its reading, and evaluate the first page with embeddings enabled. |
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
@@ -88,7 +89,10 @@ Laura paths and representative Kotlin identifiers. The live Laura folder
 stalled on file reads, so the fixture supplied the working text. In the
 baseline, both the CLI and Hickory’s local browser API returned four Kotlin
 windows for two matching lines, plus the reading. The CLI’s three-line
-preview often showed only neighboring comments. The new focused Rust
+preview often showed only neighboring comments. It now selects matching
+source lines and cites their original line numbers. A focused Rust test
+checks a match at line 100 in a window starting at line 97. It also checks
+the context preview for a result without lexical terms. A separate Rust
 test checks that lexical ranking returns exactly one window for each of
 the two distinct lines plus the separate reading, with the exact source
 text at the indexed offset. Three lexical search tests and the related
@@ -136,7 +140,7 @@ The installed macOS app and Simple Browser were walked against the Laura working
 
 The updated Laura working tree used the existing local Gradle scaffold. The final debug build, five focused metadata tests and optimized release build passed with Guava Android `33.7.2` and Kotlin `2.4.21`. The local release build produced `app/build/outputs/apk/release/app-release-unsigned.apk`, SHA-256 `a8a9926b8e87a971104bd89bd014a2d1bbcebaa51ac7ec475f5cd970534999e9`. The manifest inspection found the launch activity, minimum SDK 23, target SDK 37, broad storage access, legacy storage declarations capped at API 29 and network-state access. The Internet permission was absent. Hickory’s browser editor showed the dependency constraint and its advisory reason in the authoritative Gradle file. Release signing, runtime media testing and storage permissions on devices remain open.
 
-No ADB device was connected for the Android acceptance attempt. An isolated API 36 emulator stopped with exit status 1 before boot because the host lacked enough disk space. The APK was never installed. Existing emulator data and journal vaults were untouched. The first-entry, media, filter and export journey still needs a running device and a disposable vault.
+No ADB device was connected for the Android acceptance attempt. An isolated API 36 emulator stopped with exit status 1 before boot. A retry with a 512 MiB data partition passed the first compatibility check but still required 7,372.8 MB for userdata creation. The host reported 2,048.64 MB available. The APK was never installed. Existing emulator data and journal vaults were untouched. The first-entry, media, filter and export journey still needs a running device and a disposable vault.
 
 OSV matched zero of 130 release-runtime Maven coordinates and six of 115 build-classpath coordinates. Gradle’s build graph identifies the paths below. These are build-tool dependencies and the scan establishes version matches. Reachability from Laura build inputs and exploitability remain unverified. [OSV batch API](https://google.github.io/osv.dev/post-v1-querybatch/).
 

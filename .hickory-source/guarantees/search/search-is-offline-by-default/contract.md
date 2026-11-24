@@ -346,7 +346,10 @@ const RRF_K: f32 = 60.0;
 <a id="f-4c0f66567348-Hit"></a>
 ### `Hit`
 
-One search hit: a chunk of one file, with 1-based line bounds.
+One search hit holds the entire indexed window and its 1-based line bounds.
+A compact preview selects lines with terms from the lexical ranker. Related
+searches and semantic hits without matching terms preview nearby source.
+Both forms cite the original line numbers.
 
 <storycode:copy id="f-4c0f66567348-Hit">
 /// One search hit: a chunk of one file, with 1-based line bounds.
@@ -360,6 +363,31 @@ pub struct Hit {
     pub score: f32,
     /// The chunk's text, for preview. Callers may truncate.
     pub snippet: String,
+}
+
+impl Hit {
+    pub fn preview_lines(&self, query: Option<&str>, limit: usize) -> Vec<(usize, &str)> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        if let Some(query) = query {
+            let terms = tokens(query).into_iter().collect();
+            let matches: Vec<_> = lexical_match_lines(&self.snippet, &terms)
+                .take(limit)
+                .map(|(offset, line)| (self.start_line + offset, line))
+                .collect();
+            if !matches.is_empty() {
+                return matches;
+            }
+        }
+        self.snippet
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
+            .take(limit)
+            .map(|(offset, line)| (self.start_line + offset, line))
+            .collect()
+    }
 }
 
 </storycode:copy>
@@ -619,15 +647,9 @@ impl SearchEngine {
                     return true;
                 }
                 let seen = seen_lines.entry(path).or_default();
-                let matches = chunk.text.lines().enumerate().filter_map(|(offset, line)| {
-                    tokens(line)
-                        .iter()
-                        .any(|token| query_tokens.contains(token))
-                        .then_some(chunk.start_line + offset)
-                });
                 let mut new_match = false;
-                for line in matches {
-                    new_match |= seen.insert(line);
+                for (offset, _) in lexical_match_lines(&chunk.text, &query_tokens) {
+                    new_match |= seen.insert(chunk.start_line + offset);
                 }
                 new_match
             })
@@ -920,6 +942,17 @@ fn tokens(text: &str) -> Vec<String> {
     out
 }
 
+fn lexical_match_lines<'text>(
+    text: &'text str,
+    query_tokens: &HashSet<String>,
+) -> impl Iterator<Item = (usize, &'text str)> {
+    text.lines().enumerate().filter(move |(_, line)| {
+        tokens(line)
+            .iter()
+            .any(|token| query_tokens.contains(token))
+    })
+}
+
 </storycode:copy>
 <a id="f-4c0f66567348-bm25_ranking"></a>
 ### `bm25_ranking`
@@ -1186,6 +1219,25 @@ mod tests {
                 Some(lines[line - 1])
             );
         }
+    }
+
+    #[test]
+    fn search_preview_cites_matches_beyond_the_initial_context() {
+        let hit = Hit {
+            path: "app/flojo/util/HtmlExporter.kt".into(),
+            start_line: 97,
+            end_line: 101,
+            score: 1.0,
+            snippet: "// Notes\n\n// More context\nprivate fun renderCardFooter() = Unit\n// End".into(),
+        };
+        assert_eq!(
+            hit.preview_lines(Some("renderCard"), 3),
+            vec![(100, "private fun renderCardFooter() = Unit")]
+        );
+        let context = vec![(97, "// Notes"), (99, "// More context")];
+        assert_eq!(hit.preview_lines(Some("absent"), 2), context);
+        assert_eq!(hit.preview_lines(None, 2), context);
+        assert!(hit.preview_lines(Some("renderCard"), 0).is_empty());
     }
 
     #[test]

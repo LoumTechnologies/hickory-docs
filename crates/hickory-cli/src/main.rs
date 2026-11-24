@@ -1487,10 +1487,15 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
         println!("no matches");
         return Ok(ExitCode::SUCCESS);
     }
+    let preview_query = if args.related.is_none() {
+        args.query.as_deref()
+    } else {
+        None
+    };
     for hit in hits {
         println!("{}:{}-{}", hit.path, hit.start_line, hit.end_line);
-        for line in hit.snippet.lines().filter(|l| !l.trim().is_empty()).take(3) {
-            println!("    {line}");
+        for (number, line) in hit.preview_lines(preview_query, 3) {
+            println!("    {number}: {line}");
         }
         println!();
     }
