@@ -160,15 +160,26 @@ describe("shared frontend layout contract", () => {
     expect(document.querySelector("svg")?.getAttribute("role")).toBe("img");
     expect(document.querySelector("svg rect")?.getAttribute("x")).toBe("40");
     expect(document.querySelector("svg line")?.getAttribute("x1")).toBe("200");
-    await scope.renderDiagram('{"nodes": {}}', "graph");
-    expect(document.getElementById("status")?.textContent).toBe("Graph nodes and edges must be arrays.");
-    await scope.renderDiagram("broken", "graph");
-    expect(document.getElementById("status")?.textContent).not.toBe("");
+    expect(document.querySelector("svg g title")?.textContent).toBe("No workspace destination");
+    for (const [source, renderer, message] of [
+      ['{"nodes": {}}', "graph", "Graph nodes and edges must be arrays."],
+      ['{"nodes":[null]}', "graph", "Graph nodes need a text ID"],
+      ['{"nodes":[]}', "graph", "Diagram has no nodes."],
+      ["", "mermaid", "Diagram source is empty."],
+      [" ".repeat(200_001), "graph", "Diagram is too large to preview."],
+      ["{}", "unsupported", "No preview for renderer"],
+    ]) {
+      await scope.renderDiagram(source, renderer);
+      expect(document.getElementById("status")?.textContent).toContain(message);
+      expect(document.getElementById("status")?.textContent).toContain("Use the diagram gutter");
+      expect(document.querySelector("#formula svg")).toBeNull();
+    }
     const old = scope.renderDiagram("graph TD; A-->B", "mermaid");
     const fresh = scope.renderDiagram('graph TD; X-->Y;\nclick X "notes.md"', "mermaid");
     pending[1]({ svg: '<svg><g class="node" id="diagram-2-flowchart-X-7"><text>fresh</text></g></svg>' }); await fresh;
     pending[0]({ svg: "<svg><text>old</text></svg>" }); await old;
     expect(document.getElementById("formula")?.textContent).toBe("fresh");
+    expect(document.getElementById("status")?.textContent).toBe("");
     document.querySelector("g.node")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(linked).toHaveBeenLastCalledWith({ href: "notes.md", revision: 0 });
     expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict" }));

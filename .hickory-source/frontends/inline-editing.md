@@ -40,11 +40,13 @@ Mermaid bundle; graph JSON is drawn as SVG using text nodes for labels. The body
 is passed as JSON rather than executable script. Like the browser, the shared
 Apple and Android graph renderer reads authored top-level nodes and edges as
 well as scene topology nested under `topology`. Both forms keep layout at the
-top level. Reject malformed collections so an invalid graph cannot look like an
-empty preview. A monotonically increasing
+top level. Check scene shape and size before drawing. Empty, invalid and
+oversize diagrams report what stopped the preview, with the source action on
+the diagram gutter. Include the message in the native size receipt so it fits
+even when there is no SVG to measure. A monotonically increasing
 render ticket rejects obsolete Mermaid results. Native WebViews skip identical
-source/renderer updates so typing elsewhere cannot restart an unchanged diagram. Invalid and unsupported diagrams
-show their source and a status message. Network navigation remains disabled.
+source/renderer updates so typing elsewhere cannot restart an unchanged diagram.
+Network navigation remains disabled.
 Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve the measured natural content height, shrinking wide diagrams to the available width. Measurement changes preserve the visible source anchor and never mutate diagram bytes. Source mode is reversible through the same right-gutter icon. Fenced examples and
 other Hickory literal bodies do not create live diagrams.
 
@@ -1161,6 +1163,7 @@ keeps its own palette.
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode:not(.interactive-terminal) .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 <style>
 .diagram-mode g[role="link"]:focus > rect { stroke-width: 3; }
+.diagram-mode #status:not(:empty) { inset-inline: 0; top: 0; bottom: auto; max-height: 100%; box-sizing: border-box; padding: 4px 8px; font-size: inherit; overflow: auto; overflow-wrap: anywhere; }
 html:root {
   color-scheme: light dark;
   color: CanvasText; background: Canvas;
@@ -1203,10 +1206,12 @@ function fitPreview() {
   if (document.body.classList.contains('notebook-mode') || document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
   const width = node.offsetWidth, height = node.offsetHeight;
-  if (globalThis.mathRevision !== undefined && (document.querySelector('.katex') || document.body.classList.contains('diagram-mode'))) {
-    globalThis.webkit?.messageHandlers?.mathSize?.postMessage({ revision: globalThis.mathRevision, width, height });
+  const statusHeight = document.getElementById('status').offsetHeight;
+  const diagram = document.body.classList.contains('diagram-mode');
+  if (globalThis.mathRevision !== undefined && (document.querySelector('.katex') || diagram)) {
+    globalThis.webkit?.messageHandlers?.mathSize?.postMessage({ revision: globalThis.mathRevision, width, height: height + (diagram ? statusHeight : 0) });
   }
-  const availableHeight = Math.max(1, innerHeight - document.getElementById('status').offsetHeight);
+  const availableHeight = Math.max(1, innerHeight - statusHeight);
   const scale = Math.min(1, innerWidth / Math.max(1, width), availableHeight / Math.max(1, height));
   node.style.transform = `scale(${scale})`;
   node.style.left = Math.max(0, (innerWidth - width * scale) / 2) + 'px';
@@ -1349,14 +1354,27 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   const revision = globalThis.diagramRevision = (globalThis.diagramRevision || 0) + 1;
   status.textContent = '';
-  if (source.length > 200000) { node.textContent = ''; status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
   try {
+    if (source.length > 200000) throw Error('Diagram is too large to preview.');
+    if (!source.trim()) throw Error('Diagram source is empty.');
     if (renderer === 'graph') {
-      const graph = JSON.parse(source), layout = graph.layout ?? {};
+      const graph = JSON.parse(source);
+      if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw Error('Graph source must be a JSON object.');
+      const layout = graph.layout ?? {};
+      if (typeof layout !== 'object' || Array.isArray(layout)) throw Error('Graph layout must be a JSON object.');
+      if (Object.values(layout).some(box => !box || !Number.isFinite(box.x) || !Number.isFinite(box.y) ||
+        (box.w != null && !Number.isFinite(box.w)) || (box.h != null && !Number.isFinite(box.h)))) throw Error('Graph layout needs numeric positions and sizes.');
+      if (graph.topology != null && (typeof graph.topology !== 'object' || Array.isArray(graph.topology))) throw Error('Graph topology must be a JSON object.');
       const nodes = graph.topology?.nodes ?? graph.nodes ?? [];
       const edges = graph.topology?.edges ?? graph.edges ?? [];
       if (!Array.isArray(nodes) || !Array.isArray(edges)) throw Error('Graph nodes and edges must be arrays.');
       if (nodes.length > 500 || edges.length > 2000) throw Error('Diagram is too large to preview.');
+      if (nodes.some(item => !item || typeof item.id !== 'string' || !item.id.trim() ||
+        [item.label, item.href].some(value => value != null && typeof value !== 'string'))) throw Error('Graph nodes need a text ID and text for any label or destination.');
+      if (new Set(nodes.map(item => item.id)).size !== nodes.length) throw Error('Graph node IDs must be unique.');
+      if (edges.some(edge => !edge || typeof edge.from !== 'string' || typeof edge.to !== 'string' ||
+        [edge.id, edge.label, edge.fromSide, edge.toSide].some(value => value != null && typeof value !== 'string'))) throw Error('Graph edges need text from and to IDs and text for any ID, label or connector.');
+      if (!nodes.length) throw Error('Diagram has no nodes.');
       const ns = 'http://www.w3.org/2000/svg';
       const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };
       const boxes = new Map(nodes.map((n, i) => { const box = layout[n.id] || {}; return [n.id, { x: Number.isFinite(box.x) ? box.x : i % 4 * 170 + 10, y: Number.isFinite(box.y) ? box.y : Math.floor(i / 4) * 90 + 10, w: Number.isFinite(box.w) ? Math.max(30, box.w) : 140, h: Number.isFinite(box.h) ? Math.max(30, box.h) : 50 }]; }));
@@ -1382,7 +1400,7 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
           const follow = () => followDiagramLink(item.href, sizeRevision);
           group.addEventListener('click', follow);
           group.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); follow(); } });
-        }
+        } else group.prepend(element('title', {}, 'No workspace destination'));
         svg.append(group);
       }
       node.replaceChildren(svg);
@@ -1401,8 +1419,13 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         const svg = node.querySelector('svg'), box = svg?.viewBox?.baseVal;
         if (box?.width && box?.height) { svg.style.maxWidth = 'none'; svg.setAttribute('width', box.width); svg.setAttribute('height', box.height); }
       }
-    } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
-  } catch (error) { if (revision === globalThis.diagramRevision) { node.textContent = source; status.textContent = error.message || 'Check the diagram source.'; } }
+    } else throw Error('No preview for renderer ' + renderer + '.');
+  } catch (error) {
+    if (revision === globalThis.diagramRevision) {
+      node.replaceChildren();
+      status.textContent = (error.message || 'Could not preview this diagram.') + ' Use the diagram gutter to edit its source.';
+    }
+  }
   if (revision === globalThis.diagramRevision) fitPreview();
 };
 

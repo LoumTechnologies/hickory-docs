@@ -170,5 +170,12 @@ describe("the scene's byte form", () => {
   it("reports a parse failure instead of throwing or guessing", () => {
     const parsed = parseSceneSource("{ not json");
     expect(parsed.ok).toBe(false);
+    expect(parseSceneSource('{"nodes":{}}')).toMatchObject({ ok: false, error: "graph nodes and edges must be arrays" });
+    expect(parseSceneSource('{"topology":{"nodes":[null]}}')).toMatchObject({ ok: false, error: expect.stringContaining("text ID") });
+    expect(parseSceneSource('{"nodes":[{"id":"a"},{"id":"a"}]}')).toMatchObject({ ok: false, error: expect.stringContaining("unique") });
+    expect(parseSceneSource('{"layout":{"a":null}}')).toMatchObject({ ok: false, error: expect.stringContaining("numeric positions") });
+    expect(parseSceneSource('{"nodes":[],"edges":[{"from":"a"}]}')).toMatchObject({ ok: false, error: expect.stringContaining("from and to") });
+    expect(parseSceneSource(" ".repeat(200_001))).toMatchObject({ ok: false, error: expect.stringContaining("too large") });
+    expect(parseSceneSource('{"nodes":[]}')).toMatchObject({ ok: true, scene: { nodes: [] } });
   });
 });

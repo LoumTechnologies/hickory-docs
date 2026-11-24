@@ -98,6 +98,9 @@ Subscribe within the diagram and reject obsolete asynchronous replies with the
 same render generation used for source changes. The editor owns its selection
 and history throughout.
 
+Handle empty and oversize source before loading Mermaid. Explain the failure
+without leaving an earlier drawing on screen for that source.
+
 <storycode:copy id="f-80582538ea4e-DiagramPanel">
 export function DiagramPanel({
   renderer,
@@ -108,17 +111,15 @@ export function DiagramPanel({
   systemAppearance = false,
 }: DiagramPanelProps) {
   const [render, setRender] = useState<Render>({ status: "idle" });
+  const unavailable = source.length > 200_000 ? "Diagram is too large to preview."
+    : !source.trim() ? "Diagram source is empty." : null;
   // Guards against an out-of-order render: mermaid is async and someone
   // typing produces overlapping calls, of which only the last is current.
   const latest = useRef(0);
 
   useEffect(() => {
-    if (!RENDERERS.includes(renderer)) return;
+    if (!RENDERERS.includes(renderer) || unavailable) return;
     const trimmed = source.trim();
-    if (!trimmed) {
-      setRender({ status: "idle" });
-      return;
-    }
     let cancelled = false;
 
     const appearance = systemAppearance ? window.matchMedia?.("(prefers-color-scheme: dark)") : undefined;
@@ -156,14 +157,16 @@ export function DiagramPanel({
       cancelled = true;
       appearance?.removeEventListener("change", draw);
     };
-  }, [renderer, source, domId, systemAppearance]);
+  }, [renderer, source, domId, systemAppearance, unavailable]);
 
-  const stale = render.status !== "idle" && (render.input.source !== source || render.input.renderer !== renderer || render.input.domId !== domId);
-  useUiReading("diagram rendering", { renderer, source, assertions, render: RENDERERS.includes(renderer) ? render : { status: "unsupported" }, stale, scope: "Actual renderer result and reported assertion states; diagram rendering does not independently establish assertions" });
+  const stale = !unavailable && render.status !== "idle" && (render.input.source !== source || render.input.renderer !== renderer || render.input.domId !== domId);
+  const reportedRender = !RENDERERS.includes(renderer) ? { status: "unsupported" }
+    : unavailable ? { status: "failed", message: unavailable } : render;
+  useUiReading("diagram rendering", { renderer, source, assertions, render: reportedRender, stale, scope: "Actual renderer result and reported assertion states; diagram rendering does not independently establish assertions" });
   if (!RENDERERS.includes(renderer)) {
     return (
       <div className="diagram-panel diagram-panel-unknown">
-        <p className="muted">
+        <p className="muted" role="status">
           No renderer for <span className="mono">{renderer}</span> in this build
           — the source below is unchanged and still weaves.
         </p>
@@ -173,8 +176,9 @@ export function DiagramPanel({
 
   return (
     <div className="diagram-panel" data-testid="diagram-panel">
+      {unavailable && <p className="diagram-error" role="status">{unavailable} Use the diagram gutter to edit its source.</p>}
       {stale && <p role="status">Diagram preview is from previous source; current rendering is pending.</p>}
-      {render.status === "drawn" && (
+      {!unavailable && render.status === "drawn" && (
         // eslint-disable-next-line react/no-danger -- mermaid's own output,
         // rendered with securityLevel "strict" (no scripts, no click handlers).
         <div
@@ -191,7 +195,7 @@ export function DiagramPanel({
           dangerouslySetInnerHTML={{ __html: render.svg }}
         />
       )}
-      {render.status === "failed" && (
+      {!unavailable && !stale && render.status === "failed" && (
         <p className="diagram-error" role="status">
           This diagram does not parse yet: {render.message}
         </p>
@@ -355,6 +359,19 @@ describe("the diagram panel", () => {
     await waitFor(() =>
       expect(screen.getByText(/Nothing checks this diagram/)).toBeTruthy(),
     );
+  });
+
+  it("reports empty and oversize source without retaining the picture or calling Mermaid", async () => {
+    renderMock.mockResolvedValue({ svg: "<svg data-testid='drawn'></svg>" });
+    const { rerender } = render(<DiagramPanel renderer="mermaid" source="flowchart TD" domId="bounded" />);
+    await screen.findByTestId("drawn");
+    rerender(<DiagramPanel renderer="mermaid" source="" domId="bounded" />);
+    expect(screen.getByRole("status").textContent).toContain("Diagram source is empty");
+    expect(screen.queryByTestId("drawn")).toBeNull();
+    rerender(<DiagramPanel renderer="mermaid" source={" ".repeat(200_001)} domId="bounded" />);
+    expect(screen.getByRole("status").textContent).toContain("Diagram is too large to preview");
+    expect(screen.getByRole("status").textContent).toContain("Use the diagram gutter");
+    expect(renderMock).toHaveBeenCalledTimes(1);
   });
 
   it("says the diagram is out of date when an assertion it names is failing", async () => {

@@ -673,7 +673,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
     return (
       <div className="graph-editor graph-editor--broken">
         <p className="diagram-error" role="status">
-          This diagram does not parse yet: {parseError}
+          This diagram does not parse yet: {parseError}. Use the diagram gutter to edit its source.
         </p>
         <DiagramAssertions assertions={assertions} />
       </div>
@@ -705,6 +705,9 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
       ref={engagement.root}
       {...engagement.handlers}
     >
+      {nodes.length === 0 && sceneRef.current && (
+        <p role="status">{derived && !resolved ? "Waiting for diagram topology…" : "Diagram has no nodes."}</p>
+      )}
       {!previewOnly && <>
       <div className="graph-editor__toolbar">
         {!derived && (

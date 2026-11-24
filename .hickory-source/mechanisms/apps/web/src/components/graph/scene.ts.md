@@ -135,6 +135,10 @@ Parse a diagram body as it stands in the DOCUMENT. A derived body is not
 JSON — it holds a paste tag where its topology goes — so the tag is lifted
 out, remembered verbatim, and its place taken by `null` for the parse.
 
+Check the collection shapes and record fields before handing them to the
+canvas. Invalid data stays in the buffer, where the diagram's source action
+can fix it. Bound the preview before parsing or creating canvas objects.
+
 <storycode:copy id="f-3f46decc2b79-parseSceneSource">
 /**
  * Parse a diagram body as it stands in the DOCUMENT. A derived body is not
@@ -142,6 +146,8 @@ out, remembered verbatim, and its place taken by `null` for the parse.
  * out, remembered verbatim, and its place taken by `null` for the parse.
  */
 export function parseSceneSource(raw: string): ParsedScene {
+  if (raw.length > 200_000) return { ok: false, error: "diagram is too large to preview" };
+  if (!raw.trim()) return { ok: false, error: "diagram source is empty" };
   const paste = PASTE_RE.exec(raw)?.[0] ?? null;
   const text = paste ? raw.replace(paste, "null") : raw;
   let parsed: unknown;
@@ -167,14 +173,39 @@ export function parseSceneSource(raw: string): ParsedScene {
     };
   }
   const topology = body.topology ?? undefined;
+  if (topology !== undefined && (typeof topology !== "object" || Array.isArray(topology))) {
+    return { ok: false, error: "graph topology must be a JSON object" };
+  }
+  const nodes = topology?.nodes ?? body.nodes ?? [];
+  const edges = topology?.edges ?? body.edges ?? [];
+  const layout = body.layout ?? {};
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    return { ok: false, error: "graph nodes and edges must be arrays" };
+  }
+  if (nodes.length > 500 || edges.length > 2_000) {
+    return { ok: false, error: "diagram is too large to preview" };
+  }
+  if (nodes.some(node => !node || typeof node.id !== "string" || !node.id.trim() ||
+      [node.label, node.href].some(value => value != null && typeof value !== "string"))) {
+    return { ok: false, error: "graph nodes need a text ID and text for any label or destination" };
+  }
+  if (new Set(nodes.map(node => node.id)).size !== nodes.length) {
+    return { ok: false, error: "graph node IDs must be unique" };
+  }
+  if (edges.some(edge => !edge || typeof edge.from !== "string" || typeof edge.to !== "string" ||
+      [edge.id, edge.label, edge.fromSide, edge.toSide].some(value => value != null && typeof value !== "string"))) {
+    return { ok: false, error: "graph edges need text from and to IDs and text for any ID, label or connector" };
+  }
+  if (typeof layout !== "object" || Array.isArray(layout)) {
+    return { ok: false, error: "graph layout must be a JSON object" };
+  }
+  if (Object.values(layout).some(box => !box || !Number.isFinite(box.x) || !Number.isFinite(box.y) ||
+      (box.w != null && !Number.isFinite(box.w)) || (box.h != null && !Number.isFinite(box.h)))) {
+    return { ok: false, error: "graph layout needs numeric positions and sizes" };
+  }
   return {
     ok: true,
-    scene: {
-      nodes: topology?.nodes ?? body.nodes ?? [],
-      edges: topology?.edges ?? body.edges ?? [],
-      layout: body.layout ?? {},
-      paste,
-    },
+    scene: { nodes, edges, layout, paste },
   };
 }
 
@@ -893,6 +924,13 @@ describe("the scene's byte form", () => {
   it("reports a parse failure instead of throwing or guessing", () => {
     const parsed = parseSceneSource("{ not json");
     expect(parsed.ok).toBe(false);
+    expect(parseSceneSource('{"nodes":{}}')).toMatchObject({ ok: false, error: "graph nodes and edges must be arrays" });
+    expect(parseSceneSource('{"topology":{"nodes":[null]}}')).toMatchObject({ ok: false, error: expect.stringContaining("text ID") });
+    expect(parseSceneSource('{"nodes":[{"id":"a"},{"id":"a"}]}')).toMatchObject({ ok: false, error: expect.stringContaining("unique") });
+    expect(parseSceneSource('{"layout":{"a":null}}')).toMatchObject({ ok: false, error: expect.stringContaining("numeric positions") });
+    expect(parseSceneSource('{"nodes":[],"edges":[{"from":"a"}]}')).toMatchObject({ ok: false, error: expect.stringContaining("from and to") });
+    expect(parseSceneSource(" ".repeat(200_001))).toMatchObject({ ok: false, error: expect.stringContaining("too large") });
+    expect(parseSceneSource('{"nodes":[]}')).toMatchObject({ ok: true, scene: { nodes: [] } });
   });
 });
 </storycode:copy>

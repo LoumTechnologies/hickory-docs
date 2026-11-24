@@ -66,6 +66,19 @@ describe("the diagram panel", () => {
     );
   });
 
+  it("reports empty and oversize source without retaining the picture or calling Mermaid", async () => {
+    renderMock.mockResolvedValue({ svg: "<svg data-testid='drawn'></svg>" });
+    const { rerender } = render(<DiagramPanel renderer="mermaid" source="flowchart TD" domId="bounded" />);
+    await screen.findByTestId("drawn");
+    rerender(<DiagramPanel renderer="mermaid" source="" domId="bounded" />);
+    expect(screen.getByRole("status").textContent).toContain("Diagram source is empty");
+    expect(screen.queryByTestId("drawn")).toBeNull();
+    rerender(<DiagramPanel renderer="mermaid" source={" ".repeat(200_001)} domId="bounded" />);
+    expect(screen.getByRole("status").textContent).toContain("Diagram is too large to preview");
+    expect(screen.getByRole("status").textContent).toContain("Use the diagram gutter");
+    expect(renderMock).toHaveBeenCalledTimes(1);
+  });
+
   it("says the diagram is out of date when an assertion it names is failing", async () => {
     // The whole point: the drawing and the code have parted company, and the
     // reader finds out here rather than three weeks later.
