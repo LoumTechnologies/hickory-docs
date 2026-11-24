@@ -51,8 +51,8 @@ When an empty pane closes, the surviving editor can move to a new position in th
 
 SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache native views by buffer identity so changing a tab parent does not reconstruct text, undo history, selection or scroll. Delegates update only that buffer.
 
-AppKit moves the insertion point to the end when the initial source string is
-assigned. Set the native selection from the buffer before attaching the delegate.
+AppKit and UIKit move the insertion point to the end when the initial source
+text is assigned. Set the native selection from the buffer before attaching the delegate.
 The caret, status bar and first external refresh then start from the same position,
 even if the reviewer has only used the workspace search sheet.
 
@@ -1960,6 +1960,7 @@ import UIKit
         text.autocorrectionType = .no; text.autocapitalizationType = .none
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
+        text.selectedRange = buffer.selection
         text.accessibilityLabel = buffer.file.path; text.delegate = self; text.pasteDelegate = self
         let equationTap = UITapGestureRecognizer(target: self, action: #selector(restoreEquationPreview(_:)))
         equationTap.numberOfTapsRequired = 2

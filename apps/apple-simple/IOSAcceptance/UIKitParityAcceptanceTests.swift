@@ -379,7 +379,79 @@ import WebKit
     }
 }
 
+private final class UIKitRefreshResponse: URLProtocol {
+    static let path = "Export.kt"
+    static let workspaceID = String(repeating: "a", count: 32)
+    static let original = "package journal\n\nfun export() = Unit\n"
+    static let prefix = "// External line\n"
+    static let changed = prefix + original
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "uikit-refresh.invalid" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let body: [String: Any]
+        let status: Int
+        switch url.path {
+        case "/api/files":
+            body = ["root": "owned", "root_path": "/owned", "workspace_id": Self.workspaceID,
+                    "tree": [["name": Self.path, "path": Self.path, "dir": false]]]
+            status = 200
+        case "/api/file":
+            body = ["path": Self.path, "content": Self.changed, "hash": "new", "save_guard": "new"]
+            status = 200
+        default:
+            body = ["error": "Optional capability unavailable in the refresh fixture"]
+            status = 404
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
+}
+
 extension UIKitParityAcceptanceTests {
+    func testMountedSavedRefreshKeepsCaretAndTemplateStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UIKitRefreshResponse.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let workspace = Workspace()
+        let path = UIKitRefreshResponse.path
+        let file = FileNode(name: path, path: path, dir: false)
+        let source = FileText(path: path, content: UIKitRefreshResponse.original, hash: "old", save_guard: "old")
+        let buffer = DocumentBuffer(file: file, text: source)
+        workspace.engine = try Engine(address: "http://uikit-refresh.invalid", session: session)
+        workspace.sourceRootAddress = "/owned"
+        workspace.sourceWorkspaceID = UIKitRefreshResponse.workspaceID
+        workspace.rootFiles = [file]
+        workspace.buffers[path] = buffer
+        workspace.showSource(path)
+        let mounted = try MountedIOSWorkspace(workspace: workspace)
+        defer { mounted.close() }
+        let editor = try await mounted.editor(buffer)
+        let initial = NSRange(location: 0, length: 0)
+        XCTAssertEqual(editor.selectedRange, initial)
+        XCTAssertTrue(buffer.snippets.notice.isEmpty)
+
+        try mounted.command("file.refresh")
+        try await mounted.wait("The saved source did not reload") {
+            buffer.base == UIKitRefreshResponse.changed && editor.text == UIKitRefreshResponse.changed
+        }
+        let expected = NSRange(location: UIKitRefreshResponse.prefix.utf16.count, length: 0)
+        XCTAssertEqual(editor.selectedRange, expected)
+        XCTAssertEqual(buffer.selection, expected)
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertTrue(buffer.snippets.notice.isEmpty)
+    }
+
     func testMountedSearchProblemsAndCollectedTests() async throws {
         let mounted = try await MountedIOSWorkspace(marker: ".hickory-ios-workspace", expected: "owned-workspace-v1\n", path: "app.py")
         defer { mounted.close() }

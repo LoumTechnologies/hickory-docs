@@ -1693,6 +1693,7 @@ import UIKit
         text.autocorrectionType = .no; text.autocapitalizationType = .none
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
+        text.selectedRange = buffer.selection
         text.accessibilityLabel = buffer.file.path; text.delegate = self; text.pasteDelegate = self
         let equationTap = UITapGestureRecognizer(target: self, action: #selector(restoreEquationPreview(_:)))
         equationTap.numberOfTapsRequired = 2
