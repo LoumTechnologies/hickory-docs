@@ -21,7 +21,7 @@
 //! search pays for the build and the rest are incremental — semble's cached
 //! index, implemented here.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -266,8 +266,17 @@ impl SearchEngine {
         Ok(())
     }
 
-    /// Rank every chunk against `query` and return the best `top_k`.
+    /// Rank chunks against `query` and return up to `top_k` results.
     pub fn search(&self, query: &str, top_k: usize) -> Vec<Hit> {
+        self.ranked_search(query, top_k, |_, _| true)
+    }
+
+    fn ranked_search(
+        &self,
+        query: &str,
+        top_k: usize,
+        include: impl Fn(&str, &Chunk) -> bool,
+    ) -> Vec<Hit> {
         let chunks = self.all_chunks();
         if chunks.is_empty() {
             return Vec::new();
@@ -283,7 +292,44 @@ impl SearchEngine {
             cosine_ranking(&query_embedding, &chunks)
         });
 
-        fuse(&chunks, lexical, semantic, top_k)
+        let lexical_only = semantic.is_none();
+        let query_tokens: HashSet<_> = tokens(query).into_iter().collect();
+        let mut seen_lines = HashMap::<&str, HashSet<usize>>::new();
+        fuse(lexical, semantic)
+            .into_iter()
+            .filter(|&(index, _)| {
+                let (path, chunk) = chunks[index];
+                if !include(path, chunk) {
+                    return false;
+                }
+                if !lexical_only {
+                    return true;
+                }
+                let seen = seen_lines.entry(path).or_default();
+                let matches = chunk.text.lines().enumerate().filter_map(|(offset, line)| {
+                    tokens(line)
+                        .iter()
+                        .any(|token| query_tokens.contains(token))
+                        .then_some(chunk.start_line + offset)
+                });
+                let mut new_match = false;
+                for line in matches {
+                    new_match |= seen.insert(line);
+                }
+                new_match
+            })
+            .take(top_k)
+            .map(|(index, score)| {
+                let (path, chunk) = chunks[index];
+                Hit {
+                    path: path.to_string(),
+                    start_line: chunk.start_line,
+                    end_line: chunk.end_line,
+                    score,
+                    snippet: chunk.text.clone(),
+                }
+            })
+            .collect()
     }
 
     /// Completions drawn from this project's own text.
@@ -400,20 +446,11 @@ impl SearchEngine {
             .or(entry.chunks.last())
             .ok_or_else(|| anyhow::anyhow!("{rel_path} has no indexed content"))?;
 
-        // The anchor's text IS the query; ask for extra results so dropping
-        // overlapping anchor-adjacent chunks still leaves top_k.
-        let hits = self.search(&anchor.text, top_k + 4);
-        Ok(hits
-            .into_iter()
-            .filter(|h| {
-                // Inclusive bounds on both sides, so the anchor chunk and
-                // anything overlapping it are dropped.
-                !(h.path == rel_path
-                    && h.start_line <= anchor.end_line
-                    && anchor.start_line <= h.end_line)
-            })
-            .take(top_k)
-            .collect())
+        Ok(self.ranked_search(&anchor.text, top_k, |path, chunk| {
+            path != rel_path
+                || chunk.start_line > anchor.end_line
+                || chunk.end_line < anchor.start_line
+        }))
     }
 
     fn all_chunks(&self) -> Vec<(&str, &Chunk)> {
@@ -605,12 +642,7 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// Reciprocal-rank fusion of the available rankings.
-fn fuse(
-    chunks: &[(&str, &Chunk)],
-    lexical: Vec<usize>,
-    semantic: Option<Vec<usize>>,
-    top_k: usize,
-) -> Vec<Hit> {
+fn fuse(lexical: Vec<usize>, semantic: Option<Vec<usize>>) -> Vec<(usize, f32)> {
     let mut score: HashMap<usize, f32> = HashMap::new();
     for ranking in std::iter::once(lexical).chain(semantic) {
         for (rank, idx) in ranking.into_iter().enumerate() {
@@ -620,19 +652,6 @@ fn fuse(
     let mut ranked: Vec<(usize, f32)> = score.into_iter().collect();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     ranked
-        .into_iter()
-        .take(top_k)
-        .map(|(i, s)| {
-            let (path, chunk) = chunks[i];
-            Hit {
-                path: path.to_string(),
-                start_line: chunk.start_line,
-                end_line: chunk.end_line,
-                score: s,
-                snippet: chunk.text.clone(),
-            }
-        })
-        .collect()
 }
 
 fn load_index(root: &Path) -> Index {
@@ -717,6 +736,37 @@ mod tests {
         let hits = engine.search("parse a document", 5);
         assert_eq!(hits[0].path, "a/parser.rs");
         assert_eq!(hits[0].start_line, 1);
+    }
+
+    #[test]
+    fn lexical_search_keeps_distinct_lines_when_index_windows_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = "app/flojo/util/HtmlExporter.kt";
+        let reading = "docs/literate/03-export.md";
+        let mut lines = vec!["// Background context"; 115];
+        lines[34] = "private fun renderCard(tag: String) = escapeHtml(tag)";
+        lines[99] = "private fun renderCardFooter(tag: String) = escapeHtml(tag)";
+        write(dir.path(), source, &lines.join("\n"));
+        write(dir.path(), reading, "The export reading explains renderCard.\n");
+
+        let engine = SearchEngine::open(dir.path()).unwrap();
+        let all = engine.search("renderCard escapeHtml tag", 8);
+        let first_page = engine.search("renderCard escapeHtml tag", 3);
+        assert_eq!(all.len(), 3);
+        assert_eq!(first_page.len(), 3);
+        assert!(first_page.iter().any(|hit| hit.path == reading));
+        for line in [35, 100] {
+            let covering: Vec<_> = first_page
+                .iter()
+                .filter(|hit| hit.path == source && (hit.start_line..=hit.end_line).contains(&line))
+                .collect();
+            assert_eq!(covering.len(), 1, "results covering source line {line}");
+            let hit = covering[0];
+            assert_eq!(
+                hit.snippet.lines().nth(line - hit.start_line),
+                Some(lines[line - 1])
+            );
+        }
     }
 
     #[test]

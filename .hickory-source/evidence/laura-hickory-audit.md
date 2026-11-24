@@ -45,7 +45,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P0 | Prevent open tabs from implicitly contributing source text to the Simple Agent prompt. The original Send omitted a projection, leaving full editor text in the model description. | Simple now sends an explicit empty projection with the full edit snapshot reserved for the host. The composer points users to the message for excerpts. Direct source selection and a preview remain open. Verify selected and unselected synthetic text on every Simple client when that workflow is available. |
 | P1 | Verify the read-only agent audit, then its guarded edit path. | Show which open files are captured and which text will be sent to the selected model. Exercise a local or approved model against the same repository, then compare the provider-visible payload and delivery receipt with the selection. The browser's request to the local host and its draft retention on refusal have focused evidence. Separately review a patch against exact preimages, with explicit user action before publication. |
 | P1 | Check web/native preview isolation and permission boundaries during normal review. | Confirm external URLs are handled by the appropriate policy, unsupported content remains readable, actions require current workspace authority, and unrelated local data stays outside review scope. |
-| P2 | Rank and group ordinary source with its captured reading. | Search across duplicate code and show the exact authoritative source together with explained context while keeping overlapping windows from crowding the first page. |
+| P2 | Rank and group ordinary source with its captured reading. | Lexical search keeps a window when it adds a matching line for that file. Still verify grouping using an explicit relationship between Kotlin and its reading, and evaluate the first page with embeddings enabled. |
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
 | P2 | Keep the distinction between zero diagnostics and incomplete coverage visible. | On a cold Kotlin project, show provider/index availability beside Problems and show a current test receipt only for tests that actually ran. |
@@ -82,6 +82,20 @@ The file-based journal places valuable user data at three boundaries. The device
 First acceptance for Laura-app requires an ordinary journey on an isolated Android device. Grant access to an explicitly disposable vault, create and reopen a text entry, import known media, apply combined filters and export a safe bundle. Then check the recovery and permission cases above. The initial review did not inspect the user's Android vault.
 
 ## Verification scope
+
+The ranked-search follow-up used an isolated export fixture with the two
+Laura paths and representative Kotlin identifiers. The live Laura folder
+stalled on file reads, so the fixture supplied the working text. In the
+baseline, both the CLI and Hickory’s local browser API returned four Kotlin
+windows for two matching lines, plus the reading. The CLI’s three-line
+preview often showed only neighboring comments. The new focused Rust
+test checks that lexical ranking returns exactly one window for each of
+the two distinct lines plus the separate reading, with the exact source
+text at the indexed offset. Three lexical search tests and the related
+search anchor test passed. In the browser’s **Find
+in workspace** dialog, the saved match opened line 100. After an unsaved
+edit there, a new search of saved text refused to reveal the stale match
+and preserved both the draft and the saved file.
 
 The installed macOS app and Simple Browser were walked against the Laura working tree. Laura-app’s `:app:assembleDebug` succeeded using the installed JDK 21 launcher and Gradle’s JDK 25 daemon. APK inspection found all-files access, both legacy storage permissions capped at API 29 and `ACCESS_NETWORK_STATE`. The inspected APK did not declare `INTERNET`. The build did not exercise app behavior. CLI evidence came from the sibling checkout. The active frontend support contract also includes iOS, Android, KDE and Windows. Shared resource checks establish a portion of native rendering. They do not replace installed UI acceptance. A complete platform comparison, signed release and device acceptance, agent-pane audit and download funnel remain open.
 
