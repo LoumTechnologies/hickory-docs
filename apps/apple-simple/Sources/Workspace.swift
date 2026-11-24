@@ -240,7 +240,7 @@ struct StartupSourceObservation {
     var search = WorkspaceSearch()
     @ObservationIgnored private var searchOpening = UUID()
     func openSearchHit(_ hit: WorkspaceSearchHit) async {
-        guard engine != nil else { return }
+        guard let server = engine else { return }
         let prepared = beginSourceNavigationPreparation()
         let current = generation, request = search.revision, choice = UUID()
         searchOpening = choice
@@ -248,12 +248,24 @@ struct StartupSourceObservation {
         func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if exactUTF8(node.path,hit.path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
         guard let file = buffers[hit.path]?.file ?? find(rootFiles), !file.dir else { search.notice = "File no longer listed. Refresh files and search again."; return }
         do {
-            let source = try await loadBuffer(file).text
+            let buffer = try await loadBuffer(file)
+            let source = buffer.text
             let observedHash = await Task.detached { nativeSourceHash(source) }.value
             let rows = source.components(separatedBy: "\n")
             guard stillSearching(), prepared() else { return }
             guard let hash = hit.sourceHash, observedHash == hash.replacingOccurrences(of: "sha256:", with: "").lowercased(), let character = hit.character,
-                  hit.line > 0, rows.indices.contains(hit.line - 1), rows[hit.line - 1].trimmingCharacters(in: .newlines) == hit.text.trimmingCharacters(in: .newlines) else { search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return }
+                  hit.line > 0, rows.indices.contains(hit.line - 1), rows[hit.line - 1].trimmingCharacters(in: .newlines) == hit.text.trimmingCharacters(in: .newlines) else { search.notice = "Search source changed or its revision is unknown. Compare the editor with disk and search again."; return }
+            // The cached editor can still match a result after an external write.
+            let saved: FileText = try await server.request("GET", "/api/file", query: [URLQueryItem(name: "path", value: hit.path)])
+            guard stillSearching(), prepared() else { return }
+            guard exactUTF8(saved.path, hit.path), exactUTF8(saved.content, source) else {
+                search.notice = "The search source changed on disk. Search again before opening this result."
+                return
+            }
+            guard buffers[hit.path] === buffer, exactUTF8(buffer.text, source) else {
+                search.notice = "Search source changed in the editor. Compare it with disk and search again."
+                return
+            }
             await openSemanticLocation(SemanticLocation(uri: languageURI(hit.path), line: hit.line - 1, character: character),
                 allowDirty: true, expectedSource: source, isCurrent: stillSearching, onRevealed: { showWorkspaceSearch = false })
         } catch { if stillSearching(), prepared() { search.notice = error.localizedDescription } }

@@ -792,6 +792,36 @@ class ParityTest {
         assertEquals("é😀 target changed", buffer.text); assertTrue(buffer.dirty)
     }
 
+    @Test fun workspaceSearchRefusesCachedHitAfterExternalWrite() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        listener.createContext("/api/file") { exchange ->
+            val bytes = """{"path":"journal.txt","content":"external\ntarget","hash":"saved"}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.start()
+        try {
+            val workspace = Workspace(this)
+            val file = FileNode("journal.txt", "journal.txt", false, emptyList(), null, null)
+            val buffer = DocumentBuffer(file, FileText("target", "old"))
+            workspace.engine = Engine("http://127.0.0.1:${listener.address.port}")
+            workspace.buffers[file.path] = buffer
+            workspace.showWorkspaceSearch = true
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("target".toByteArray()).joinToString("") { "%02x".format(it) }
+
+            workspace.openSearchHit(WorkspaceSearchHit(file.path, 1, "target", 0, hash, null))
+
+            assertTrue(workspace.search.notice.contains("changed on disk"))
+            assertTrue(workspace.showWorkspaceSearch)
+            assertNull(workspace.active)
+            assertSame(buffer, workspace.buffers[file.path])
+            assertEquals("target", buffer.text)
+        } finally {
+            listener.stop(0)
+        }
+    }
+
     @org.junit.Test fun semanticProblemsRetirePositionsWhenSourceChanges() = kotlinx.coroutines.runBlocking {
         // Contract: .hickory-source/frontends/contract.md
         val file = FileNode("problem.py", "problem.py", false, emptyList(), null, null)

@@ -3,7 +3,7 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary; editors use UTF-16, so a character before the match may occupy two units. A result may reveal a precise position only after the open buffer matches the reported source hash. No search edits or saves source. Submit a query through the existing exhaustive find endpoint, with literal/regex, case and whole-word options. Superseded requests cannot publish results or navigate. Hand the match to the tab owner before reading its bytes, so a later tab selection can retire the read, hash check, and reveal together. Pagination bounds rendered rows without silently treating a capped answer as complete. The overlay is fixed; its dismissal restores editor focus.
+Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary. Editors use UTF-16, so a character before the match may occupy two units. Match the editor against the result hash, then read the saved file again before revealing the position. An external edit can leave the search result and cached editor in agreement with each other while both are stale. Reject the hit without replacing the editor or moving its caret. Submit a query through the exhaustive find endpoint with literal or regex, case and whole-word options. Hand the match to the tab owner before reading its bytes so a later tab selection can retire the read, hash check and reveal together. Pagination bounds rendered rows. Dismissal restores editor focus.
 
 <ui:copy id="simple-browser-workspace-search">
 import { useEffect, useRef, useState } from "react";
@@ -36,12 +36,15 @@ export function WorkspaceSearch({visible, close, buffers, files, navigate}: {
       const file = buffers.values.get(hit.file.path)?.file ?? find(files);
       if (!file || file.dir) throw new Error("File no longer listed. Refresh files and search again.");
       const character = searchCharacter(hit.match.text, hit.at.column);
-      const stale = () => new Error("Search source changed or its revision is unknown. Save edits and search again.");
+      const stale = () => new Error("Search source changed or its revision is unknown. Compare the editor with disk and search again.");
       if (character === null) throw stale();
       if (await navigate(file, hit.match.line, character, () => current === ticket.current, async buffer => {
         const source = buffer.text, hash = await sha256(source);
         if (!hit.file.source_hash || hash !== hit.file.source_hash.replace(/^sha256:/, "").toLowerCase()
           || buffer.text !== source || source.split("\n")[hit.match.line - 1]?.replace(/\r$/, "") !== hit.match.text.replace(/\r$/, "")) throw stale();
+        const saved = await api.file(file.path);
+        if (saved.path !== file.path || saved.content !== source) throw new Error("The search source changed on disk. Search again before opening this result.");
+        if (buffer.text !== source) throw stale();
       })) close(false);
     } catch (error) { if (current === ticket.current) setNotice(String(error)); }
   }

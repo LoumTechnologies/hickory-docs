@@ -28,12 +28,15 @@ export function WorkspaceSearch({visible, close, buffers, files, navigate}: {
       const file = buffers.values.get(hit.file.path)?.file ?? find(files);
       if (!file || file.dir) throw new Error("File no longer listed. Refresh files and search again.");
       const character = searchCharacter(hit.match.text, hit.at.column);
-      const stale = () => new Error("Search source changed or its revision is unknown. Save edits and search again.");
+      const stale = () => new Error("Search source changed or its revision is unknown. Compare the editor with disk and search again.");
       if (character === null) throw stale();
       if (await navigate(file, hit.match.line, character, () => current === ticket.current, async buffer => {
         const source = buffer.text, hash = await sha256(source);
         if (!hit.file.source_hash || hash !== hit.file.source_hash.replace(/^sha256:/, "").toLowerCase()
           || buffer.text !== source || source.split("\n")[hit.match.line - 1]?.replace(/\r$/, "") !== hit.match.text.replace(/\r$/, "")) throw stale();
+        const saved = await api.file(file.path);
+        if (saved.path !== file.path || saved.content !== source) throw new Error("The search source changed on disk. Search again before opening this result.");
+        if (buffer.text !== source) throw stale();
       })) close(false);
     } catch (error) { if (current === ticket.current) setNotice(String(error)); }
   }

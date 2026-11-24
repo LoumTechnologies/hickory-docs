@@ -334,7 +334,8 @@ final class SaveTests: XCTestCase {
         XCTAssertEqual(selected, NSRange(location: 4, length: 0))
     }
 
-    // A newer row in the same saved search owns navigation while the first row reads.
+    // A newer row owns navigation while an earlier read is pending. A saved
+    // hit can still match that editor even after another process edits disk.
     @MainActor func testNewerWorkspaceSearchRowKeepsItsEditor() async throws {
         let arrived = expectation(description: "earlier search result file read")
         let gate = DispatchSemaphore(value: 0)
@@ -342,7 +343,7 @@ final class SaveTests: XCTestCase {
         ResponseProtocol.responsesByPath = [:]
         ResponseProtocol.response = Data(#"{"path":"earlier.txt","content":"first","hash":"disk"}"#.utf8)
         ResponseProtocol.beforeResponse = { request in
-            guard request.url?.path == "/api/file" else { return }
+            guard request.url?.path == "/api/file", request.url?.query == "path=earlier.txt" else { return }
             arrived.fulfill()
             _ = gate.wait(timeout: .now() + 5)
         }
@@ -381,6 +382,14 @@ final class SaveTests: XCTestCase {
         XCTAssertEqual(workspace.buffers[earlier.path]?.text, "first")
         XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(nativeSourceTab(earlier.path)) })
 
+        ResponseProtocol.response = Data(#"{"path":"latter.txt","content":"external\nsecond","hash":"fresh"}"#.utf8)
+        await workspace.openSearchHit(row(latter, "second"))
+        XCTAssertTrue(workspace.search.notice.contains("changed on disk"))
+        XCTAssertTrue(workspace.showWorkspaceSearch)
+        XCTAssertNil(selected)
+        XCTAssertEqual(retained.text, "second")
+
+        ResponseProtocol.response = Data(#"{"path":"latter.txt","content":"second","hash":"disk"}"#.utf8)
         await workspace.openSearchHit(row(latter, "second"))
         XCTAssertEqual(selected, NSRange(location: 2, length: 0))
         XCTAssertFalse(workspace.showWorkspaceSearch)

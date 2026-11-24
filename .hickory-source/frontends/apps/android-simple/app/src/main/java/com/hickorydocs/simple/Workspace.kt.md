@@ -269,23 +269,39 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     val changes = WorkspaceChanges()
     var showWorkspaceSearch by mutableStateOf(false)
     val search = WorkspaceSearch()
+    private var searchOpening = 0L
     suspend fun openSearchHit(hit: WorkspaceSearchHit) {
         val server = engine ?: return; val current = generation; val request = search.revision
+        val choice = ++searchOpening
+        val stillSearching = { generation == current && search.revision == request && searchOpening == choice }
+        val foregroundCurrent = captureForegroundNavigation()
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == hit.path) return it; find(it.children)?.let { child -> return child } }; return null }
         val file = (buffers[hit.path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { search.notice = "File no longer listed. Refresh files and search again."; return }
         try {
             val source = buffers[hit.path]?.text ?: server.file(file).content
-            if (generation != current || search.revision != request) return
+            if (!stillSearching() || !foregroundCurrent()) return
             val hash = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } }
-            if (generation != current || search.revision != request) return
+            if (!stillSearching() || !foregroundCurrent()) return
             val character = hit.character
             if (hit.sourceHash == null || hash != hit.sourceHash.removePrefix("sha256:").lowercase() || character == null || hit.line < 1 || source.split("\n").getOrNull(hit.line - 1)?.trimEnd('\r') != hit.text.trimEnd('\r')) {
-                search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return
+                search.notice = "Search source changed or its revision is unknown. Compare the editor with disk and search again."; return
             }
-            openSemanticLocation(SemanticLocation(languageURI(hit.path), hit.line - 1, character), allowDirty = true, expectedSource = source)
-            if (generation == current && search.revision == request) showWorkspaceSearch = false
+            // A background writer can change the saved text without editing the current buffer.
+            val saved = server.file(file.copy(docID = null))
+            if (!stillSearching() || !foregroundCurrent()) return
+            if (saved.content != source) {
+                search.notice = "The search source changed on disk. Search again before opening this result."
+                return
+            }
+            if (buffers[hit.path]?.let { it.text != source } == true) {
+                search.notice = "Search source changed in the editor. Compare it with disk and search again."
+                return
+            }
+            openSemanticLocation(SemanticLocation(languageURI(hit.path), hit.line - 1, character),
+                allowDirty = true, expectedSource = source, isCurrent = stillSearching,
+                onRevealed = { showWorkspaceSearch = false })
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { if (generation == current && search.revision == request) search.notice = failure.message.orEmpty() }
+        catch (failure: Exception) { if (stillSearching() && foregroundCurrent()) search.notice = failure.message.orEmpty() }
     }
     var analysis by mutableStateOf(WorkspaceAnalysis()); private set
     var sourceTestIndex:SourceTestIndex?=null
