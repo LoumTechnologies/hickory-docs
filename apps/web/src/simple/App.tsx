@@ -114,6 +114,9 @@ export function App() {
   const [, refresh] = useState(0);
   const [changeHistory]=useState(()=>new WorkspaceChangeHistory());
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
+  const overlayWorkspace = () => JSON.stringify([buffers.workspace || workspaceIdentity.current, buffers.workspaceId]);
+  const overlayScope = overlayWorkspace();
+  const overlayCurrent = () => overlayWorkspace() === overlayScope;
   const requested = useRef(new Map<string, {path: string}>());
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
@@ -456,7 +459,7 @@ export function App() {
     }
     return stop;
   }, [workspaceFiles, layout, focused, workspaceLookup]);
-  useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file,{current:()=>workspaceIdentity.current===identity}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
+  useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path);if(!file||!overlayCurrent())return;void open(file,{current:overlayCurrent}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused,overlayScope]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,{current}).then(opened=>{if(opened?.current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode, options?: OpenFileOptions) {
     const departed = currentLocation(), opened = await open(file, options);
@@ -580,7 +583,7 @@ export function App() {
       return listingFailure.current;
     }} />;
   }
-  return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={workspaceRoot}><main>
+  return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={overlayScope}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <AgentHistory session={agent} visible={groups(layout).some(group => group.active === "agent")} />
@@ -602,11 +605,13 @@ export function App() {
         if (next !== layout) { retireTabMove(tab, target); setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
-    <SimpleCoverageView key={workspaceRoot} visible={showCoverage} workspace={workspaceRoot} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={navigated=>{setShowCoverage(false);if(!navigated&&buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation,current)=>{
+    <SimpleCoverageView key={`coverage:${overlayScope}`} visible={showCoverage} workspace={overlayScope} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={navigated=>{setShowCoverage(false);if(!navigated&&buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation,current)=>{
+      const originCurrent = () => overlayCurrent() && current();
+      if (!originCurrent()) return false;
       const file=buffers.values.get(location.path)?.file??findPath(location.path);if(!file)throw new Error("Source no longer listed. Refresh the workspace.");
       const line=location.line;
-      if (line===null) return openFileVisit(file,{originCurrent:current});
-      return openLine(file,line,0,{originCurrent:current,verify:async target=>{
+      if (line===null) return openFileVisit(file,{originCurrent});
+      return openLine(file,line,0,{originCurrent,verify:async target=>{
         const source=target.text,digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
         if(target.text!==source||hash!==location.sourceHash||line<1||line>source.split("\n").length)throw new Error("Source changed or report position is unavailable. Refresh coverage before navigating.");
       }});
@@ -655,7 +660,7 @@ export function App() {
       if(!opened?.current()||!current()||opened.buffer.file.path!==comparison.path)return false;
       opened.buffer.setGitComparison(comparison);return true;
     }} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
+    <GitReviewView key={`git-review:${overlayScope}`} workspace={overlayScope} buffers={buffers} history={changeHistory} alive={overlayCurrent} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{active === "agent" ? <AgentStatus session={agent} /> : <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }

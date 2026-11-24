@@ -61,7 +61,7 @@ import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers,createSourceCopy } from "./buffers";
 import { api,request } from "../api/client";
 import {historySourceHash} from "./SourceHistory";
-vi.mock("../api/client", () => ({ request:vi.fn(),api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), startupSource: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ request:vi.fn(),api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), startupSource: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn(), gitChanges: vi.fn() } }));
 beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
 async function saveReceipt(path:string,body:unknown,hash='confirmed-hash') {const value=body as {request_id:string;source?:string;content?:string};return {version:1,history_protocol:1,path,request_id:value.request_id,source_hash:await historySourceHash(value.source??value.content??''),save_guard:'confirmed-physical',hash,history:{available:true,outcome:'published'}};}
 describe("shared frontend layout contract", () => {
@@ -994,6 +994,68 @@ describe("simple workspace search", () => {
     } finally { screen.unmount(); hash.mockRestore(); }
   });
 });
+describe("simple workspace overlays", () => {
+  it("keeps Coverage and Git Review separate across same-name workspaces", async () => {
+    let rootPath = "/owned/first/Laura", workspaceId = "first";
+    const changedFiles = Array.from({ length: 21 }, (_, i) => ({ path: `case-${i}.kt`, index: " ", tree: "M" }));
+    vi.mocked(api.files).mockImplementation(async () => ({
+      root: "Laura", root_path: rootPath, workspace_id: workspaceId,
+      tree: [{ name: `${workspaceId}.md`, path: `${workspaceId}.md`, dir: false }],
+    }));
+    vi.mocked(api.gitChanges).mockImplementation(async () => ({
+      repository: true, branch: workspaceId, files: workspaceId === "first" ? changedFiles : [],
+    }));
+    vi.mocked(request).mockResolvedValue({ runs: [] });
+    const consoleErrors = vi.spyOn(console, "error");
+    const screen = render(createElement(App));
+    const overlays = within(document.body);
+    const refreshFiles = () => {
+      fireEvent.click(screen.getByText("File", { selector: "summary" }));
+      fireEvent.click(within(screen.getByText("File", { selector: "summary" }).parentElement!).getByRole("button", { name: "Refresh" }));
+    };
+    try {
+      await screen.findByRole("button", { name: "first.md" });
+      fireEvent.click(screen.getByText("Edit", { selector: "summary" }));
+      fireEvent.click(screen.getByRole("button", { name: "Tests and coverage" }));
+      fireEvent.click(screen.getByText("View", { selector: "summary" }));
+      fireEvent.click(screen.getByRole("button", { name: "Repository changes" }));
+      const coverage = await overlays.findByRole("dialog", { name: "Tests and code coverage" });
+      const review = await overlays.findByRole("dialog", { name: "Repository changes" });
+      const pathInput = within(coverage).getByLabelText("Project or source file") as HTMLInputElement;
+      fireEvent.change(pathInput, { target: { value: "case-20.kt" } });
+      await within(review).findByText("21 changed files · page 1");
+      fireEvent.click(within(review).getByRole("button", { name: "Next" }));
+      await within(review).findByText("21 changed files · page 2");
+
+      const refreshCount = vi.mocked(api.files).mock.calls.length;
+      refreshFiles();
+      await waitFor(() => expect(api.files).toHaveBeenCalledTimes(refreshCount + 1));
+      expect(overlays.getByRole("dialog", { name: "Tests and code coverage" })).toBe(coverage);
+      expect(pathInput.value).toBe("case-20.kt");
+      expect(within(review).getByText("21 changed files · page 2")).toBeTruthy();
+
+      rootPath = "/owned/second/Laura";
+      workspaceId = "second";
+      refreshFiles();
+      await screen.findByRole("button", { name: "second.md" });
+      const newCoverage = overlays.getByRole("dialog", { name: "Tests and code coverage" });
+      const newReview = overlays.getByRole("dialog", { name: "Repository changes" });
+      expect(newCoverage).not.toBe(coverage);
+      expect(newReview).not.toBe(review);
+      expect((within(newCoverage).getByLabelText("Project or source file") as HTMLInputElement).value).toBe(".");
+      await within(newReview).findByText("Repository changes second");
+      await within(newReview).findByText("0 changed files · page 1");
+      expect(overlays.getAllByRole("dialog")).toHaveLength(2);
+      expect(consoleErrors.mock.calls.some(args => String(args[0]).includes("same key"))).toBe(false);
+    } finally {
+      screen.unmount();
+      consoleErrors.mockRestore();
+      vi.mocked(request).mockReset();
+      vi.mocked(api.gitChanges).mockReset();
+    }
+  });
+});
+
 describe("simple workspace Problems", () => {
   it("keeps zero reports distinct from a source-bound empty report", async () => {
     const path = "Audit.kt", source = "val entry = 1";
