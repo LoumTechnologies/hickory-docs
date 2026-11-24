@@ -215,10 +215,15 @@ an artifact. Only the pane that started the turn answers that request. Capture
 the current authored buffers after observing the request and keep the engine's
 request ID, so an expired request cannot approve a later turn.
 
-A send captures the complete retained authored editor roster with original loaded guards. The snapshot is labelled non-live; later editor changes must retire proposal application rather than silently refresh the agent’s source authority. Conversation content and agent claims never stand in for implementation or test evidence.
+Send captures the retained authored editor roster and its original loaded guards.
+It marks the request live so the originating turn can ask for another capture.
+A later capture serves only the matching host request and leaves the initial
+snapshot intact. Applying a sealed proposal still requires its own original
+source authority. Conversation claims carry no implementation or test evidence.
 
 History polling never recreates the draft editor. Reject replies from before a
-send mutation, and stop polling when the pane detaches. Provider failures remain
+send mutation. Poll while the pane is visible or its own live turn can still
+request an editor capture. Provider failures remain
 visible beside the retained draft; no request is automatically retried.
 
 <ui:copy id="simple-agent-history-refresh">

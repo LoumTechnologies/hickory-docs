@@ -418,8 +418,9 @@ it('requires explicit namespace publication and consumes an uncertain publicatio
 Real CodeMirror transactions retain their mounted editor, selection, scrolling,
 local history and complete workspace inverse. Selection, scroll, mount,
 physical baseline, generated ownership and unrelated roster changes retire a
-prepared review. The agent send witness captures original source guards and
-anonymous identities once; later edits never refresh that snapshot silently.
+prepared review. Send opts the originating turn into explicit capture requests.
+The initial request still carries the bytes, guards and anonymous identities
+held at Send even if the editor changes before the host acknowledges it.
 Raw HTTP protocol aliases and duplicates fail before they reach a host model.
 A recorded review submits the immutable message address and host preimages.
 The sealed response opens the existing host guard, which still rejects an
@@ -497,7 +498,38 @@ it('refuses complete review when an unrelated retained anonymous owner was not i
 it('permits only an explicitly acquired reviewed target and rejects a new unrelated buffer during acquisition',async()=>{const buffers=new Buffers(()=>{});buffers.workspace=scope.namespace;buffers.workspaceId=scope.workspace;const history=new WorkspaceChangeHistory();let finish!:(buffer:Buffer)=>void;const ports=browserProposalPorts(buffers,history,()=>new Promise(resolve=>{finish=resolve;}),()=>{},()=>true),pending=ports.prepare(await callerProposal(),()=>true);await Promise.resolve();const target=new Buffer({path:'note.py',name:'note.py',dir:false},'value=1\n','loaded',()=>{},false,scope.namespace);target.saveGuard='original-guard';buffers.values.set('note.py',target);buffers.values.set('Untitled-late',new Buffer({path:'Untitled-late',name:'late',dir:false},'extra text','',()=>{}));finish(target);await expect(pending).rejects.toThrow('roster changed');expect(target.text).toBe('value=1\n');expect(history.preview('undo')).toBeNull();});
 import {api,request as requestProtocol,parseProtocolJson} from '../api/client';
 import {AgentSession} from './Agent';
-it('sends one non-live complete agent snapshot with original guards and stable anonymous identity',async()=>{const {buffers,buffer}=host(),notes=new Buffer({path:'Untitled-note',name:'notes',dir:false},'retained note','',()=>{});notes.isUntitledDraft=true;buffers.values.set(notes.file.path,notes);const started=vi.spyOn(api,'agent').mockResolvedValue({session_id:'owned-turn'});const session=new AgentSession();session.captureContext=()=>proposalEditorContext(buffers,buffer);session.prompt='Prepare one coherent proposal';const pending=session.send();buffer.edit('changed after send');await pending;expect(started).toHaveBeenCalledTimes(1);const context=started.mock.calls[0][6]!;expect(context.live).toBe(false);expect(context.buffers.find(row=>row.path==='note.py')?.content).toBe('value=1\n');expect(context.buffers.find(row=>row.path==='note.py')?.save_guard).toBe('original-guard');expect(context.buffers.find(row=>row.path===null)?.content).toBe('retained note');started.mockRestore();});
+it('sends an initial guarded snapshot and tracks its live turn', async () => {
+  const { buffers, buffer } = host();
+  const notes = new Buffer({path:'Untitled-note', name:'notes', dir:false}, 'retained note', '', () => {});
+  notes.isUntitledDraft = true;
+  buffers.values.set(notes.file.path, notes);
+  const capture = vi.fn(() => proposalEditorContext(buffers, buffer));
+  const started = vi.spyOn(api, 'agent').mockResolvedValue({session_id:'owned-turn'});
+  try {
+    const session = new AgentSession();
+    session.captureContext = capture;
+    session.prompt = 'Prepare one coherent proposal';
+    const pending = session.send();
+    buffer.edit('changed after send');
+    notes.edit('anonymous draft changed after send');
+    await pending;
+
+    expect(started).toHaveBeenCalledTimes(1);
+    const context = started.mock.calls[0][6]!;
+    expect(context.live).toBe(true);
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture.mock.results[0].value.live).toBe(false);
+    expect(session.liveTurn).toBe('owned-turn');
+    expect(context.buffers.find(row => row.path === 'note.py')).toMatchObject({
+      id: resourceBufferId(buffer), content:'value=1\n', save_guard:'original-guard',
+    });
+    expect(context.buffers.find(row => row.path === null)).toMatchObject({
+      id: resourceBufferId(notes), content:'retained note',
+    });
+  } finally {
+    started.mockRestore();
+  }
+});
 it('rejects raw proposal protocol numeric aliases and duplicates at the HTTP boundary',async()=>{for(const raw of ['{"version":1,"proposal_protocol":1.0}','{"version":1,"proposal_protocol":1,"proposal_protocol":1}']){expect(()=>parseProtocolJson(raw)).toThrow();const previous=globalThis.fetch;try{globalThis.fetch=vi.fn(async()=>new Response(raw,{status:200,headers:{'content-type':'application/json'}})) as typeof fetch;await expect(requestProtocol('GET','/api/agent-proposals')).rejects.toThrow();}finally{globalThis.fetch=previous;}}});
 </ui:copy>
 ## Review both sides of a recorded turn in the main workspace
