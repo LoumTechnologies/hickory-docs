@@ -31,6 +31,21 @@ runs independently of opening and editing files.
 
 The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
+### Start, branch and reopen agent conversations
+
+Use **New Conversation** in the Agent pane to open an empty composer without
+losing the current conversation. Use **Branch from Here** on a recorded turn
+to continue from the exact history through that turn in a separate conversation.
+The original conversation remains unchanged, and neither action runs the agent;
+only sending a message starts a turn.
+
+Open **Agent List** on demand to find all retained conversations that Hickory
+Docs has run for this folder, including branches and conversations from prior
+launches. Show where a branch came from. Selecting an entry opens it in the
+Agent pane without moving the editor. Switching folders must not show entries
+or accept late list results from the previous folder. A failed history lookup
+must not appear to be an empty history or prevent reading an open transcript.
+
 The complete outcome includes:
 
 - Whole-program navigation: files, types, members, usages, declarations, implementations, callers/callees, file outlines, text search, action search and back/forward history.
