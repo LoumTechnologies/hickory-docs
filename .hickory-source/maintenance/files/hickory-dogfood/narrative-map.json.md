@@ -111842,22 +111842,19 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/src/up/mod.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/up/mod.rs.md",
       "symbol": "impl-DirectoryLock",
-      "basis": "needs-explanation",
+      "basis": "explained-behavior",
       "original_range": [
         13638,
         15358
       ]
     },
     {
-      "id": "f-73148a3ab9db-impl-Drop-for-DirectoryLock",
+      "id": "f-73148a3ab9db-directory_lock_tests",
       "output": "crates/hickory-cli/src/up/mod.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/up/mod.rs.md",
-      "symbol": "impl-Drop for DirectoryLock",
-      "basis": "needs-explanation",
-      "original_range": [
-        15358,
-        15633
-      ]
+      "symbol": "Retry after the holder closes",
+      "basis": "explained-behavior",
+      "original_range": null
     },
     {
       "id": "f-73148a3ab9db-run",

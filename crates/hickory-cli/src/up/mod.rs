@@ -279,7 +279,6 @@ impl UpConfig {
 /// one directory is the same bug whichever front door they came through.
 pub struct DirectoryLock {
     _file: std::fs::File,
-    path: PathBuf,
 }
 impl DirectoryLock {
     pub fn acquire(root: &Path) -> Result<Self> {
@@ -309,26 +308,47 @@ impl DirectoryLock {
             .open(&path)
             .with_context(|| format!("failed to open {}", path.display()))?;
 
-        file.try_lock_exclusive().map_err(|_| {
-            anyhow::anyhow!(
-                "{} is already open in another Hickory Docs process.\n\
-                 Two of them would each treat the other's writes as your edits.\n\
-                 Close the other one — `hick up` or the desktop app — or work in\n\
-                 a different directory.\n\
-                 If no other process is running, remove {} and try again.",
-                root.display(),
-                path.display(),
-            )
-        })?;
-        Ok(Self { _file: file, path })
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+                anyhow::bail!(
+                    "Another Hickory engine already has {} open for writing.\n\
+                     Use the existing Hickory session, or close it and retry.\n\
+                     Hickory releases the workspace lock when the holder closes.",
+                    root.display(),
+                );
+            }
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "Cannot lock {}. Check that this filesystem supports file locks and retry.",
+                    path.display(),
+                )
+            }),
+        }
     }
 }
-impl Drop for DirectoryLock {
-    fn drop(&mut self) {
-        // The advisory lock is released with the file handle; the empty file
-        // is left behind on purpose so the path in the error message above
-        // stays meaningful.
-        let _ = &self.path;
+#[cfg(test)]
+mod directory_lock_tests {
+    use super::*;
+
+    #[test]
+    fn directory_lock_can_be_reused_without_removing_the_file() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let git = workspace.path().join(".git");
+        std::fs::create_dir(&git)?;
+        let lock_path = git.join("up.lock");
+        std::fs::write(&lock_path, b"existing lock file")?;
+
+        let first = DirectoryLock::acquire(workspace.path())?;
+        let error = DirectoryLock::acquire(workspace.path())
+            .err()
+            .expect("second writer must be refused while the lock is held");
+        assert!(error.to_string().contains("close it and retry"));
+
+        drop(first);
+        let _second = DirectoryLock::acquire(workspace.path())?;
+        assert_eq!(std::fs::read(lock_path)?, b"existing lock file");
+        Ok(())
     }
 }
 /// Run the loop until interrupted.

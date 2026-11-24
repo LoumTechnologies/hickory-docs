@@ -507,11 +507,17 @@ one directory is the same bug whichever front door they came through.
 /// one directory is the same bug whichever front door they came through.
 pub struct DirectoryLock {
     _file: std::fs::File,
-    path: PathBuf,
 }
 </storycode:copy>
 <a id="f-73148a3ab9db-impl-DirectoryLock"></a>
 ### `impl-DirectoryLock`
+
+The open file handle owns the advisory lock. Closing the holder releases it
+while the file stays available for the next writer. Removing the path could
+let a second writer lock a different file while the first still holds its
+handle. On contention, direct the engineer to the existing session or wait
+for it to close. For other operating-system errors, report the failing path
+and preserve the underlying error.
 
 <storycode:copy id="f-73148a3ab9db-impl-DirectoryLock">
 impl DirectoryLock {
@@ -542,31 +548,56 @@ impl DirectoryLock {
             .open(&path)
             .with_context(|| format!("failed to open {}", path.display()))?;
 
-        file.try_lock_exclusive().map_err(|_| {
-            anyhow::anyhow!(
-                "{} is already open in another Hickory Docs process.\n\
-                 Two of them would each treat the other's writes as your edits.\n\
-                 Close the other one — `hick up` or the desktop app — or work in\n\
-                 a different directory.\n\
-                 If no other process is running, remove {} and try again.",
-                root.display(),
-                path.display(),
-            )
-        })?;
-        Ok(Self { _file: file, path })
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+                anyhow::bail!(
+                    "Another Hickory engine already has {} open for writing.\n\
+                     Use the existing Hickory session, or close it and retry.\n\
+                     Hickory releases the workspace lock when the holder closes.",
+                    root.display(),
+                );
+            }
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "Cannot lock {}. Check that this filesystem supports file locks and retry.",
+                    path.display(),
+                )
+            }),
+        }
     }
 }
 </storycode:copy>
-<a id="f-73148a3ab9db-impl-Drop-for-DirectoryLock"></a>
-### `impl-Drop for DirectoryLock`
+<a id="f-73148a3ab9db-directory_lock_tests"></a>
+### Retry after the holder closes
 
-<storycode:copy id="f-73148a3ab9db-impl-Drop-for-DirectoryLock">
-impl Drop for DirectoryLock {
-    fn drop(&mut self) {
-        // The advisory lock is released with the file handle; the empty file
-        // is left behind on purpose so the path in the error message above
-        // stays meaningful.
-        let _ = &self.path;
+Use the production lock on a disposable repository. The second writer is
+refused while the first handle is open. After it closes, a retry acquires
+the same lock path with its existing contents intact.
+
+<storycode:copy id="f-73148a3ab9db-directory_lock_tests">
+#[cfg(test)]
+mod directory_lock_tests {
+    use super::*;
+
+    #[test]
+    fn directory_lock_can_be_reused_without_removing_the_file() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let git = workspace.path().join(".git");
+        std::fs::create_dir(&git)?;
+        let lock_path = git.join("up.lock");
+        std::fs::write(&lock_path, b"existing lock file")?;
+
+        let first = DirectoryLock::acquire(workspace.path())?;
+        let error = DirectoryLock::acquire(workspace.path())
+            .err()
+            .expect("second writer must be refused while the lock is held");
+        assert!(error.to_string().contains("close it and retry"));
+
+        drop(first);
+        let _second = DirectoryLock::acquire(workspace.path())?;
+        assert_eq!(std::fs::read(lock_path)?, b"existing lock file");
+        Ok(())
     }
 }
 </storycode:copy>
@@ -1434,6 +1465,6 @@ mod watcher_mode_tests;
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/up/mod.rs"><storycode:paste select="#f-73148a3ab9db-reverse"/><storycode:paste select="#f-73148a3ab9db-state"/><storycode:paste select="#f-73148a3ab9db-use_declaration"/><storycode:paste select="#f-73148a3ab9db-use_declaration-2"/><storycode:paste select="#f-73148a3ab9db-use_declaration-3"/><storycode:paste select="#f-73148a3ab9db-use_declaration-4"/><storycode:paste select="#f-73148a3ab9db-use_declaration-5"/><storycode:paste select="#f-73148a3ab9db-use_declaration-6"/><storycode:paste select="#f-73148a3ab9db-use_declaration-7"/><storycode:paste select="#f-73148a3ab9db-use_declaration-8"/><storycode:paste select="#f-73148a3ab9db-file_watcher"/><storycode:paste select="#f-73148a3ab9db-watcher_with_mode"/><storycode:paste select="#f-73148a3ab9db-UpCommand"/><storycode:paste select="#f-73148a3ab9db-watch_error"/><storycode:paste select="#f-73148a3ab9db-WEAVE_DEBOUNCE"/><storycode:paste select="#f-73148a3ab9db-RUN_DEBOUNCE"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_BUDGET"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_POLL"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_STABLE_FOR"/><storycode:paste select="#f-73148a3ab9db-fingerprints"/><storycode:paste select="#f-73148a3ab9db-settle_batch"/><storycode:paste select="#f-73148a3ab9db-UpConfig"/><storycode:paste select="#f-73148a3ab9db-impl-UpConfig"/><storycode:paste select="#f-73148a3ab9db-DirectoryLock"/><storycode:paste select="#f-73148a3ab9db-impl-DirectoryLock"/><storycode:paste select="#f-73148a3ab9db-impl-Drop-for-DirectoryLock"/><storycode:paste select="#f-73148a3ab9db-run"/><storycode:paste select="#f-73148a3ab9db-drain_inbox"/><storycode:paste select="#f-73148a3ab9db-weave_document"/><storycode:paste select="#f-73148a3ab9db-weave_document_as"/><storycode:paste select="#f-73148a3ab9db-establish_baselines"/><storycode:paste select="#f-73148a3ab9db-handle_batch"/><storycode:paste select="#f-73148a3ab9db-handle_batch_with"/><storycode:paste select="#f-73148a3ab9db-consume_output_save"/><storycode:paste select="#f-73148a3ab9db-is_noise"/><storycode:paste select="#f-73148a3ab9db-report_ready"/><storycode:paste select="#f-73148a3ab9db-settle_tests"/><storycode:paste select="#f-73148a3ab9db-watch_error_tests"/><storycode:paste select="#f-73148a3ab9db-watcher_mode_tests"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/up/mod.rs"><storycode:paste select="#f-73148a3ab9db-reverse"/><storycode:paste select="#f-73148a3ab9db-state"/><storycode:paste select="#f-73148a3ab9db-use_declaration"/><storycode:paste select="#f-73148a3ab9db-use_declaration-2"/><storycode:paste select="#f-73148a3ab9db-use_declaration-3"/><storycode:paste select="#f-73148a3ab9db-use_declaration-4"/><storycode:paste select="#f-73148a3ab9db-use_declaration-5"/><storycode:paste select="#f-73148a3ab9db-use_declaration-6"/><storycode:paste select="#f-73148a3ab9db-use_declaration-7"/><storycode:paste select="#f-73148a3ab9db-use_declaration-8"/><storycode:paste select="#f-73148a3ab9db-file_watcher"/><storycode:paste select="#f-73148a3ab9db-watcher_with_mode"/><storycode:paste select="#f-73148a3ab9db-UpCommand"/><storycode:paste select="#f-73148a3ab9db-watch_error"/><storycode:paste select="#f-73148a3ab9db-WEAVE_DEBOUNCE"/><storycode:paste select="#f-73148a3ab9db-RUN_DEBOUNCE"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_BUDGET"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_POLL"/><storycode:paste select="#f-73148a3ab9db-BATCH_SETTLE_STABLE_FOR"/><storycode:paste select="#f-73148a3ab9db-fingerprints"/><storycode:paste select="#f-73148a3ab9db-settle_batch"/><storycode:paste select="#f-73148a3ab9db-UpConfig"/><storycode:paste select="#f-73148a3ab9db-impl-UpConfig"/><storycode:paste select="#f-73148a3ab9db-DirectoryLock"/><storycode:paste select="#f-73148a3ab9db-impl-DirectoryLock"/><storycode:paste select="#f-73148a3ab9db-directory_lock_tests"/><storycode:paste select="#f-73148a3ab9db-run"/><storycode:paste select="#f-73148a3ab9db-drain_inbox"/><storycode:paste select="#f-73148a3ab9db-weave_document"/><storycode:paste select="#f-73148a3ab9db-weave_document_as"/><storycode:paste select="#f-73148a3ab9db-establish_baselines"/><storycode:paste select="#f-73148a3ab9db-handle_batch"/><storycode:paste select="#f-73148a3ab9db-handle_batch_with"/><storycode:paste select="#f-73148a3ab9db-consume_output_save"/><storycode:paste select="#f-73148a3ab9db-is_noise"/><storycode:paste select="#f-73148a3ab9db-report_ready"/><storycode:paste select="#f-73148a3ab9db-settle_tests"/><storycode:paste select="#f-73148a3ab9db-watch_error_tests"/><storycode:paste select="#f-73148a3ab9db-watcher_mode_tests"/></storycode:file>
 
 </storycode:doc>

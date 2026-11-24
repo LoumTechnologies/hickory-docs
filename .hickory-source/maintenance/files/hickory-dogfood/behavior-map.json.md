@@ -49290,7 +49290,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-73148a3ab9db-impl-UpConfig",
         "f-73148a3ab9db-DirectoryLock",
         "f-73148a3ab9db-impl-DirectoryLock",
-        "f-73148a3ab9db-impl-Drop-for-DirectoryLock",
+        "f-73148a3ab9db-directory_lock_tests",
         "f-73148a3ab9db-run",
         "f-73148a3ab9db-drain_inbox",
         "f-73148a3ab9db-weave_document",

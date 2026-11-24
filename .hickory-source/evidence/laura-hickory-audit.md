@@ -54,7 +54,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
 | P2 | Keep the distinction between zero diagnostics and incomplete coverage visible. Problems now shows the active file, its language and whether the current text has received source-bound diagnostics. A version-bound empty report gets its own message. | Simple Browser opened Laura’s `TimestampUtils.kt` and showed that the current Kotlin text had no source-bound report. Verify provider installation and index coverage independently. Verify that test receipts reflect tests that actually ran. |
 | P2 | The Coverage and Git Review siblings in Simple Browser previously shared a React key. The overlays now have distinct identities based on the workspace path and ID. | A same-workspace refresh kept the Coverage input and Git Review page. A controlled switch to another checkout named Laura reset both overlays and removed the duplicate-key warning. Both overlays opened against the live Laura workspace. KDE and Windows shell acceptance remain open. |
-| P2 | The workspace host refused a second Simple Browser session on Laura while the first was open. Both used the ordinary workspace route for source reading. The second opened after the first closed. | Let an engineer reuse the existing host or open an explicitly read-only review under contention. Check that the second reader sees the correct revision and acquires no write authority. |
+| P2 | Two Simple Browser hosts attached to the same engine and opened the live Laura checkout concurrently. A separate engine was refused as intended, but the error advised removing the lock file. Hickory now directs the engineer to use the existing session or close it and retry. | The live browser opened FloJo's captured build chapter and current exporter in the two sessions. The production lock test verifies that a second holder is refused and can reopen after release with the lock file intact. Discoverable session reuse and a read-only independent review remain open. |
 
 The original audit desk drew nine architecture nodes without destinations. The local Laura `project.md` now supplies links to its eight captured chapters and the separate audit, which already had its own links. That project page and its readings remain local and untracked in Laura. See the [Simple IDE contract](../frontends/contract.md), [workspace presentation](../guarantees/shell/quiet-inline-workspace/contract.md), and [agent completion contract](../guarantees/agent/completion-does-not-certify-verification/contract.md).
 
@@ -281,5 +281,18 @@ The November 24 follow-up resolved the root and app build classpaths and the rel
 The Gradle distribution and wrapper JAR matched published checksums. The final release passed fatal lint, R8 and four focused JVM checks. Android SDK `apksigner` verified the v1 and v2 signatures and the expected disposable certificate. AAPT2 confirmed `com.flojo.MainActivity`, min SDK 23 and target SDK 37. Hickory Simple Browser opened the AGP catalog entry and the JRE Guava constraint in the live checkout. Production signing and on-device install and upgrade remain separate verification work. [Gradle release checksums](https://gradle.org/release-checksums/).
 
 Laura-app `c9d4907` bootstrapped metadata with the actual packaging tasks to include detached AAPT2 resolution. All 664 pins in the committed file agreed with the configured publisher repositories. Of these, 398 matched published SHA-256 sidecars and 266 matched the SHA-256 of downloaded artifact bytes. The comparison followed AndroidX file URLs from the published module metadata and used the Gradle Plugin Portal copy of the Kotlin Serialization marker. It also checked published AAPT2 bytes for all three desktop classifiers. Strict verification accepted four focused JVM checks, both APKs and fresh debug and release resource processing on macOS. An intentionally incorrect Guava JRE pin was refused in the disposable checkout and restored. Hickory Simple Browser reached the reviewed JAR digest from the captured build chapter. This checks pinned bytes against publisher repository data. Signature verification and native Linux and Windows packaging remain open. [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html).
+
+On macOS, two Hickory Simple Browser hosts used the same local engine and
+opened the live FloJo build reading and exporter at distinct loopback
+addresses. Both files kept the same SHA-256 before and after reading. A third
+host with separate engine state was refused with the old instruction to
+remove `.git/up.lock`. The corrected diagnostic follows the lifetime of
+the open handle. A focused test compiled the generated production lock
+and checked refusal and reopening against the same persistent file. A
+separate process check confirmed the new recovery wording and reopened on
+the same inode after the holder exited. The browser walkthrough used the
+existing host binary. The updated diagnostic still needs an end-to-end
+check in rebuilt desktop distributions. [Directory lock implementation and
+test](../mechanisms/crates/hickory-cli/src/up/mod.rs.md#f-73148a3ab9db-DirectoryLock).
 
 </review:doc>
