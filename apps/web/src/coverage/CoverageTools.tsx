@@ -16,13 +16,15 @@ export function CoverageTools({ path, navigate }: { path?: string | null; naviga
   return <><PerformanceTools path={path} /><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} client={client} close={() => setOpen(false)} />, document.body)}</>;
 }
 const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:()=>false};
+const coverageRunners = ["python", "csharp", "typescript", "rust"];
 export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: (navigated?: boolean) => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
   const coverageCall=client.call,selectCoverage=client.select,retireNavigation=client.retireNavigation;
   const live=useRef(true),ticket=useRef(0),selectedId=useRef<string|null>(null),listPending=useRef<Promise<void>|null>(null),listTicket=useRef(0);
   const current=useCallback((id:number)=>live.current&&ticket.current===id,[]);
   useEffect(()=>{live.current=true;return()=>{live.current=false;ticket.current++;listTicket.current++;listPending.current=null;};},[]);
   const closeSurface=(navigated=false)=>{ticket.current++;close(navigated);};
-  const [path, setPath] = useState(initialPath), [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
+  const [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
+  const [path, setPath] = useState(()=>coverageRunners.includes(language) ? initialPath : ".");
   const [runs, setRuns] = useState<CoverageRun[]>([]), [selected, setSelected] = useState<CoverageRun | null>(null);
   const [group, setGroup] = useState(""), [label, setLabel] = useState(""), [filter, setFilter] = useState("");
   const [url, setUrl] = useState("http://127.0.0.1:9222"), [page, setPage] = useState("");
@@ -88,7 +90,7 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
     try {const value=await coverageCall<CoverageComparison>({action:"compare",id:selected?.id,other,metric});if(current(id)&&basis===comparisonBasis.current)setComparison(value);}
     catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
-  const supported=["python","csharp","typescript","rust"].includes(language);
+  const supported=coverageRunners.includes(language);
   const active = selected && ["running", "collecting"].includes(runs.find(r => r.id === (selected.parent ?? selected.id))?.status ?? selected.status);
   const files = Object.entries(selected?.evidence?.report.files ?? {});
   const rows = files.flatMap(([file, data]) => Object.entries(data.lines).map(([n, count]) => ({ file, line: +n, count, countsAvailable: data.line_counts })));
@@ -105,9 +107,10 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
   return <div className={`coverage-backdrop${embedded?" coverage-embedded":""}`}><section className="coverage-panel" role="dialog" aria-label="Tests and code coverage" aria-modal={!embedded}>
     <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={()=>closeSurface()} aria-label="Close coverage">Close</button></header>
     <p>Coverage measures executed code. Test results and manual workflow verdicts are separate. Uninstrumented or missing data is unknown. Runner discovery may build or import the saved project; it does not inspect unsaved drafts.</p>
+    {!supported && <p>Use a project directory to read settings or import a coverage report. {language === "kotlin" && "For Kotlin tests, run the appropriate Gradle task and review its test report."}</p>}
     <div className="coverage-controls">
-      <label>Project or source file<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>
-      <label>Language<select value={language} onChange={e => {setLanguage(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}}>{!supported&&<option value={language}>{language} (collector unavailable)</option>}{["python", "csharp", "typescript", "rust"].map(s => <option key={s}>{s}</option>)}</select></label>
+      <label>{supported ? "Project or source file" : "Project directory"}<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>
+      <label>Language<select value={language} onChange={e => {setLanguage(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}}>{!supported&&<option value={language}>{language} (collector unavailable)</option>}{coverageRunners.map(s => <option key={s}>{s}</option>)}</select></label>
       <label>Group<select value={group} onChange={e => setGroup(e.target.value)}><option value="">All project tests</option>{Object.keys(config?.groups ?? {}).map(g => <option key={g}>{g}</option>)}</select></label>
       <label>Labels / history filter (comma separated)<input value={label} onChange={e => setLabel(e.target.value)} placeholder="happy-path, boundary" /></label>
       <button className="btn" disabled={pending} title={pending ? "An operation is already in progress." : undefined} onClick={() => { void inspect(); }}>Read project groups and profiles</button>

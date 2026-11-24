@@ -47,13 +47,15 @@ a source link. Closing the surface retires request authority.
 
 <storycode:copy id="f-3a1d89696711-CoveragePanel">
 const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:()=>false};
+const coverageRunners = ["python", "csharp", "typescript", "rust"];
 export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: (navigated?: boolean) => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
   const coverageCall=client.call,selectCoverage=client.select,retireNavigation=client.retireNavigation;
   const live=useRef(true),ticket=useRef(0),selectedId=useRef<string|null>(null),listPending=useRef<Promise<void>|null>(null),listTicket=useRef(0);
   const current=useCallback((id:number)=>live.current&&ticket.current===id,[]);
   useEffect(()=>{live.current=true;return()=>{live.current=false;ticket.current++;listTicket.current++;listPending.current=null;};},[]);
   const closeSurface=(navigated=false)=>{ticket.current++;close(navigated);};
-  const [path, setPath] = useState(initialPath), [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
+  const [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
+  const [path, setPath] = useState(()=>coverageRunners.includes(language) ? initialPath : ".");
   const [runs, setRuns] = useState<CoverageRun[]>([]), [selected, setSelected] = useState<CoverageRun | null>(null);
   const [group, setGroup] = useState(""), [label, setLabel] = useState(""), [filter, setFilter] = useState("");
   const [url, setUrl] = useState("http://127.0.0.1:9222"), [page, setPage] = useState("");
@@ -134,7 +136,7 @@ Each explicit operation receives a ticket. A newer selection or command retires 
 Measurement rows, source ownership and reported results remain separate. Use the source-navigation model to distinguish a precise, hash-bound reveal from an unbound file open. The host checks the report choice and current buffer before revealing. A retired request returns false so the panel stays readable. A new report choice retires navigation immediately, including while the replacement report is still loading.
 
 <storycode:copy id="coverage-surface-source-projection">
-  const supported=["python","csharp","typescript","rust"].includes(language);
+  const supported=coverageRunners.includes(language);
   const active = selected && ["running", "collecting"].includes(runs.find(r => r.id === (selected.parent ?? selected.id))?.status ?? selected.status);
   const files = Object.entries(selected?.evidence?.report.files ?? {});
   const rows = files.flatMap(([file, data]) => Object.entries(data.lines).map(([n, count]) => ({ file, line: +n, count, countsAvailable: data.line_counts })));
@@ -152,13 +154,20 @@ Measurement rows, source ownership and reported results remain separate. Use the
 
 Present project/group controls inside a floating surface. Discovery and automated runs explicitly use saved project files. Native hosts may embed the same surface without adding editor chrome.
 
+Opening Coverage from a file in a language with no built-in collector starts
+at the workspace directory. Reading project settings and importing external
+reports both accept an explicit directory. Resolving either operation from a
+file would require the unavailable runner. The panel names this directory
+scope and points Kotlin developers to their Gradle results.
+
 <storycode:copy id="coverage-surface-controls">
   return <div className={`coverage-backdrop${embedded?" coverage-embedded":""}`}><section className="coverage-panel" role="dialog" aria-label="Tests and code coverage" aria-modal={!embedded}>
     <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={()=>closeSurface()} aria-label="Close coverage">Close</button></header>
     <p>Coverage measures executed code. Test results and manual workflow verdicts are separate. Uninstrumented or missing data is unknown. Runner discovery may build or import the saved project; it does not inspect unsaved drafts.</p>
+    {!supported && <p>Use a project directory to read settings or import a coverage report. {language === "kotlin" && "For Kotlin tests, run the appropriate Gradle task and review its test report."}</p>}
     <div className="coverage-controls">
-      <label>Project or source file<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>
-      <label>Language<select value={language} onChange={e => {setLanguage(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}}>{!supported&&<option value={language}>{language} (collector unavailable)</option>}{["python", "csharp", "typescript", "rust"].map(s => <option key={s}>{s}</option>)}</select></label>
+      <label>{supported ? "Project or source file" : "Project directory"}<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>
+      <label>Language<select value={language} onChange={e => {setLanguage(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}}>{!supported&&<option value={language}>{language} (collector unavailable)</option>}{coverageRunners.map(s => <option key={s}>{s}</option>)}</select></label>
       <label>Group<select value={group} onChange={e => setGroup(e.target.value)}><option value="">All project tests</option>{Object.keys(config?.groups ?? {}).map(g => <option key={g}>{g}</option>)}</select></label>
       <label>Labels / history filter (comma separated)<input value={label} onChange={e => setLabel(e.target.value)} placeholder="happy-path, boundary" /></label>
       <button className="btn" disabled={pending} title={pending ? "An operation is already in progress." : undefined} onClick={() => { void inspect(); }}>Read project groups and profiles</button>

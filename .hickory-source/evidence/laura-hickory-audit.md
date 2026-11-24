@@ -53,6 +53,7 @@ The software-engineer role comes from the request. The toolbox contains a walkth
 | P2 | Give a new engineer a one-command own-repo trace. | Start without a prior install, open an existing checkout, trace one safety claim to code and capture its evidence. Record actual actions, recoveries, and time using the ordinary workflow. |
 | P2 | Align diagrams across frontends. | Compare labels, edge labels, shapes, themes, layout and keyboard navigation with the same graph instead of checking only whether a rectangle appeared. |
 | P2 | Keep the distinction between zero diagnostics and incomplete coverage visible. Problems now shows the active file, its language and whether the current text has received source-bound diagnostics. A version-bound empty report gets its own message. | Simple Browser opened Laura’s `TimestampUtils.kt` and showed that the current Kotlin text had no source-bound report. Verify provider installation and index coverage independently. Verify that test receipts reflect tests that actually ran. |
+| P1 | Open FloJo's Kotlin unit test and find the execution evidence. Hickory Source tests reports its missing Kotlin provider. Coverage previously tried to find a Kotlin runner when reading settings from the file path. The shared panel now starts at the workspace directory and points to the Gradle test report. | Simple Browser reproduced the 422 from the file and verified a 200 from the workspace directory. The embedded renderer sent the same directory-based request in macOS WebKit. Kotlin candidate detection, Gradle run integration and revision-bound receipt ingestion remain open. |
 | P2 | The Coverage and Git Review siblings in Simple Browser previously shared a React key. The overlays now have distinct identities based on the workspace path and ID. | A same-workspace refresh kept the Coverage input and Git Review page. A controlled switch to another checkout named Laura reset both overlays and removed the duplicate-key warning. Both overlays opened against the live Laura workspace. KDE and Windows shell acceptance remain open. |
 | P2 | Two Simple Browser hosts attached to the same engine and opened the live Laura checkout concurrently. A separate engine was refused as intended, but the error advised removing the lock file. Hickory now directs the engineer to use the existing session or close it and retry. | The live browser opened FloJo's captured build chapter and current exporter in the two sessions. The production lock test verifies that a second holder is refused and can reopen after release with the lock file intact. Discoverable session reuse and a read-only independent review remain open. |
 
@@ -294,5 +295,24 @@ the same inode after the holder exited. The browser walkthrough used the
 existing host binary. The updated diagnostic still needs an end-to-end
 check in rebuilt desktop distributions. [Directory lock implementation and
 test](../mechanisms/crates/hickory-cli/src/up/mod.rs.md#f-73148a3ab9db-DirectoryLock).
+
+Simple Browser opened `app/src/test/kotlin/com/flojo/data/HtmlExportPolicyTest.kt`
+in the live FloJo checkout at `c9d4907`. Refresh in **Source tests** sent
+one source inspection request and displayed the missing Kotlin provider.
+The rebuilt **Tests and coverage** panel sent a settings read for `.`,
+received HTTP 200, and left Kotlin discovery and execution disabled.
+Fifteen focused coverage tests passed. A macOS WKWebView fixture with
+stubbed replies rendered the same handoff and sent the same settings
+request. Installed iOS, Android, KDE and Windows shell checks remain open.
+
+For comparison, FloJo's Gradle wrapper reran the explicitly selected
+`HtmlExportPolicyTest.exportDeclaresAnOfflinePolicyBeforeContentAndKeepsRelativeMedia`
+on the disposable macOS build. Every tracked input matched the live
+checkout except the build guide. Strict checksum verification stayed
+enabled. The JUnit XML recorded one test, zero failures, zero errors and
+zero skips. Its SHA-256 was
+`f7364cb5ba84d8a2a707d3e14714e8c87f500d6d8c8fc7e9cf89f93fc2be8af0`.
+Hickory did not ingest that receipt. It remains external evidence for
+that selected run. [Coverage renderer and focused witnesses](../mechanisms/coverage-surface.md).
 
 </review:doc>

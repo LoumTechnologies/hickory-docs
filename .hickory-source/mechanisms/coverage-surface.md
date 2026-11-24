@@ -57,6 +57,10 @@ it("keeps changed or unversioned runner listings readable without positional aut
 <ui:file path="apps/web/src/coverage/CoverageSurface.ts"><ui:paste select="#coverage-surface-navigation"/></ui:file>
 These view witnesses inject the product's own surface adapter to control reply ordering. They prove that a newer selection or a closed surface cannot reinstall old editor coverage, that pending history reads coalesce, and that fresh discovery replaces old result rows. A host navigation refusal keeps the report readable. They do not simulate or certify a third-party test runner.
 
+The Kotlin witness opens the shared panel from an Android unit test. Its
+configuration request uses the workspace directory, and runner actions
+remain disabled. The native embedding uses the same control path.
+
 <ui:copy id="coverage-surface-lifecycle-witness">
 import {cleanup,render,screen,fireEvent,waitFor,act} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
@@ -67,6 +71,19 @@ afterEach(cleanup);
 function record(id:string):CoverageRun{return {id:id.repeat(32),mode:"automated",status:"completed",started_ms:1,project:".",language:"python",group:null,labels:[],identity:{collector:"provider",version:"1",configuration:"config",scope:".",source_hashes:{"app.py":"a".repeat(64)}},source_state:"current",source_changed_during_run:false,tests:[],output:"",error:null,exit_code:0,evidence:null,metadata:{groups:{},manual:{},tests:{}},manual_verdict:null,notes:"",argv:[],checkpoints:[],parent:null,mappings:{}};}
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>resolve=done);return {promise,resolve};}
 function client(read:(body:Record<string,unknown>)=>Promise<unknown>){return {call:vi.fn(read) as CoverageSurfaceClient["call"],select:vi.fn(),navigate:vi.fn()} satisfies CoverageSurfaceClient;}
+it.each([false,true])("reads directory settings without a Kotlin runner (embedded=%s)",async embedded=>{
+  const metadata={groups:{},manual:{},tests:{}};
+  const surface=client(async body=>body.action==="list"?{runs:[]}:{metadata});
+  render(<CoveragePanel close={()=>{}} client={surface} initialLanguage="kotlin"
+    initialPath="app/src/test/kotlin/Test.kt" embedded={embedded}/>);
+  expect((screen.getByLabelText("Project directory") as HTMLInputElement).value).toBe(".");
+  expect(screen.getByText(/run the appropriate Gradle task/)).toBeTruthy();
+  for(const name of ["Discover runner cases","Run saved project with coverage"]){
+    expect((screen.getByRole("button",{name}) as HTMLButtonElement).disabled).toBe(true);
+  }
+  fireEvent.click(screen.getByRole("button",{name:"Read project groups and profiles"}));
+  await waitFor(()=>expect(surface.call).toHaveBeenCalledWith({action:"inspect",path:".",language:"kotlin"}));
+});
 it("a newer selected run retires an older response and editor-selection effect",async()=>{
   const first=record("a"),second=record("b"),held=deferred<CoverageRun>();
   const surface=client(async body=>body.action==="list"?{runs:[first,second]}:body.id===first.id?held.promise:second);
