@@ -3,20 +3,27 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-The existing status bar and Edit menu open a floating, paged Problems view. Messages remain readable when their positions are stale; only matching source snapshots enable precise navigation. Next/previous consume the same model as the list. An explicit source expectation survives asynchronous file opening and is checked again by the workspace. The renderer neither edits text nor treats an empty provider list as verification.
+The existing status bar and Edit menu open a floating, paged Problems view. Messages remain readable when their positions are stale; only matching source snapshots enable precise navigation. Next/previous consume the same model as the list. An explicit source expectation survives asynchronous file opening and is checked again by the workspace.
+
+The workspace total counts received messages. Show the active file's language
+and report state separately. An absent session and a missing source-bound
+report explain different gaps. Only a version-bound empty publication can say
+that the provider reported zero problems for the current file text.
 
 <ui:copy id="simple-browser-workspace-problems">
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Buffers } from "./buffers";
+import type { Buffer, Buffers } from "./buffers";
 import { nextWorkspaceProblem, type SemanticLocation, type WorkspaceProblem } from "./Intelligence";
-import { useWorkspaceProblems } from "./WorkspaceLanguages";
+import { useWorkspaceLanguageLookup, useWorkspaceProblems } from "./WorkspaceLanguages";
 import { openLocation } from "../lib/revealLine";
 const NEXT_PROBLEM = "hickory:simple:next-problem";
 export function requestProblemNavigation(direction: -1 | 1) { window.dispatchEvent(new CustomEvent(NEXT_PROBLEM, { detail: direction })); }
-export function WorkspaceProblems({ buffers, visible, setVisible, current, focusCurrent }: { buffers: Buffers; visible: boolean; setVisible: (value: boolean) => void; current: () => SemanticLocation | null; focusCurrent: () => void }) {
+export function WorkspaceProblems({ buffers, source, visible, setVisible, current, focusCurrent }: { buffers: Buffers; source?: Buffer; visible: boolean; setVisible: (value: boolean) => void; current: () => SemanticLocation | null; focusCurrent: () => void }) {
   const close = () => { setVisible(false); focusCurrent(); };
   const problems = useWorkspaceProblems(buffers), panel = useRef<HTMLDivElement>(null);
+  const language = useWorkspaceLanguageLookup();
+  const session = source ? language(source) : null;
   const [query, setQuery] = useState(""), [page, setPage] = useState(0), [notice, setNotice] = useState("");
   const matching = problems.filter(problem => `${problem.path} ${problem.message}`.toLowerCase().includes(query.toLowerCase()));
   const last = Math.max(0, Math.ceil(matching.length / 100) - 1), selectedPage = Math.min(page, last);
@@ -39,9 +46,16 @@ export function WorkspaceProblems({ buffers, visible, setVisible, current, focus
     <div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace Problems" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
       <button type="button" aria-label="Close Problems" onClick={close}>×</button>
       <strong>Problems</strong><p>Language-provider reports · {problems.filter(problem => problem.current).length} current locations</p>
+      {source ? <p>
+        <strong>{source.file.name} · {source.file.language ?? "Unclassified source"}</strong><br />
+        {!session?.client || !session.ready ? "No language session is attached to this file."
+          : problems.some(problem => problem.path === source.file.path && problem.current) ? "Provider locations match the current file text."
+          : session.diagnostics.length === 0 && session.diagnosticSource === source.text ? "The provider reported zero problems for the current file text."
+          : "No source-bound diagnostic report for the current file text."}
+      </p> : <p>Open a source file to see its diagnostic status.</p>}
       <input aria-label="Filter problems" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} />
       {notice && <p role="status">{notice}</p>}
-      {!matching.length && <p>No reported problems match. This is provider information, not a verification result.</p>}
+      {!matching.length && <p>{query ? "No received reports match the filter." : "No workspace problems have been reported."}</p>}
       {matching.slice(selectedPage * 100, (selectedPage + 1) * 100).map(problem => <div key={problem.id}>
         <button type="button" disabled={!problem.current} title={!problem.current ? "The diagnostic is stale. Refresh workspace problems before navigating." : undefined} onClick={() => open(problem)}>{problem.path}{problem.location ? `:${problem.location.range.start.line + 1}` : ""} · {problem.message}</button>
         {!problem.current && <small>Source location stale or unversioned. <button type="button" onClick={() => { openLocation(problem.path, 1); setVisible(false); }}>Open file</button></small>}

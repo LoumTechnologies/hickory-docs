@@ -929,6 +929,8 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     var tokenSource by mutableStateOf("")
     var diagnostics by mutableStateOf<List<NativeLanguageDiagnostic>>(emptyList())
     var diagnosticSource by mutableStateOf("")
+    var versionedEmptyDiagnostics by mutableStateOf<String?>(null)
+        private set
     var suggestions by mutableStateOf<List<NativeLanguageCompletion>>(emptyList())
     var hover by mutableStateOf("")
     var signature by mutableStateOf("")
@@ -950,6 +952,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         close();sent=buffer.text;version=1;status="Language server connecting…"
         subscription=connection.attach(uri,sent,version,{receive(it)},{failure ->
             epoch++;inspection++;completion++;navigation++;diagnosticTicket++
+            versionedEmptyDiagnostics = null
             status="Language services unavailable: ${failure.message}. Retry language services."
             if(locations.isNotEmpty()) locationStatus="Provider connection changed. Run the query again."
         })
@@ -963,6 +966,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         val token=subscription;subscription=null;if(token!=null) connection.detach(token)
         if(ownsConnection) connection.close()
         tokens=emptyList();diagnostics=emptyList();suggestions=emptyList();hover="";signature="";inlays=emptyList()
+        versionedEmptyDiagnostics = null
     }
     private suspend fun request(method:String,params:JSONObject):Any {
         val owner=subscription ?: error("Language source is closed. Retry language services.")
@@ -985,10 +989,16 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
             if (params.optString("uri") != uri || !evidence && (sent != buffer.text || params.has("version") && params.optInt("version", -1) != version)) return
             val source = buffer.text; val expectedVersion = version; val identity = epoch; val request = ++diagnosticTicket
             diagnosticSource = ""
+            versionedEmptyDiagnostics = null
+            val versionedEmpty = params.optJSONArray("diagnostics")?.length() == 0 && params.opt("version") == expectedVersion
             diagnostics = (params.optJSONArray("diagnostics") ?: JSONArray()).objects().map { NativeLanguageDiagnostic(it.optString("message","Language diagnostic"),null,null,it.optInt("severity",1)) }
             scope.launch {
                 val decoded = withContext(Dispatchers.Default) { decodeNativeDiagnostics(params,source,expectedVersion) }
-                if (epoch == identity && diagnosticTicket == request && buffer.text == source && (evidence || sent == source)) { diagnostics = decoded; diagnosticSource = source }
+                if (epoch == identity && diagnosticTicket == request && buffer.text == source && (evidence || sent == source)) {
+                    diagnostics = decoded
+                    diagnosticSource = source
+                    if (versionedEmpty) versionedEmptyDiagnostics = source
+                }
             }
         }
     }

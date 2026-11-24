@@ -346,6 +346,7 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     var diagnostics: [NativeDiagnostic] = []
     private var diagnosticSourceRevision=ExactSourceText("")
     var diagnosticSource:String {get {diagnosticSourceRevision.text} set {diagnosticSourceRevision=ExactSourceText(newValue)}}
+    private(set) var versionedEmptyDiagnostics: ExactSourceText?
     var hover = ""
     var signature = ""
     var inlayHints: [String] = []
@@ -378,13 +379,14 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     func close() {
         cancelCompletion();completionNotice=""
         navigationID = UUID(); locations = []; locationStatus = ""
-        diagnostics = []; diagnosticSource = ""; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
+        diagnostics = []; diagnosticSource = ""; versionedEmptyDiagnostics = nil; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
         epoch = UUID(); refreshTask?.cancel()
         if let token=subscription { subscription=nil;connection.detach(token) }
         if ownsConnection { connection.close() }
     }
     private func failed(_ error: Error) {
         epoch=UUID();inspectionID=UUID();completionID=UUID();navigationID=UUID();diagnosticID=UUID()
+        versionedEmptyDiagnostics = nil
         status = "Language services unavailable: \(error.localizedDescription). Reconnect or retry."
         if !locations.isEmpty {locationStatus="Provider connection changed. Run the query again."}
     }
@@ -398,12 +400,14 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
                 if let incoming = params["version"] as? Int, incoming != version { return }
             }
             let source = buffer.text, expectedVersion = version, identity = epoch, request = UUID()
-            diagnosticID = request; diagnosticSource = ""
+            diagnosticID = request; diagnosticSource = ""; versionedEmptyDiagnostics = nil
+            let versionedEmpty = (params["diagnostics"] as? [Any])?.isEmpty == true && params["version"] as? Int == expectedVersion
             diagnostics = items.enumerated().map { index,item in NativeDiagnostic(id:index,message:item["message"] as? String ?? "Language diagnostic",severity:item["severity"] as? Int ?? 1,range:nil) }
             Task { [weak self, weak buffer] in
                 let decoded = await Task.detached { decodeNativeDiagnostics(params,source:source,expectedVersion:expectedVersion) }.value
                 guard let self, let buffer, self.epoch == identity, self.diagnosticID == request, exactUTF8(buffer.text,source), evidence || exactUTF8(self.sent,source) else { return }
                 self.diagnostics = decoded; self.diagnosticSource = source
+                if versionedEmpty { self.versionedEmptyDiagnostics = ExactSourceText(source) }
             }
             return
         }

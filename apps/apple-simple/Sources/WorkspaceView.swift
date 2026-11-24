@@ -789,14 +789,30 @@ struct WorkspaceProblemsView: View {
     @State private var query = ""
     @State private var page = 0
     var body: some View {
-        let reports = workspace.problems.filter { query.isEmpty || ($0.path + " " + $0.message).localizedCaseInsensitiveContains(query) }
+        let received = workspace.problems
+        let reports = received.filter { query.isEmpty || ($0.path + " " + $0.message).localizedCaseInsensitiveContains(query) }
         let last = max(0, (reports.count + 99) / 100 - 1), selected = min(page, last)
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text("Problems").font(.headline); Spacer(); Button("Close") { workspace.showProblems = false } }
-            Text("Language-provider reports · \(workspace.problems.filter { $0.current }.count) current locations").font(.caption)
+            Text("Language-provider reports · \(received.filter { $0.current }.count) current locations").font(.caption)
+            if let buffer = workspace.currentBuffer {
+                Text("\(buffer.file.name) · \(buffer.file.language ?? "Unclassified source")").font(.caption.bold())
+                let summary: String = {
+                    guard let language = buffer.language else { return "No language session is attached to this file." }
+                    if language.status.hasPrefix("Language services unavailable") { return language.status }
+                    if received.contains(where: { $0.current && exactUTF8($0.path, buffer.file.path) }) {
+                        return "Provider locations match the current file text."
+                    }
+                    if language.versionedEmptyDiagnostics == ExactSourceText(buffer.text) {
+                        return "The provider reported zero problems for the current file text."
+                    }
+                    return "No source-bound diagnostic report for the current file text."
+                }()
+                Text(summary).font(.caption)
+            } else { Text("Open a source file to see its diagnostic status.").font(.caption) }
             TextField("Filter problems", text: $query).textFieldStyle(.roundedBorder).onChange(of: query) { _, _ in page = 0 }
             ScrollView { LazyVStack(alignment: .leading, spacing: 8) {
-                if reports.isEmpty { Text("No reported problems match. This is provider information, not a verification result.").font(.caption) }
+                if reports.isEmpty { Text(query.isEmpty ? "No workspace problems have been reported." : "No received reports match the filter.").font(.caption) }
                 ForEach(Array(reports.dropFirst(selected * 100).prefix(100))) { problem in
                     Button(problem.path + " · " + problem.message) { Task { await workspace.openProblem(problem) } }.disabled(reason: !problem.current ? "Refresh workspace problems before opening this stale diagnostic." : nil)
                     if !problem.current {

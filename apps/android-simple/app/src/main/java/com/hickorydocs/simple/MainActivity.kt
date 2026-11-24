@@ -217,13 +217,28 @@ private fun multipleSelectionCommands(workspace: Workspace): List<WorkspaceComma
 @Composable private fun WorkspaceProblemsView(workspace: Workspace) {
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }; var page by remember { mutableStateOf(0) }
-    val reports = workspace.problems.filter { (it.path + " " + it.message).contains(query, ignoreCase = true) }
+    val received = workspace.problems
+    val reports = received.filter { (it.path + " " + it.message).contains(query, ignoreCase = true) }
     val last = maxOf(0, (reports.size + 99) / 100 - 1); val selected = minOf(page, last)
     Column(Modifier.widthIn(min = 260.dp, max = 380.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
         Text("Problems", fontSize = 16.sp)
-        Text("Language-provider reports · ${workspace.problems.count { it.current }} current locations", fontSize = 11.sp)
+        Text("Language-provider reports · ${received.count { it.current }} current locations", fontSize = 11.sp)
+        val buffer = workspace.currentBuffer
+        if (buffer == null) {
+            Text("Open a source file to see its diagnostic status.", fontSize = 12.sp)
+        } else {
+            Text("${buffer.file.name} · ${buffer.file.language ?: "Unclassified source"}", fontSize = 12.sp)
+            val language = buffer.language
+            Text(when {
+                language == null -> "No language session is attached to this file."
+                language.status.startsWith("Language services unavailable") -> language.status
+                received.any { it.path == buffer.file.path && it.current } -> "Provider locations match the current file text."
+                language.versionedEmptyDiagnostics == buffer.text -> "The provider reported zero problems for the current file text."
+                else -> "No source-bound diagnostic report for the current file text."
+            }, fontSize = 12.sp)
+        }
         OutlinedTextField(query, { query = it; page = 0 }, label = { Text("Filter problems") }, singleLine = true)
-        if (reports.isEmpty()) Text("No reported problems match. This is provider information, not a verification result.", fontSize = 12.sp)
+        if (reports.isEmpty()) Text(if (query.isEmpty()) "No workspace problems have been reported." else "No received reports match the filter.", fontSize = 12.sp)
         for (problem in reports.drop(selected * 100).take(100)) {
             WithDisabledReason(if (!(problem.current)) "Refresh workspace problems before opening this stale diagnostic." else null) { available -> TextButton(enabled = available, onClick = { scope.launch { workspace.openProblem(problem) } }) { Text(problem.path + " · " + problem.message, fontSize = 12.sp) } }
             if (!problem.current) {

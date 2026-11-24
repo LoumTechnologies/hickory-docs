@@ -968,6 +968,47 @@ describe("simple workspace search", () => {
   });
 });
 describe("simple workspace Problems", () => {
+  it("keeps zero reports distinct from a source-bound empty report", async () => {
+    const path = "Audit.kt", source = "val entry = 1";
+    const file = { name: path, path, dir: false, language: "kotlin" };
+    const client = new LspClient({ send: vi.fn(), onMessage: () => () => {}, handleFrame: () => false });
+    let attached = false;
+    let diagnosticSource: string | undefined;
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [file] });
+    vi.mocked(api.file).mockResolvedValueOnce({ path, language: "kotlin", content: source, hash: "base" });
+    vi.mocked(useWorkspaceLsp).mockImplementation(openPath => ({
+      client: attached && openPath ? client : null, uri: "hick:///Audit.kt",
+      ready: attached && !!openPath, diagnostics: [], diagnosticSource,
+    }));
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: path }));
+      const editor = await waitFor(() => {
+        const node = screen.container.querySelector<HTMLElement>('.cm-content[aria-label="Audit.kt"]');
+        expect(node).toBeTruthy();
+        return EditorView.findFromDOM(node!)!;
+      });
+      fireEvent.click(await screen.findByRole("button", { name: "Problems: 0 reported" }));
+      const panel = within(await within(document.body).findByRole("dialog", { name: "Workspace Problems" }));
+      await panel.findByText("Audit.kt · kotlin");
+      await panel.findByText("No language session is attached to this file.");
+
+      attached = true;
+      screen.rerender(createElement(App));
+      await panel.findByText("No source-bound diagnostic report for the current file text.");
+      diagnosticSource = source;
+      screen.rerender(createElement(App));
+      await panel.findByText("The provider reported zero problems for the current file text.");
+
+      act(() => editor.dispatch({ changes: { from: editor.state.doc.length, insert: " + 1" } }));
+      await panel.findByText("No source-bound diagnostic report for the current file text.");
+      expect(panel.queryByText(/provider reported zero/)).toBeNull();
+    } finally {
+      screen.unmount();
+      client.dispose();
+      vi.mocked(useWorkspaceLsp).mockReturnValue({ client: null, uri: "hick:///", ready: false, diagnostics: [] });
+    }
+  });
   it("keeps stale/unversioned messages but navigates only current source locations", () => {
     // Contract: .hickory-source/frontends/contract.md
     const range = { start: { line: 0, character: 1 }, end: { line: 0, character: 2 } };
