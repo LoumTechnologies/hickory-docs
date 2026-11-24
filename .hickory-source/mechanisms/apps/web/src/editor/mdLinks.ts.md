@@ -17,8 +17,8 @@ Related contracts: [An Image Dropped In Becomes A File And A Reference](../../..
 
 Links show their labels while reading. Entering a link exposes its original
 Markdown until the selection leaves it; decorations never rewrite the buffer.
-Double-click and Ctrl/Cmd-click follow the destination. Parsed include tags use
-the same navigation. Local context menus delegate to the Files menu owner.
+The label tooltip describes the pointer and keyboard gestures. Parsed include
+tags use the same navigation. Local context menus delegate to the Files menu owner.
 Images retain their source and preview below the line.
 
 <storycode:copy id="f-1645f056db0c-FOLLOW_KEY">
@@ -29,7 +29,7 @@ import { editorLanguageActions } from "./languageActions";
 import type { UiOutcome } from "../lib/uiActions";
 import { Prec, RangeSetBuilder, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, EditorView, keymap, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import { scanMarkdownProse } from "./hickDoc";
@@ -48,7 +48,10 @@ export const FOLLOW_KEY =
 ### `linkLabel`
 
 <storycode:copy id="f-1645f056db0c-linkLabel">
-const linkLabel = Decoration.mark({ class: "cm-md-link" });
+const linkLabel = Decoration.mark({
+  class: "cm-md-link",
+  attributes: { "data-tip": `Open link with ${FOLLOW_KEY}-click or ${FOLLOW_KEY}+Shift+Enter at the caret` },
+});
 </storycode:copy>
 <a id="f-1645f056db0c-linkMark"></a>
 ### `linkMark`
@@ -332,7 +335,9 @@ Double-click reuses it only for the same nearby gesture; ordinary clicks remain
 editor selection. Includes arrive from the language parser rather than a second
 tag regex. Context-menu events carry destinations to the shared Files menu owner.
 
-Links styled, followed on Mod-click, and images drawn.
+The keyboard shortcut uses the primary selection's caret to resolve the same
+destination as the pointer. It leaves the keystroke available when the caret
+is outside a link.
 
 <storycode:copy id="f-1645f056db0c-mdLinks">
 /** Labels for reading, Markdown for editing, double-click navigation and images. */
@@ -384,6 +389,15 @@ export function mdLinks(config: MdLinksConfig): Extension {
       update: (value, tr) => tr.docChanged || tr.selection || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
       provide: (f) => EditorView.decorations.from(f, value => value.decorations),
     }),
+    Prec.high(keymap.of([{
+      key: "Mod-Shift-Enter",
+      run(view) {
+        const link = linkAt(view.state, config, view.state.selection.main.head);
+        if (!link) return false;
+        follow(link.target);
+        return true;
+      },
+    }])),
     Prec.highest(EditorView.domEventHandlers({
       dblclick(event, view) {
         if (event.button !== 0) return false;
@@ -447,7 +461,7 @@ Related contracts: [Explicit UI action dispatch checks scope, state, policy and 
 <storycode:copy id="f-419d07f37b80-editorWith">
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 
 import { assetUrl, followLink, linkAt, linksIn, mdLinks } from "./mdLinks";
 import { installMockHandler } from "../api/client";
@@ -525,6 +539,7 @@ describe("how a link looks", () => {
     const view = editorWith("see [the plan](plan.md)", inNotes);
     expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelector(".cm-md-link")?.textContent).toBe("the plan");
+    expect(view.contentDOM.querySelector(".cm-md-link")?.getAttribute("data-tip")).toContain("Shift+Enter");
     expect(view.contentDOM.textContent).toBe("see the plan");
     view.dispatch({ selection: { anchor: 8 } });
     expect(view.contentDOM.textContent).toBe("see [the plan](plan.md)");
@@ -557,6 +572,23 @@ describe("how a link looks", () => {
 
 <storycode:copy id="f-419d07f37b80-expression_statement-4">
 describe("following a link", () => {
+  it("opens the link at the caret with the keyboard and leaves surrounding prose editable", () => {
+    const follow = vi.fn();
+    const view = editorWith("see [the plan](plan.md)", { ...inNotes, onFollow: follow });
+    const key = new KeyboardEvent("keydown", {
+      key: "Enter", ctrlKey: !/mac/i.test(navigator.platform), metaKey: /mac/i.test(navigator.platform), shiftKey: true,
+    });
+    try {
+      expect(runScopeHandlers(view, key, "editor")).toBe(false);
+      expect(follow).not.toHaveBeenCalled();
+      view.dispatch({ selection: { anchor: 8 } });
+      expect(runScopeHandlers(view, key, "editor")).toBe(true);
+      expect(follow).toHaveBeenCalledExactlyOnceWith("plan.md");
+      expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
+    } finally {
+      view.destroy();
+    }
+  });
   it("opens parsed includes through the same destination lookup", () => {
     const state = EditorState.create({ doc: '<book:include file="other.md" />' });
     expect(linkAt(state, { ...inNotes, includes: () => [{ from: 0, to: state.doc.length, target: "other.md" }] }, 12)?.target).toBe("other.md");

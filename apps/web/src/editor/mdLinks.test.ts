@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 
 import { assetUrl, followLink, linkAt, linksIn, mdLinks } from "./mdLinks";
 import { installMockHandler } from "../api/client";
@@ -53,6 +53,7 @@ describe("how a link looks", () => {
     const view = editorWith("see [the plan](plan.md)", inNotes);
     expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelector(".cm-md-link")?.textContent).toBe("the plan");
+    expect(view.contentDOM.querySelector(".cm-md-link")?.getAttribute("data-tip")).toContain("Shift+Enter");
     expect(view.contentDOM.textContent).toBe("see the plan");
     view.dispatch({ selection: { anchor: 8 } });
     expect(view.contentDOM.textContent).toBe("see [the plan](plan.md)");
@@ -80,6 +81,23 @@ describe("how a link looks", () => {
 });
 
 describe("following a link", () => {
+  it("opens the link at the caret with the keyboard and leaves surrounding prose editable", () => {
+    const follow = vi.fn();
+    const view = editorWith("see [the plan](plan.md)", { ...inNotes, onFollow: follow });
+    const key = new KeyboardEvent("keydown", {
+      key: "Enter", ctrlKey: !/mac/i.test(navigator.platform), metaKey: /mac/i.test(navigator.platform), shiftKey: true,
+    });
+    try {
+      expect(runScopeHandlers(view, key, "editor")).toBe(false);
+      expect(follow).not.toHaveBeenCalled();
+      view.dispatch({ selection: { anchor: 8 } });
+      expect(runScopeHandlers(view, key, "editor")).toBe(true);
+      expect(follow).toHaveBeenCalledExactlyOnceWith("plan.md");
+      expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
+    } finally {
+      view.destroy();
+    }
+  });
   it("opens parsed includes through the same destination lookup", () => {
     const state = EditorState.create({ doc: '<book:include file="other.md" />' });
     expect(linkAt(state, { ...inNotes, includes: () => [{ from: 0, to: state.doc.length, target: "other.md" }] }, 12)?.target).toBe("other.md");

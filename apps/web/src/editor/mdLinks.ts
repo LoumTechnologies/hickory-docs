@@ -5,7 +5,7 @@ import { editorLanguageActions } from "./languageActions";
 import type { UiOutcome } from "../lib/uiActions";
 import { Prec, RangeSetBuilder, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, EditorView, keymap, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import { scanMarkdownProse } from "./hickDoc";
@@ -19,7 +19,10 @@ export const FOLLOW_KEY =
     ? "\u2318"
     : "Ctrl";
 
-const linkLabel = Decoration.mark({ class: "cm-md-link" });
+const linkLabel = Decoration.mark({
+  class: "cm-md-link",
+  attributes: { "data-tip": `Open link with ${FOLLOW_KEY}-click or ${FOLLOW_KEY}+Shift+Enter at the caret` },
+});
 const linkMark = Decoration.mark({ class: "cm-md-mark cm-md-link-mark" });
 
 /** The bytes route an image is read through. Same origin, so no base URL. */
@@ -274,6 +277,15 @@ export function mdLinks(config: MdLinksConfig): Extension {
       update: (value, tr) => tr.docChanged || tr.selection || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
       provide: (f) => EditorView.decorations.from(f, value => value.decorations),
     }),
+    Prec.high(keymap.of([{
+      key: "Mod-Shift-Enter",
+      run(view) {
+        const link = linkAt(view.state, config, view.state.selection.main.head);
+        if (!link) return false;
+        follow(link.target);
+        return true;
+      },
+    }])),
     Prec.highest(EditorView.domEventHandlers({
       dblclick(event, view) {
         if (event.button !== 0) return false;
