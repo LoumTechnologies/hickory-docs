@@ -663,6 +663,7 @@ mod tests {
             backend: "python".into(),
             id: "fixture".into(),
             parent_id: None,
+            parent_is_user: false,
             prompt: String::new(),
             answer: None,
             status: "ok".into(),

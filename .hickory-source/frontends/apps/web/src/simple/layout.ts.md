@@ -12,12 +12,12 @@ A layout contains only identities and proportions. Text, selection and undo do n
 <ui:copy id="simple-f98ffc6999-0">
 // Utility names are legacy layout addresses, never file identities. NUL cannot
 // occur in a workspace path; encode only collisions to preserve ordinary routes.
-export type SourceTabIdentity = {kind:'utility';name:'files'|'agent'|'terminal'} | {kind:'source';key:string};
+export type SourceTabIdentity = {kind:'utility';name:'files'|'agent'|'agent-history'|'terminal'} | {kind:'source';key:string};
 const SOURCE_TAB_PREFIX='\0source:';
-export function sourceTab(key:string):string {return ['files','agent','terminal'].includes(key)||key.startsWith(SOURCE_TAB_PREFIX)?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
+export function sourceTab(key:string):string {return ['files','agent','agent-history','terminal'].includes(key)||key.startsWith(SOURCE_TAB_PREFIX)?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
 export function tabIdentity(address:string):SourceTabIdentity {
  if(address.startsWith(SOURCE_TAB_PREFIX)){try{const key:unknown=JSON.parse(address.slice(SOURCE_TAB_PREFIX.length));if(typeof key==='string'&&sourceTab(key)===address)return {kind:'source',key};}catch{} }
- return address==='files'||address==='agent'||address==='terminal'?{kind:'utility',name:address}:{kind:'source',key:address};
+ return address==='files'||address==='agent'||address==='agent-history'||address==='terminal'?{kind:'utility',name:address}:{kind:'source',key:address};
 }
 export type Edge = "left" | "right" | "top" | "bottom";
 export function dropEdge(x: number, y: number): Edge | null {
@@ -29,9 +29,9 @@ export interface Group { id: string; tabs: string[]; active: string | null }
 export type Layout = Group | { id: string; axis: Axis; ratio: number; first: Layout; second: Layout };
 export const isGroup = (node: Layout): node is Group => "tabs" in node;
 export const groups = (node: Layout): Group[] => isGroup(node) ? [node] : [...groups(node.first), ...groups(node.second)];
-export function initialLayout(): Layout {
+export function initialLayout(withHistory = false): Layout {
   return { id: "root", axis: "horizontal", ratio: .22,
-    first: { id: "files-group", tabs: ["files"], active: "files" },
+    first: { id: "files-group", tabs: withHistory ? ["files", "agent-history"] : ["files"], active: "files" },
     second: { id: "document-group", tabs: [], active: null } };
 }
 export function update(node: Layout, id: string, transform: (node: Layout) => Layout): Layout {

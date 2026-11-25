@@ -100,6 +100,7 @@ when the model should read them.
 <ui:copy id="simple-agent-document-session">
 export class AgentSession {
   captureContext?:()=>AgentEditorContext;
+  workspaceCurrent = () => true;
   liveAgentContext(): AgentEditorContext | undefined {
     const context = this.captureContext?.();
     if (!context) return undefined;
@@ -110,6 +111,26 @@ export class AgentSession {
   }
   constructor() { this.draft.subscribe(() => this.publish()); }
   turns: AgentTurn[] = [];
+  historyLoaded = false;
+  messageForks = false;
+  historyError = "";
+  selection: { id: string | null; fork?: "user" | "assistant" } | undefined;
+  get tip() { return this.selection ? this.selection.id : this.turns.at(-1)?.id ?? null; }
+  get transcript() { return agentTranscript(this.turns, this.tip, this.selection?.fork === "user"); }
+  select(id: string | null, fork?: "user" | "assistant") {
+    if (!this.workspaceCurrent() || this.running) return false;
+    if (fork && !this.messageForks) return false;
+    // Preserve the in-progress draft instead of moving it to another thread.
+    if (this.prompt.length) {
+      this.error = "Send or clear your current draft before switching conversations.";
+      this.publish();
+      return false;
+    }
+    this.selection = { id, fork };
+    this.error = "";
+    this.publish();
+    return true;
+  }
   totals?: AgentTotals;
   // Activity is provisional and keyed to the server's run. The history
   // response owns the final answer and the recorded message revision.
@@ -203,18 +224,35 @@ export class AgentSession {
   publish() { this.version++; this.listeners.forEach(listener => listener()); }
   get running() { return this.busy || this.turns.some(turn => turn.status === "running"); }
   async send() {
-    if (!this.prompt.trim() || this.running) return;
-    const text = this.prompt; this.busy = true; this.error = ""; this.mutation++; this.publish();
+    if (!this.workspaceCurrent() || !this.prompt.trim() || this.running) return;
+    const text = this.prompt, parent = this.tip, fork = this.selection?.fork;
+    const backend = this.turns.find(turn => turn.id === parent)?.backend;
+    if (backend && backend !== "python") {
+      this.error = "This conversation uses a different agent. Start a new conversation to send with Hickory Python.";
+      this.publish();
+      return;
+    }
+    if (fork && !this.messageForks) {
+      this.error = "This workspace server does not support message branches. Update the server before sending.";
+      this.publish();
+      return;
+    }
+    this.busy = true; this.error = ""; this.mutation++; this.publish();
     try {
       const context = this.liveAgentContext();
-      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context, undefined, this.effort || undefined);
+      const args = ["workspace", text, this.selection ? parent : parent ?? undefined, this.provider, this.model, "python", context, undefined, this.effort || undefined] as const;
+      const started = await (fork ? api.agent(...args, fork) : api.agent(...args));
+      if (!this.workspaceCurrent()) return;
       this.liveTurn = context ? started.session_id : null;
-      this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
+      this.selection = { id: started.session_id };
+      this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: parent, parent_is_user: fork === "user", error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
       const early = this.early;
       this.early = [];
       for (const message of early) if ("run_id" in message && message.run_id === started.session_id) this.receive(message);
       if (this.prompt === text) this.prompt = "";
-    } catch (reason) { this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`; }
+    } catch (reason) {
+      if (this.workspaceCurrent()) this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`;
+    }
     finally { this.early = []; this.busy = false; this.mutation++; this.publish(); }
   }
 }
@@ -238,28 +276,92 @@ send mutation. Poll while the pane is visible or its own live turn can still
 request an editor capture. Provider failures remain
 visible beside the retained draft; no request is automatically retried.
 
+Render only the selected ancestry in the composer. The incoming edge of each
+turn decides whether its parent answer belongs to that ancestry. The sidebar
+uses the same IDs but retains siblings so a fork never hides its origin.
+
+<ui:copy id="simple-agent-ancestry">
+export function agentTranscript(turns: AgentTurn[], tip: string | null, userOnly = false) {
+  const byId = new Map(turns.map(turn => [turn.id, turn]));
+  const seen = new Set<string>();
+  const result: { turn: AgentTurn; userOnly: boolean }[] = [];
+  while (tip && !seen.has(tip)) {
+    seen.add(tip);
+    const turn = byId.get(tip);
+    if (!turn) break;
+    result.push({ turn, userOnly });
+    tip = turn.parent_id;
+    userOnly = turn.parent_is_user ?? false;
+  }
+  return result.reverse();
+}
+
+export function AgentHistoryPane({ session, open }: { session: AgentSession; open: () => void }) {
+  useSyncExternalStore(session.subscribe, session.snapshot);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const { turns } = session;
+  const byId = new Map(turns.map(turn => [turn.id, turn]));
+  const children = new Map<string | null, AgentTurn[]>();
+  for (const turn of turns) {
+    const parent = turn.parent_id && byId.has(turn.parent_id) ? turn.parent_id : null;
+    const siblings = children.get(parent) ?? [];
+    siblings.push(turn);
+    children.set(parent, siblings);
+  }
+  const select = (id: string | null) => { session.select(id); open(); };
+  const rows = (parent: string | null, seen: Set<string>): ReactNode => {
+    const group = (children.get(parent) ?? []).filter(turn => !seen.has(turn.id));
+    return group.length ? <ul>{group.map(turn => {
+      const title = turn.prompt.trim().split(/\r?\n/)[0] || "Conversation";
+      const source = turn.parent_id && byId.get(turn.parent_id);
+      const fork = !!(source && turn.session && source.session && turn.session !== source.session);
+      const hasChildren = children.has(turn.id);
+      const expanded = hasChildren && !collapsed.has(turn.id);
+      const item = <button title={title} disabled={session.running} aria-current={session.tip === turn.id ? "true" : undefined}
+        onClick={() => select(turn.id)}>{fork ? `Branch from ${turn.parent_is_user ? "user" : "agent"} · ` : ""}{title}</button>;
+      return <li key={turn.id}>
+        {hasChildren && <button type="button" aria-label={`Replies to ${title}`} aria-expanded={expanded} onClick={() =>
+          setCollapsed(current => { const next = new Set(current); if (next.has(turn.id)) next.delete(turn.id); else next.add(turn.id); return next; })
+        }>{expanded ? "▾" : "▸"}</button>}
+        {item}{expanded && rows(turn.id, new Set([...seen, turn.id]))}
+      </li>;
+    })}</ul> : null;
+  };
+  return <section className="file-tree" aria-label="Agent History">
+    <button disabled={session.running} onClick={() => select(null)}>New conversation</button>
+    {session.historyError && <p role="alert">{session.historyError}</p>}
+    {rows(null, new Set())}
+    {!turns.length && !session.historyError && <p role="status">{session.historyLoaded ? "No conversations yet." : "Loading conversations…"}</p>}
+  </section>;
+}
+</ui:copy>
+
 <ui:copy id="simple-agent-history-refresh">
 export function AgentHistory({ session, visible }: { session: AgentSession; visible: boolean }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
-  const observing = visible || session.liveTurn !== null;
+  const observing = visible || session.running;
   useEffect(() => {
     if (!observing) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    const unsubscribe = getWorkspaceRealtime()?.onRunEvent(message => session.receive(message));
+    const current = () => !cancelled && session.workspaceCurrent();
+    const unsubscribe = getWorkspaceRealtime()?.onRunEvent(message => { if (current()) session.receive(message); });
     const refresh = async () => {
       const mutation = session.mutation;
       try {
         const response = await api.agentTurns("workspace");
-        if (!cancelled && mutation === session.mutation && !session.busy) {
+        if (current() && mutation === session.mutation && !session.busy) {
           const own = session.liveTurn;
+          session.historyError = "";
+          session.historyLoaded = true;
+          session.messageForks = response.message_forks === true;
           session.totals = response.totals;
           session.setTurns(response.turns);
           session.publish();
           if (own && response.turns.some(turn => turn.id === own && turn.status === "running")) {
             const state = await request<{ turn: string | null; edits: { captureRequest?: string } }>("GET", "/api/docs/workspace/agent/python");
             const capture = state.edits?.captureRequest;
-            if (capture && state.turn === own && !cancelled && mutation === session.mutation && own === session.liveTurn) {
+            if (capture && state.turn === own && current() && mutation === session.mutation && own === session.liveTurn) {
               const context = session.liveAgentContext();
               if (context) await acpApi.edits("workspace", { capture_request: capture, context }, "python");
             }
@@ -268,8 +370,8 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
             session.publish();
           }
         }
-      } catch (reason) { if (!cancelled) { session.error = `${String(reason)} Check subscription sign-in on the workspace server, then refresh.`; session.publish(); } }
-      if (!cancelled) timer = setTimeout(refresh, 1000);
+      } catch (reason) { if (current() && mutation === session.mutation) { session.historyError = `Cannot read agent history: ${String(reason)}`; session.publish(); } }
+      if (current()) timer = setTimeout(refresh, 1000);
     };
     void refresh();
     return () => { cancelled = true; clearTimeout(timer); unsubscribe?.(); };
@@ -283,8 +385,8 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
   useSyncExternalStore(session.subscribe, session.snapshot);
   const conversation = useRef<HTMLDivElement>(null);
   const following = useRef(true);
-  const { turns, prompt, error } = session;
-  const tail = turns.at(-1);
+  const { transcript, prompt, error } = session;
+  const tail = transcript.at(-1)?.turn;
   const liveAnswer = tail && session.activity.get(tail.id)?.answer;
   useEffect(() => {
     if (following.current && conversation.current) conversation.current.scrollTop = conversation.current.scrollHeight;
@@ -301,17 +403,17 @@ actions.
 <ui:copy id="simple-981c695688-1">
   return <div className="agent-body">
     <RichOwners buffers={session.documents} recorded />
-    <header className="agent-heading"><strong>Workspace agent</strong><span role="status" title={inlineRenderNotice}>{inlineRenderNotice ? "Inline rendering unavailable" : "Hickory · Python execution only"}</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
+    <header className="agent-heading"><strong>Workspace agent</strong><span role="status" title={inlineRenderNotice}>{inlineRenderNotice ? "Inline rendering unavailable" : "Hickory · Python execution only"}</span><button disabled={running} onClick={() => session.select(null)}>New conversation</button>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
     <div ref={conversation} className="conversation" role="log" aria-label="Conversation" onScroll={event => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48; }}>
-      {!turns.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
-      {turns.map(turn => {
+      {!transcript.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
+      {transcript.map(({ turn, userOnly }) => {
         const activity = session.activity.get(turn.id);
         const streaming = turn.status === "running";
         const answer = turn.answer ?? turn.error ?? activity?.answer;
         return <article key={turn.id}>
-          <section className="agent-message user-message"><p className="message-label">You</p><RecordedMessage turn={turn.id} side="user" reviewRecordedPatch={reviewRecordedPatch} buffer={session.document(`${turn.id}-user`, turn.prompt)} /></section>
-          <section className="agent-message">
-            <p className="message-label">Agent{turn.model && ` · ${turn.model}`}</p>
+          <section className="agent-message user-message"><p className="message-label">You {session.messageForks && (!turn.backend || turn.backend === "python") && <button disabled={running} onClick={() => session.select(turn.id, "user")}>Branch from user message</button>}</p><RecordedMessage turn={turn.id} side="user" reviewRecordedPatch={reviewRecordedPatch} buffer={session.document(`${turn.id}-user`, turn.prompt)} /></section>
+          {!userOnly && <section className="agent-message">
+            <p className="message-label">Agent{turn.model && ` · ${turn.model}`} {session.messageForks && turn.answer != null && (!turn.backend || turn.backend === "python") && <button disabled={running} onClick={() => session.select(turn.id, "assistant")}>Branch from assistant message</button>}</p>
             {!!activity?.tools.length && <details className="agent-tool-calls"><summary>Tool calls ({activity.tools.length})</summary>
               {activity.tools.map((tool, index) => <details key={index}><summary>{tool.name} · {tool.ok === undefined ? streaming ? "Running" : "Outcome unavailable" : tool.ok ? "Completed" : "Failed"}</summary>{tool.result && <pre>{tool.result}</pre>}</details>)}
             </details>}
@@ -319,10 +421,11 @@ actions.
             {answer && (streaming || !answer.includes('xmlns:') && !proseCodeFences(parseHickDoc(answer), answer).length
               ? <MarkdownMessage text={answer} />
               : <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />)}
-          </section>
+          </section>}
         </article>;
       })}
     </div>
+    {session.selection?.fork && <p className="message-label" role="status">New branch from {session.selection.fork === "user" ? "user" : "assistant"} message. Send to start it.</p>}
     {error && <div role="alert" className="notice">{error}</div>}
     <form className="agent-composer" onSubmit={event => { event.preventDefault(); void session.send(); }}>
       <label className="message-label">Your message · Paste any source excerpts you want the model to read.</label>
@@ -401,7 +504,7 @@ export function AgentStatus({ session }: { session: AgentSession }) {
       onClick={() => { setCustom(!!session.model && !models.includes(session.model)); setOpen(!open); }}>
       <span aria-hidden="true">{choice.icon}</span> {session.model || choice.models[0]} <span aria-hidden="true">◴</span> {session.effort || "Default"}
     </button>
-    <span title={`Conversation usage · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
+    <span title={`Workspace agent usage · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Agent settings" className="agent-settings"
       style={{ left: Math.max(8, Math.min(anchor.current?.getBoundingClientRect().left ?? 8, window.innerWidth - 298)), bottom: window.innerHeight - (anchor.current?.getBoundingClientRect().top ?? window.innerHeight) + 4 }}>
       <label>Provider<select aria-label="Provider" disabled={session.running} title={session.running ? "Wait for the current operation to finish." : undefined} value={provider} onChange={event => {
@@ -802,6 +905,6 @@ function ActiveFenceDebugger({ capture, source, view, current, marks, publish, l
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/web/src/simple/Agent.tsx"><ui:paste select="#simple-981c695688-0"/><ui:paste select="#simple-agent-document-session"/><ui:paste select="#simple-agent-history-refresh"/><ui:paste select="#simple-981c695688-1"/><ui:paste select="#simple-agent-status-controls"/><ui:paste select="#recorded-message-fence-controls"/></ui:file>
+<ui:file path="apps/web/src/simple/Agent.tsx"><ui:paste select="#simple-981c695688-0"/><ui:paste select="#simple-agent-document-session"/><ui:paste select="#simple-agent-ancestry"/><ui:paste select="#simple-agent-history-refresh"/><ui:paste select="#simple-981c695688-1"/><ui:paste select="#simple-agent-status-controls"/><ui:paste select="#recorded-message-fence-controls"/></ui:file>
 
 </ui:doc>

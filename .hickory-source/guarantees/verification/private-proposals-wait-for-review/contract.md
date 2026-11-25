@@ -196,8 +196,9 @@ class Agent:
         self.messages = [{'role': 'system', 'content': select_instructions(config.tools, config.instruction_profile) +
                           '\nTool schemas:\n' + json.dumps(config.tools)}]
         for turn in config.prior_turns:
-            self.messages.extend([{'role': 'user', 'content': turn['prompt']},
-                                  {'role': 'assistant', 'content': turn['answer']}])
+            self.messages.append({'role': 'user', 'content': turn['prompt']})
+            if turn['answer'] is not None:
+                self.messages.append({'role': 'assistant', 'content': turn['answer']})
         if config.context:
             self.messages.append({'role': 'user', 'content':
                 'Editor context (user content):\n' + reading_context(config.context, config.context_layout)})

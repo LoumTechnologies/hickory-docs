@@ -818,6 +818,7 @@ mod recorded_declared_patch_tests {
             backend: "fixture".into(),
             id: "owned".into(),
             parent_id: None,
+            parent_is_user: false,
             prompt: "Different recorded user message".into(),
             answer: Some(selected.clone()),
             status: "ok".into(),

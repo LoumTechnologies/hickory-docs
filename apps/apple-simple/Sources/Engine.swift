@@ -29,6 +29,10 @@ struct AgentTurn: Decodable, Identifiable {
     var error: String?
     var status: String
     var model: String? = nil
+    var parent_id: String? = nil
+    var parent_is_user: Bool? = nil
+    var session: String? = nil
+    var backend: String? = nil
 }
 struct AgentTotals: Decodable {
     let subscription: Bool?
@@ -39,7 +43,7 @@ struct AgentTotals: Decodable {
     let cache_write: Int
     var tokens: Int { input + output + cache_read + cache_write }
 }
-struct AgentHistory: Decodable { var turns: [AgentTurn]; var totals: AgentTotals? }
+struct AgentHistory: Decodable { var turns: [AgentTurn]; var totals: AgentTotals?; var message_forks: Bool? }
 struct NativeAgentEvent: Decodable {
     struct Event: Decodable {
         let kind: String
@@ -136,8 +140,8 @@ struct Engine {
         return result.hash
     }
     func turns() async throws -> AgentHistory { try await request("GET", "/api/docs/workspace/agent/turns") }
-    func send(_ prompt: String, parent: String?, provider: String, model: String, effort: String, context:[String:Any]?=nil) async throws -> StartedTurn {
-        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python", "provider": provider, "model": model, "effort": effort.isEmpty ? NSNull() : effort as Any,"context":context as Any? ?? ["live":false,"buffers":[]]])
+    func send(_ prompt: String, parent: String?, provider: String, model: String, effort: String, context:[String:Any]?=nil, fork: Bool? = nil) async throws -> StartedTurn {
+        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python", "provider": provider, "model": model, "effort": effort.isEmpty ? NSNull() : effort as Any,"context":context as Any? ?? ["live":false,"buffers":[]], "fork": fork != nil, "parent_is_user": fork ?? false])
     }
     func stop() async throws {
         struct Stopped: Decodable { var stopping: String }

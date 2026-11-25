@@ -23,7 +23,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
-import { Agent, AgentSession, MarkdownMessage } from "./Agent";
+import { Agent, AgentHistory, AgentSession, MarkdownMessage, agentTranscript } from "./Agent";
 import { App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
 import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
@@ -690,7 +690,7 @@ describe("pane edge docking", () => {
         if (type === "dragover") expect(pane.getAttribute("data-drop-edge")).toBe(edge);
       }
       const order = screen.getAllByRole("tablist").map(list => Array.from(list.querySelectorAll('[role="tab"]')).map(tab => tab.textContent));
-      expect(order).toEqual(edge === "center" ? [['Files'], ['a.txt', 'b.txt •']] : [['Files'], ...(edge === "left" || edge === "top" ? [['b.txt •'], ['a.txt']] : [['a.txt'], ['b.txt •']])]);
+      expect(order).toEqual(edge === "center" ? [['Files', 'Agent History'], ['a.txt', 'b.txt •']] : [['Files', 'Agent History'], ...(edge === "left" || edge === "top" ? [['b.txt •'], ['a.txt']] : [['a.txt'], ['b.txt •']])]);
       expect(screen.getAllByRole("tabpanel").length).toBe(beforeCount + (edge === "center" ? -1 : 1));
       const content = screen.container.querySelector<HTMLElement>('[aria-label="b.txt"].cm-content')!;
       expect(EditorView.findFromDOM(content)).toBe(view);
@@ -722,7 +722,7 @@ describe("tab drop placement", () => {
       fireEvent.dragStart(source, { dataTransfer }); fireEvent.dragOver(target, { dataTransfer });
       expect(target.getAttribute("data-drop-before")).toBe("true");
       fireEvent.drop(target, { dataTransfer });
-      expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Files", "b.txt •", "a.txt"]);
+      expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Files", "Agent History", "b.txt •", "a.txt"]);
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
       expect(view.state.doc.toString()).toBe("b.txt unsaved");
       act(() => { undo(view); }); expect(view.state.doc.toString()).toBe("b.txt");
@@ -1501,6 +1501,81 @@ describe("terminal and agent tab identity", () => {
 });
 
 describe("simple literate subscription agent", () => {
+  it("discards a history reply from a retired workspace", async () => {
+    const session = new AgentSession();
+    let current = true;
+    session.workspaceCurrent = () => current;
+    const turn = { id: "foreign", parent_id: null, prompt: "Not from this workspace", answer: null, error: null, status: "ok",
+      created_at: "", provider: "", model: "", usage: null };
+    let deliver!: (reply: Awaited<ReturnType<typeof api.agentTurns>>) => void;
+    vi.mocked(api.agentTurns).mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }));
+    const screen = render(createElement(AgentHistory, { session, visible: true }));
+    try {
+      expect(deliver).toBeTypeOf("function");
+      current = false;
+      await act(async () => deliver({ turns: [turn], message_forks: true, provider: "", model: "",
+        totals: { usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 } }));
+      expect(session.turns).toEqual([]);
+      expect(session.historyLoaded).toBe(false);
+    } finally { screen.unmount(); }
+  });
+  it("reopens a nested branch from Agent History, cuts at the chosen message, then opens an empty conversation without sending", async () => {
+    const row = (id: string, parent_id: string | null, prompt: string, session: string, parent_is_user = false) => ({
+      id, parent_id, parent_is_user, prompt, session, answer: `Answer ${id}`, error: null, status: "ok", backend: "python",
+      created_at: "", provider: "codex-subscription", model: "", usage: null,
+    });
+    const turns = [row("root", null, "Root conversation", "original.md"),
+      row("later", "root", "Original continuation", "original.md"),
+      row("fork", "root", "Retained follow-up", "fork.md", true)];
+    expect(agentTranscript(turns, "fork").map(({ turn, userOnly }) => [turn.id, userOnly])).toEqual([["root", true], ["fork", false]]);
+    vi.mocked(api.files).mockResolvedValueOnce({ root: "workspace", tree: [] });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns, message_forks: true, provider: "", model: "", totals: { usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    const before = vi.mocked(api.agent).mock.calls.length;
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole("tab", { name: "Agent History" }));
+      const branch = await screen.findByRole("button", { name: /Branch from user · Retained follow-up/ });
+      expect(branch.closest("li")?.parentElement?.closest("li")?.textContent).toContain("Root conversation");
+      fireEvent.click(branch);
+      const log = within(await screen.findByRole("log", { name: "Conversation" }));
+      expect(log.getByText("Answer fork")).toBeTruthy();
+      expect(log.queryByText("Answer root")).toBeNull();
+      expect(log.queryByText("Answer later")).toBeNull();
+      fireEvent.click(log.getByRole("button", { name: "Branch from assistant message" }));
+      expect(screen.getByText(/New branch from assistant message/)).toBeTruthy();
+      fireEvent.click(log.getAllByRole("button", { name: "Branch from user message" }).at(-1)!);
+      expect(log.queryByText("Answer fork")).toBeNull();
+      fireEvent.click(within(screen.getByRole("region", { name: "Agent History" })).getByRole("button", { name: "New conversation" }));
+      expect(log.getByText("What shall we work on?")).toBeTruthy();
+      expect(api.agent).toHaveBeenCalledTimes(before);
+    } finally {
+      screen.unmount();
+      vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "", model: "", totals: { usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    }
+  });
+  it("sends a message fork exactly once and retains the branch point after a refused send", async () => {
+    const session = new AgentSession();
+    const turn = { id: "origin", parent_id: null, prompt: "Earlier", answer: "Earlier reply", error: null, status: "ok",
+      created_at: "", provider: "", model: "", usage: null };
+    session.setTurns([turn]);
+    session.messageForks = true;
+    session.select(turn.id, "user");
+    session.prompt = "Try another way";
+    vi.mocked(api.agent).mockRejectedValueOnce(new Error("Unavailable"));
+    await session.send();
+    expect(session.selection).toEqual({ id: "origin", fork: "user" });
+    expect(session.prompt).toBe("Try another way");
+    expect(session.select(null)).toBe(false);
+    session.messageForks = false;
+    const before = vi.mocked(api.agent).mock.calls.length;
+    await session.send();
+    expect(api.agent).toHaveBeenCalledTimes(before);
+    session.messageForks = true;
+    vi.mocked(api.agent).mockResolvedValueOnce({ session_id: "fork" });
+    await session.send();
+    expect(api.agent).toHaveBeenLastCalledWith("workspace", "Try another way", "origin", "codex-subscription", "", "python", undefined, undefined, undefined, "user");
+    expect(session.transcript.map(({ turn, userOnly }) => [turn.id, userOnly])).toEqual([["origin", true], ["fork", false]]);
+  });
   // Contract: .hickory-source/frontends/contract.md — only Python executes code.
   it("sends the exact draft with subscription, model and effort; retains edits made during send", async () => {
     let resolve!: (value: { session_id: string }) => void;

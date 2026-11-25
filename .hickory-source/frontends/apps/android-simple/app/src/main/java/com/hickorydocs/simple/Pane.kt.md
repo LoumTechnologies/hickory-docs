@@ -1502,6 +1502,7 @@ composes both children, so the neighboring editor keeps its native state.
             FileRows(workspace.files, workspace)
         }
         "terminal" -> TerminalPane(workspace)
+        "agent-history" -> AgentHistoryPane(workspace.agent) { workspace.show("agent") }
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.bufferForTab(tab)?.let { buffer ->

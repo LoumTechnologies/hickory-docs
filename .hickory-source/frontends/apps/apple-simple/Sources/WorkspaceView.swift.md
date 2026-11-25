@@ -120,7 +120,7 @@ struct WorkspaceView: View {
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{showServerConnection()}])}
     var body: some View {
         let epoch = workspace.sourceNavigationEpoch
-        let observeAgent = workspace.agent.liveTurn != nil || workspace.layout.groups().contains { $0.active == "agent" }
+        let observeAgent = workspace.agent.running || workspace.layout.groups().contains { $0.active == "agent" || $0.active == "agent-history" }
         VStack(spacing: 0) {
             #if !os(macOS)
             HStack {
@@ -208,7 +208,7 @@ struct WorkspaceView: View {
         .task(id: epoch.uuidString + String(observeAgent)) {
             guard observeAgent else { return }
             guard let engine = workspace.engine else {
-                workspace.agent.error = "Connect to a workspace server to use the agent."
+                workspace.agent.historyError = "Connect to a workspace server to use the agent."
                 return
             }
             await workspace.agent.observe(engine) { workspace.sourceNavigationEpoch == epoch }
@@ -614,6 +614,8 @@ struct PaneView: View {
             }.accessibilityLabel("Files")
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
+        } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agentHistory {
+            NativeAgentHistoryPane(session: workspace.agent) { workspace.showUtility(.agent) }
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agent {
             let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
             AgentPane(engine: workspace.engine, session: workspace.agent, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in

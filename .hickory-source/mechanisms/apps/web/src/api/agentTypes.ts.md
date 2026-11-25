@@ -33,6 +33,7 @@ export interface AgentTurn {
   backend?: string;
   id: string;
   parent_id: string | null;
+  parent_is_user?: boolean;
   prompt: string;
   answer: string | null;
   status: "running" | "ok" | "error" | string;
@@ -77,6 +78,7 @@ export interface AgentTotals {
 <storycode:copy id="f-1689be10ab92-AgentTurnsResponse">
 export interface AgentTurnsResponse {
   turns: AgentTurn[];
+  message_forks?: boolean;
   /** The provider the next turn would run on, defaults resolved. */
   provider: string;
   /** The model the next turn would run on, defaults resolved. */

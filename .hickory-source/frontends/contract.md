@@ -33,18 +33,33 @@ The requested parity is the set discussed in the IDE comparison, across browser,
 
 ### Start, branch and reopen agent conversations
 
-Use **New Conversation** in the Agent pane to open an empty composer without
-losing the current conversation. Use **Branch from Here** on a recorded turn
-to continue from the exact history through that turn in a separate conversation.
+Use **New conversation** in Agent or Agent History to open an empty composer
+without losing the current conversation. Branch from a recorded user or assistant
+message to continue from the exact history through that message in a separate
+conversation. A user-message branch excludes that message's assistant reply,
+including on subsequent turns. A draft must be sent or cleared before switching;
+it is never silently attached to the selected conversation.
 The original conversation remains unchanged, and neither action runs the agent;
 only sending a message starts a turn.
 
-Open **Agent List** on demand to find all retained conversations that Hickory
+Open **Agent History** beside Files in the left sidebar (or through View) to find retained conversations that Hickory
 Docs has run for this folder, including branches and conversations from prior
 launches. Show where a branch came from. Selecting an entry opens it in the
 Agent pane without moving the editor. Switching folders must not show entries
 or accept late list results from the previous folder. A failed history lookup
 must not appear to be an empty history or prevent reading an open transcript.
+The Simple composer runs Hickory Python; other recorded backends are readable
+but their messages do not offer a fork in Simple. Require the server to
+advertise message forks before offering one, so an older server cannot
+silently include the answer the user meant to exclude.
+
+Follow the implementation from the [browser selection and observer](apps/web/src/simple/Agent.tsx.md)
+to the [Apple pane](apps/apple-simple/Sources/AgentPane.swift.md) and
+[Android pane](apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md).
+The [server replay](../mechanisms/crates/hickory-cli/src/serve/agent.rs.md) tests
+rebuild the cross-file edge from disk and assert what the next prompt can see.
+The [browser sidebar witness](apps/web/src/simple/parity.test.ts.md) checks
+what opening, branching and starting a conversation show before Send.
 
 The complete outcome includes:
 

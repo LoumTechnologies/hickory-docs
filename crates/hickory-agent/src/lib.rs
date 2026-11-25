@@ -69,7 +69,7 @@ pub const STOPPED_BY_USER: &str = "stopped by you";
 #[derive(Debug, Clone)]
 pub struct PriorTurn {
     pub prompt: String,
-    pub answer: String,
+    pub answer: Option<String>,
 }
 pub use receipt::ScriptResult;
 /// A canned LLM client replaying scripted responses (tests, offline dev).

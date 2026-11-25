@@ -305,6 +305,7 @@ impl Client {
             text: prompt,
             turn,
             parent,
+            parent_is_user: false,
             provider: &format!("acp:{}", self.agent),
             model: &model,
         })?;

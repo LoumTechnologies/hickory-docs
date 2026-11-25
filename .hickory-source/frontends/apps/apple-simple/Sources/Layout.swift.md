@@ -35,6 +35,11 @@ struct PaneLayout: Codable {
         "files-group": PaneNode(id: "files-group", tabs: ["files"], active: "files"),
         "document-group": PaneNode(id: "document-group")
     ]
+    static func workspaceDefault() -> PaneLayout {
+        var layout = PaneLayout()
+        layout.nodes["files-group"]?.tabs.append(NativeUtilityTab.agentHistory.rawValue)
+        return layout
+    }
     func groups(_ id: String? = nil) -> [PaneNode] {
         guard let node = nodes[id ?? rootID] else { return [] }
         if let first = node.first, let second = node.second { return groups(first) + groups(second) }

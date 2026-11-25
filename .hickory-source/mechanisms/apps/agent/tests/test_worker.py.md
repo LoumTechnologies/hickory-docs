@@ -113,8 +113,28 @@ class Tools:
 <a id="f-9f33e52791d8-WorkerTests"></a>
 ### `WorkerTests`
 
+A user-message fork carries that prompt but no assistant reply. Inspect the
+actual messages admitted to the model, not only the worker's final summary.
+
 <storycode:copy id="f-9f33e52791d8-WorkerTests">
 class WorkerTests(unittest.TestCase):
+    def test_user_message_fork_never_supplies_an_assistant_reply_at_the_cut(self):
+        seen = []
+        class Model:
+            def complete(self, messages):
+                seen.extend(messages[1:])
+                return '{"done":"Fork accepted"}'
+
+        agent = Agent(Model(), Tools(), lambda _: self.fail('Unexpected tool call'))
+        agent.run(Config('New branch', prior_turns=[
+            {'prompt': 'Earlier prompt', 'answer': 'Earlier reply'},
+            {'prompt': 'Branch point', 'answer': None},
+        ]))
+        self.assertEqual([(row['role'], row['content']) for row in seen], [
+            ('user', 'Earlier prompt'), ('assistant', 'Earlier reply'),
+            ('user', 'Branch point'), ('user', 'New branch'),
+        ])
+
     def test_only_one_declared_python_or_done_action(self):
         self.assertEqual(parse_action('{"python":"1 + 2"}'), {'python': '1 + 2'})
         for raw in ['{"shell":"rm -rf ."}', '{"python":"x","done":"ok"}', '[]', '```python\nx\n```']:

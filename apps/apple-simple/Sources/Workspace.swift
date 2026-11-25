@@ -335,7 +335,7 @@ struct StartupSourceObservation {
         await openProblem(problem)
     }
     var navigationTrail = NavigationTrail()
-    var layout = PaneLayout()
+    var layout = PaneLayout.workspaceDefault()
     private var hiddenFilesPane: String?
     private var visibleDocumentPane: PaneNode? {
         layout.groups().first { group in
@@ -344,7 +344,7 @@ struct StartupSourceObservation {
     }
     var separateFilesPane: String? {
         guard visibleDocumentPane != nil else { return nil }
-        return layout.groups().first { $0.tabs == [NativeUtilityTab.files.rawValue] }?.id
+        return layout.groups().first { $0.tabs.containsUtility(.files) && $0.tabs.allSatisfy { $0 == "files" || $0 == "agent-history" } }?.id
     }
     var collapsedFilesPane: String? {
         guard hiddenFilesPane == separateFilesPane else { return nil }
@@ -575,14 +575,14 @@ struct StartupSourceObservation {
             let requestedTabIsCurrent = startupIsCurrent()
             let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.
-            agent.turns = []; agent.totals = nil; agent.activity = [:]; agent.stopPending = false; agent.error = ""; terminal.id = nil; terminal.error = ""
+            agent.resetHistory(); agent.totals = nil; agent.activity = [:]; agent.stopPending = false; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
             sourceHistory.close();sourceRootAddress=nil;sourceWorkspaceID=nil;sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();gitResolution.reset();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
-            if preview == nil { buffers = [:]; layout = PaneLayout(); focused = "document-group" }
+            if preview == nil { buffers = [:]; layout = PaneLayout.workspaceDefault(); focused = "document-group" }
             if requestedTabIsCurrent { requestedScope = generation; requestedInteraction = paneInteraction }
             status = tree.root
             displayFolder(nil)
@@ -916,11 +916,13 @@ struct StartupSourceObservation {
     func showSource(_ path:String){show(nativeSourceTab(path))}
     func showUtility(_ utility:NativeUtilityTab){show(utility.rawValue)}
     func show(_ tab: String, in group: String? = nil) {
-        if tab == NativeUtilityTab.files.rawValue { hiddenFilesPane = nil }
+        let history = tab == NativeUtilityTab.agentHistory.rawValue
+        if tab == NativeUtilityTab.files.rawValue || history { hiddenFilesPane = nil }
         let groups = layout.groups()
         let target = group ?? groups.first(where: { $0.tabs.containsTab(tab) })?.id
-            ?? (tab != "files" ? groups.first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id
-                ?? groups.first(where: { !$0.tabs.containsUtility(.files) })?.id : nil) ?? focused
+            ?? (history ? groups.first(where: { $0.tabs.containsUtility(.files) })?.id ?? groups.first?.id : nil)
+            ?? (tab != "files" ? groups.first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) && !$0.tabs.containsUtility(.agentHistory) })?.id
+                ?? groups.first(where: { !$0.tabs.containsUtility(.files) && !$0.tabs.containsUtility(.agentHistory) })?.id : nil) ?? focused
         guard groups.contains(where: { $0.id == target }) else { return }
         newestOpen.removeValue(forKey: target)
         paneInteraction = UUID()
@@ -1042,7 +1044,7 @@ struct StartupSourceObservation {
         moveTab(active, to: target)
     }
     func label(_ tab: String) -> String {
-        switch NativeTabIdentity(address:tab).utility{case .files:return "Files";case .agent:return "Agent";case .terminal:return "Terminal";case nil:break}
+        switch NativeTabIdentity(address:tab).utility{case .files:return "Files";case .agent:return "Agent";case .agentHistory:return "Agent History";case .terminal:return "Terminal";case nil:break}
         return (bufferForTab(tab)?.file.name ?? (tab as NSString).lastPathComponent) + (bufferForTab(tab)?.resourceDeleted == true ? " (retained)" : "") + (bufferForTab(tab)?.dirty == true ? " •" : "")
     }
     var savingAll = false

@@ -288,6 +288,7 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
             "id",
             "turn",
             "parent",
+            "parent-side",
             "provider",
             "model",
             "at",

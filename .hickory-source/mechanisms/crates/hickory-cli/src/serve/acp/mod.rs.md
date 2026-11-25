@@ -635,6 +635,7 @@ pub async fn start_turn(
             backend: backend.clone(),
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
+            parent_is_user: false,
             prompt: prompt.clone(),
             answer: None,
             status: "running".into(),

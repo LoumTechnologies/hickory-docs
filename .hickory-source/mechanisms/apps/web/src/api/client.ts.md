@@ -517,6 +517,7 @@ export const api = {
     context?: AgentEditorContext,
     experiment?: { features: string[]; timeout_seconds?: number },
     effort?: string,
+    fork?: "user" | "assistant",
   ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
       backend,
@@ -525,6 +526,7 @@ export const api = {
       ...(experiment ? { experiment } : {}),
       prompt,
       parent_id: parentId ?? null,
+      ...(fork ? { fork: true, parent_is_user: fork === "user" } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(model !== undefined ? { model } : {}),
     }),

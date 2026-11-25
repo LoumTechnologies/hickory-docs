@@ -108,7 +108,7 @@ import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
-import { Agent, AgentHistory, AgentSession, AgentStatus } from "./Agent";
+import { Agent, AgentHistory, AgentHistoryPane, AgentSession, AgentStatus } from "./Agent";
 import {AgentProposalReview} from "./AgentProposalView";
 import {prepareRecordedPatch,proposalEditorContext,type ProposalSelection,type ReviewRecordedPatch} from "./AgentProposalAdapter";
 import { sourceTab, tabIdentity, activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -141,12 +141,11 @@ type OpenFileOptions = {
 };
 type OpenedFile = {buffer: Buffer; current: () => boolean};
 export function App() {
-  const [layout, setLayout] = useState<Layout>(initialLayout);
+  const [layout, setLayout] = useState<Layout>(() => initialLayout(true));
   const [hiddenFilesPane, setHiddenFilesPane] = useState<string | null>(null);
   const liveLayout=useRef(layout);liveLayout.current=layout;
   const [focused, updateFocused] = useState("document-group");
   const [terminal] = useState(() => new TerminalSession());
-  const [agent] = useState(() => new AgentSession());
   const [filesFolder, setFilesFolder] = useState("");
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
@@ -180,7 +179,9 @@ export function App() {
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const overlayWorkspace = () => JSON.stringify([buffers.workspace || workspaceIdentity.current, buffers.workspaceId]);
   const overlayScope = overlayWorkspace();
+  const agent = useMemo(() => new AgentSession(), [overlayScope]);
   const overlayCurrent = () => overlayWorkspace() === overlayScope;
+  agent.workspaceCurrent = overlayCurrent;
   const requested = useRef(new Map<string, {path: string}>());
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
@@ -380,9 +381,13 @@ export function App() {
     setFocused(group);
   }
   function openTab(tab: string) {
-    if (tab === "files") setHiddenFilesPane(null);
-    const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
-    activateTab(owner?.id ?? currentGroup.id, tab);
+    if (tab === "files" || tab === "agent-history") setHiddenFilesPane(null);
+    const panes = groups(liveLayout.current);
+    const owner = panes.find(group => group.tabs.includes(tab));
+    const sidebar = (group: typeof currentGroup) => group.tabs.includes("files") || group.tabs.includes("agent-history");
+    const fallback = tab === "agent-history" ? panes.find(sidebar) ?? panes[0]
+      : tab === "agent" && sidebar(currentGroup) ? panes.find(group => !sidebar(group)) : undefined;
+    activateTab(owner?.id ?? fallback?.id ?? currentGroup.id, tab);
   }
   useEffect(() => onShowTerminal(({ id }) => {
     if (!/^term-[0-9a-f]{32}$/.test(id)) return;
@@ -394,9 +399,10 @@ export function App() {
   async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify, startup}: OpenFileOptions = {}): Promise<OpenedFile | null> {
     if (!isCurrent() || !originCurrent()) return null;
     const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);
+    const documents = panes.filter(group => !group.tabs.includes("files") && !group.tabs.includes("agent-history"));
     const target = panes.find(group => group.tabs.includes(tab))?.id
-      ?? panes.find(group => group.id === focused && !group.tabs.includes("files"))?.id
-      ?? panes.find(group => !group.tabs.includes("files"))?.id ?? currentGroup.id;
+      ?? documents.find(group => group.id === focused)?.id
+      ?? documents[0]?.id ?? currentGroup.id;
     const ticket = {path};
     const namespace = buffers.workspace, workspace = buffers.workspaceId;
     const pending = () => {
@@ -577,9 +583,10 @@ The window keyboard handler consumes Ctrl/Cmd+N before the browser default and u
 Menu and tab-strip commands expose the same operations as native menus. Empty leaves accept drops. Recursive splits retain arbitrary arrangements; resizing updates only their proportions.
 
 <ui:copy id="simple-e8a50a27b2-1">
-  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
+  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "agent-history" ? "Agent History" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>;
+    if (tab === "agent-history") return <AgentHistoryPane session={agent} open={() => openTab("agent")} />;
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (tab === "agent") return <Agent session={agent} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
     const document = bufferForTab(tab);
@@ -621,7 +628,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   }, []);
   const visibleDocumentPane = groups(layout).find(pane => pane.active && bufferForTab(pane.active));
   const separateFilesPane = visibleDocumentPane
-    ? groups(layout).find(pane => pane.tabs.length === 1 && pane.tabs[0] === "files")?.id
+    ? groups(layout).find(pane => pane.tabs.includes("files") && pane.tabs.every(tab => tab === "files" || tab === "agent-history"))?.id
     : undefined;
   const collapsedFilesPane = hiddenFilesPane === separateFilesPane ? hiddenFilesPane : null;
   function toggleFilesPane() {
@@ -637,7 +644,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
     "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
-    "view.files":()=>openTab("files"),"view.toggleFiles":toggleFilesPane,"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
+    "view.files":()=>openTab("files"),"view.toggleFiles":toggleFilesPane,"view.agent":()=>openTab("agent"),"view.agentHistory":()=>openTab("agent-history"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
   for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
@@ -657,7 +664,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={overlayScope}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
-    <AgentHistory session={agent} visible={groups(layout).some(group => group.active === "agent")} />
+    <AgentHistory session={agent} visible={groups(layout).some(group => group.active === "agent" || group.active === "agent-history")} />
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">

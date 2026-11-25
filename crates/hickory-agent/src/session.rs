@@ -32,6 +32,7 @@ pub enum SessionEvent<'a> {
         text: &'a str,
         turn: &'a str,
         parent: Option<&'a str>,
+        parent_is_user: bool,
         provider: &'a str,
         model: &'a str,
     },
@@ -384,6 +385,7 @@ impl SessionLog for HickSessionLog {
                     text,
                     turn,
                     parent,
+                    parent_is_user,
                     provider,
                     model,
                 } => {
@@ -391,9 +393,10 @@ impl SessionLog for HickSessionLog {
                     let parent = parent
                         .map(|p| format!(r#" parent="{p}""#))
                         .unwrap_or_default();
+                    let side = if parent_is_user { r#" parent-side="user""# } else { "" };
                     writeln!(
                         writer,
-                        r#"<hick:user id="{id}" turn="{turn}"{parent} provider="{provider}" model="{model}">{}</hick:user>"#,
+                        r#"<hick:user id="{id}" turn="{turn}"{parent}{side} provider="{provider}" model="{model}">{}</hick:user>"#,
                         framed_body(&safe_prose(text.trim()))
                     )?;
                 }
@@ -813,6 +816,7 @@ mod tests {
             text: "\nhello\n",
             turn: "t1",
             parent: None,
+            parent_is_user: false,
             provider: "test",
             model: "test",
         });
@@ -861,6 +865,7 @@ mod tests {
             text: "hi",
             turn: "t1",
             parent: Some("t0"),
+            parent_is_user: true,
             provider: "test",
             model: "test-model",
         });
@@ -882,6 +887,9 @@ mod tests {
             "{:?}",
             hick_blocks::attribute_errors(&source, &doc)
         );
+        let view = crate::session_view::session_view(&source);
+        assert_eq!(view.turns[0].parent.as_deref(), Some("t0"));
+        assert!(view.turns[0].parent_is_user);
     }
 
     #[test]

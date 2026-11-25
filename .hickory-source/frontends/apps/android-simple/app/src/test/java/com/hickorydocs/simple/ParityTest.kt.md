@@ -1635,6 +1635,23 @@ class ParityTest {
         assertEquals(source, foldDisplay(source, emptyList()))
         assertTrue(simpleFoldRanges("one\ntwo\n").isEmpty())
     }
+    @Test fun agentHistoryKeepsTheBranchBoundaryAndSidebar() {
+        val session = AgentSession()
+        session.messageForks = true
+        session.turns = listOf(
+            AgentTurn("root", "Original", "Reply", null, "ok"),
+            AgentTurn("sibling", "Original follow-up", null, null, "ok", parentID = "root"),
+            AgentTurn("fork", "Fork", null, null, "ok", parentID = "root", parentIsUser = true)
+        )
+        session.select("fork")
+        assertEquals(listOf("root" to true, "fork" to false), session.transcript.map { it.first.id to it.second })
+        session.select("root", false)
+        assertEquals(listOf(false), session.transcript.map { it.second })
+        session.select(null)
+        assertTrue(session.transcript.isEmpty())
+        assertEquals(listOf("files", "agent-history"), PaneLayout.workspaceDefault().nodes["files-group"]?.tabs)
+    }
+
     @Test fun sharedLayoutScenarios() {
         val fixture = javaClass.classLoader!!.getResource("layout-cases.json")!!.readText()
         val decoded = JSONObject(fixture)

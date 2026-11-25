@@ -316,7 +316,7 @@ Persisted exchanges supplied as data to the Python agent.
 #[derive(Debug, Clone)]
 pub struct PriorTurn {
     pub prompt: String,
-    pub answer: String,
+    pub answer: Option<String>,
 }
 </storycode:copy>
 <a id="f-a448ddea64c9-use_declaration-21"></a>

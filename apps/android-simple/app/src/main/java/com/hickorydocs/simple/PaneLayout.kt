@@ -5,10 +5,10 @@ sealed interface SourceTabIdentity {
  data class Source(val path:String):SourceTabIdentity
 }
 private const val SOURCE_TAB_PREFIX="\u0000source:"
-fun sourceTab(path:String):String=if(path in listOf("files","agent","terminal")||path.startsWith(SOURCE_TAB_PREFIX))SOURCE_TAB_PREFIX+path else path
+fun sourceTab(path:String):String=if(path in listOf("files","agent","agent-history","terminal")||path.startsWith(SOURCE_TAB_PREFIX))SOURCE_TAB_PREFIX+path else path
 fun tabIdentity(address:String):SourceTabIdentity=when {
  address.startsWith(SOURCE_TAB_PREFIX)->SourceTabIdentity.Source(address.removePrefix(SOURCE_TAB_PREFIX))
- address in listOf("files","agent","terminal")->SourceTabIdentity.Utility(address)
+ address in listOf("files","agent","agent-history","terminal")->SourceTabIdentity.Utility(address)
  else->SourceTabIdentity.Source(address)
 }
 
@@ -25,6 +25,13 @@ data class PaneLayout(val rootID: String = "root", val nodes: Map<String, PaneNo
     "files-group" to PaneNode("files-group", tabs = listOf("files"), active = "files"),
     "document-group" to PaneNode("document-group")
 )) {
+    companion object {
+        fun workspaceDefault(): PaneLayout {
+            val layout = PaneLayout()
+            val sidebar = layout.nodes.getValue("files-group")
+            return layout.copy(nodes = layout.nodes + (sidebar.id to sidebar.copy(tabs = sidebar.tabs + "agent-history")))
+        }
+    }
     fun groups(id: String = rootID): List<PaneNode> {
         val node = nodes[id] ?: return emptyList()
         return if (node.first != null && node.second != null) groups(node.first) + groups(node.second) else listOf(node)

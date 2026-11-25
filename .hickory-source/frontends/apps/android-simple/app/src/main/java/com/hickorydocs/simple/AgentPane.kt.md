@@ -100,6 +100,36 @@ class AgentSession {
         }
     }
     var turns by mutableStateOf<List<AgentTurn>>(emptyList())
+    data class Selection(val id: String?, val userFork: Boolean? = null)
+    var selection by mutableStateOf<Selection?>(null)
+    val tip: String? get() = selection.let { if (it == null) turns.lastOrNull()?.id else it.id }
+    var historyLoaded by mutableStateOf(false)
+    var messageForks by mutableStateOf(false)
+    var historyError by mutableStateOf("")
+    val transcript: List<Pair<AgentTurn, Boolean>> get() {
+        val byId = turns.associateBy { it.id }
+        val seen = mutableSetOf<String>()
+        val rows = mutableListOf<Pair<AgentTurn, Boolean>>()
+        var id = tip
+        var userOnly = selection?.userFork == true
+        while (id != null && seen.add(id)) {
+            val turn = byId[id] ?: break
+            rows.add(turn to userOnly)
+            id = turn.parentID
+            userOnly = turn.parentIsUser
+        }
+        return rows.asReversed()
+    }
+    fun select(id: String?, fork: Boolean? = null) {
+        if (running) return
+        if (fork != null && !messageForks) return
+        if (prompt.isNotEmpty()) { error = "Send or clear your current draft before switching conversations."; return }
+        selection = Selection(id, fork)
+        error = ""
+    }
+    fun resetHistory() {
+        turns = emptyList(); selection = null; historyLoaded = false; messageForks = false; historyError = ""; liveTurn = null; sending = false; mutation++; earlyEvents.clear()
+    }
     var provider by mutableStateOf("codex-subscription")
     var model by mutableStateOf("")
     var effort by mutableStateOf("")
@@ -208,27 +238,41 @@ request or an active composition. Only an unchanged, settled draft clears on
 acknowledgment. A refusal leaves the draft available for inspection.
 
 <ui:copy id="simple-android-agent-send">
-    internal suspend fun send(engine: Engine, captureContext: () -> JSONObject) {
+    internal suspend fun send(engine: Engine, current: () -> Boolean = { true }, captureContext: () -> JSONObject) {
         val submitted = prompt
         if (running || submitted.isBlank()) return
         val revision = draft.sourceRevision
-        val parent = turns.lastOrNull()?.id
+        val parent = tip
+        val fork = selection?.userFork
+        val backend = turns.firstOrNull { it.id == parent }?.backend
+        if (backend != null && backend != "python") {
+            error = "This conversation uses a different agent. Start a new conversation to send with Hickory Python."
+            return
+        }
+        if (fork != null && !messageForks) {
+            error = "This workspace server does not support message branches. Update the server before sending."
+            return
+        }
         sending = true
         error = ""
         mutation++
         try {
-            val id = engine.send(submitted, parent, provider, model, effort, liveAgentContext(captureContext()))
+            val id = engine.send(submitted, parent, provider, model, effort, liveAgentContext(captureContext()), fork)
+            if (!current()) return
             liveTurn = id
-            turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
+            selection = Selection(id)
+            turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running", parentID = parent, parentIsUser = fork == true)
             earlyEvents.filter { it.optString("run_id") == id }.forEach(::receive)
             if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
-            error = "${failure.message} The request was not retried. Refresh history before sending again."
+            if (current()) error = "${failure.message} The request was not retried. Refresh history before sending again."
         } finally {
-            earlyEvents.clear()
-            sending = false
-            mutation++
+            if (current()) {
+                earlyEvents.clear()
+                sending = false
+                mutation++
+            }
         }
     }
 
@@ -391,14 +435,56 @@ matching capture requests while its turn runs, even if the reader switches back
 to the code pane. The activity socket carries progress and reported usage while
 history confirms the final source and its fence actions.
 
+Render a depth-indented tree from the same workspace history used by Send.
+Expand state is local to the sidebar, never a change to the recorded turns.
+
+<ui:copy id="simple-android-agent-history">
+@Composable internal fun AgentHistoryPane(session: AgentSession, open: () -> Unit) {
+    val byId = session.turns.associateBy { it.id }
+    val children = session.turns.groupBy { turn -> turn.parentID?.takeIf(byId::containsKey) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
+        TextButton(onClick = { session.select(null); open() }, enabled = !session.running) { Text("New conversation") }
+        if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
+        if (session.turns.isEmpty() && session.historyError.isEmpty())
+            Text(if (session.historyLoaded) "No conversations yet." else "Loading conversations…")
+        AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, open)
+    }
+}
+
+@Composable private fun AgentHistoryRows(
+    turns: List<AgentTurn>, children: Map<String?, List<AgentTurn>>, byId: Map<String, AgentTurn>,
+    seen: Set<String>, session: AgentSession, open: () -> Unit
+) {
+    turns.filterNot { it.id in seen }.forEach { turn ->
+        key(turn.id) {
+            var expanded by remember { mutableStateOf(false) }
+            val descendants = children[turn.id].orEmpty()
+            val source = turn.parentID?.let(byId::get)
+            val fork = source?.session != null && turn.session != null && source.session != turn.session
+            val title = turn.prompt.trim().lineSequence().firstOrNull()?.ifBlank { "Conversation" } ?: "Conversation"
+            Row(Modifier.fillMaxWidth()) {
+                if (descendants.isNotEmpty()) Text(if (expanded) "▾" else "▸",
+                    Modifier.clickable { expanded = !expanded }.padding(4.dp)
+                        .semantics { contentDescription = if (expanded) "Hide replies" else "Show replies" })
+                Text(if (fork) "Branch from ${if (turn.parentIsUser) "user" else "agent"} · $title" else title,
+                    Modifier.weight(1f).clickable { session.select(turn.id); open() }.padding(4.dp), maxLines = 2)
+            }
+            if (expanded) Column(Modifier.padding(start = 8.dp)) {
+                AgentHistoryRows(descendants, children, byId, seen + turn.id, session, open)
+            }
+        }
+    }
+}
+</ui:copy>
+
 <ui:copy id="simple-android-agent-pane">
 @Composable internal fun ObserveSimpleAgent(workspace: Workspace) {
     val engine = workspace.engine
     val session = workspace.agent
-    val observing = session.liveTurn != null || workspace.layout.groups().any { it.active == "agent" }
+    val observing = session.running || workspace.layout.groups().any { it.active == "agent" || it.active == "agent-history" }
     LaunchedEffect(engine, observing) {
         if (!observing) return@LaunchedEffect
-        if (engine == null) { session.error = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
+        if (engine == null) { session.historyError = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
         launch {
             while (isActive && workspace.engine === engine) {
                 engine.agentEvents().collect { event -> if (workspace.engine === engine) session.receive(event) }
@@ -408,10 +494,13 @@ history confirms the final source and its fence actions.
         while (isActive) {
             try {
                 val mutation = session.mutation
-                val (latest, totals) = engine.agentHistory()
+                val (latest, totals, messageForks) = engine.agentHistory()
                 if (workspace.engine !== engine) return@LaunchedEffect
                 if (mutation == session.mutation && !session.sending) {
                     session.turns = latest
+                    session.historyLoaded = true
+                    session.messageForks = messageForks
+                    session.historyError = ""
                     session.totals = totals
                     if (!session.canStop) session.stopPending = false
                     val own = session.liveTurn
@@ -428,7 +517,7 @@ history confirms the final source and its fence actions.
                 }
             }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { session.error = "${failure.message} Check subscription sign-in on the workspace server." }
+            catch (failure: Exception) { if (isActive && workspace.engine === engine) session.historyError = "Cannot read agent history: ${failure.message}" }
             delay(1000)
         }
     }
@@ -439,20 +528,26 @@ history confirms the final source and its fence actions.
     val running = session.running
     Column(Modifier.fillMaxSize()) {
         Text("Workspace agent · Hickory Python only", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(12.dp))
+        TextButton(onClick = { session.select(null) }, enabled = !running) { Text("New conversation") }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (session.turns.isEmpty()) item {
+            if (session.transcript.isEmpty()) item {
                 Text("What shall we work on?", style = MaterialTheme.typography.titleLarge)
                 Text("Write a literate document below. Code and explanations belong together.")
             }
-            items(session.turns, key = { it.id }) { turn -> Column {
+            items(session.transcript, key = { it.first.id }) { (turn, userOnly) -> Column {
                 Text("You", style = MaterialTheme.typography.labelMedium)
+                if (session.messageForks && (turn.backend == null || turn.backend == "python"))
+                    TextButton(onClick = { session.select(turn.id, true) }, enabled = !running) { Text("Branch from user message") }
                 Box(Modifier.fillMaxWidth().padding(start = 24.dp)) {
                     Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                         AgentDocument(session, session.document("${turn.id}-user", turn.prompt), session.fenceReading(turn, false), workspace)
                     }
                 }
+                if (!userOnly) {
                 val activity = session.activity[turn.id]
                 Text(turn.model?.let { "Agent · $it" } ?: "Agent", style = MaterialTheme.typography.labelMedium)
+                if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
+                    TextButton(onClick = { session.select(turn.id, false) }, enabled = !running) { Text("Branch from assistant message") }
                 if (activity != null && activity.tools.isNotEmpty()) {
                     var expanded by remember { mutableStateOf(false) }
                     TextButton(onClick = { expanded = !expanded }) { Text("Tool calls (${activity.tools.size})") }
@@ -478,9 +573,11 @@ history confirms the final source and its fence actions.
                         AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
                     } else AgentProse(answer)
                 }
+                }
             } }
         }
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+        session.selection?.userFork?.let { Text("New branch from ${if (it) "user" else "assistant"} message. Send to start it.", fontSize = 12.sp) }
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(
@@ -498,7 +595,7 @@ history confirms the final source and its fence actions.
                 } else {
                     WithDisabledReason(if (engine == null) "Connect to a workspace server first." else if (running) "Wait for the current agent turn to finish." else if (!(session.prompt.isNotBlank())) "Enter a message first." else null) { available -> FilledIconButton(enabled = available, onClick = {
                         if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                            session.send(engine) { simpleAgentContext(workspace) }
+                            session.send(engine, current = { workspace.engine === engine }) { simpleAgentContext(workspace) }
                         }
                     }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) } }
                 }
@@ -721,6 +818,6 @@ even when the files it describes have changed.
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt"><ui:paste select="#simple-716e739687-0"/><ui:paste select="#simple-android-recorded-run-controller"/><ui:paste select="#simple-android-agent-send"/><ui:paste select="#simple-android-recorded-run"/><ui:paste select="#simple-android-recorded-construction"/><ui:paste select="#simple-android-agent-pane"/><ui:paste select="#simple-android-agent-message-controls"/><ui:paste select="#android-recorded-patch-comment"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt"><ui:paste select="#simple-716e739687-0"/><ui:paste select="#simple-android-recorded-run-controller"/><ui:paste select="#simple-android-agent-send"/><ui:paste select="#simple-android-recorded-run"/><ui:paste select="#simple-android-recorded-construction"/><ui:paste select="#simple-android-agent-history"/><ui:paste select="#simple-android-agent-pane"/><ui:paste select="#simple-android-agent-message-controls"/><ui:paste select="#android-recorded-patch-comment"/></ui:file>
 
 </ui:doc>

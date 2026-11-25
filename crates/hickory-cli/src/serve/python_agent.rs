@@ -453,7 +453,9 @@ pub(super) async fn run_turn(
     {
         let mut inbox = queue.context.lock().unwrap();
         inbox.open(&identity.session).map_err(|e| e.to_string())?;
-        inbox.fork(&identity.turn, identity.parent.as_deref());
+        // Context queued while answering the parent is beyond a user-message cut.
+        let parent = if identity.parent_is_user { None } else { identity.parent.as_deref() };
+        inbox.fork(&identity.turn, parent);
         inbox.save().map_err(|e| e.to_string())?;
     }
     // A different conversation starts from its own retained policy, or Review.
@@ -526,6 +528,7 @@ pub(super) async fn run_turn(
         subject: Some(subject),
         turn: Some(identity.turn.clone()),
         parent: identity.parent,
+        parent_is_user: identity.parent_is_user,
         provider,
         context: identity.context,
         prior_turns,

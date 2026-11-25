@@ -321,12 +321,12 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         openProblem(problem)
     }
     var navigationTrail by mutableStateOf(NavigationTrail())
-    var layout by mutableStateOf(PaneLayout())
+    var layout by mutableStateOf(PaneLayout.workspaceDefault())
     private var hiddenFilesPane by mutableStateOf<String?>(null)
     private val visibleDocumentPane: PaneNode?
         get() = layout.groups().firstOrNull { group -> bufferForTab(group.active) != null }
     val separateFilesPane: String?
-        get() = if (visibleDocumentPane == null) null else layout.groups().firstOrNull { it.tabs == listOf("files") }?.id
+        get() = if (visibleDocumentPane == null) null else layout.groups().firstOrNull { "files" in it.tabs && it.tabs.all { tab -> tab == "files" || tab == "agent-history" } }?.id
     val collapsedFilesPane: String?
         get() = hiddenFilesPane?.takeIf { it == separateFilesPane }
 
@@ -568,13 +568,13 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             launchFile = null
             directoryScope=""
             resourceChanges.reset();gitResolution.reset();sourceHistory.close();behaviorReading.close();retainedResourceTabs.clear()
-            agent.turns = emptyList(); agent.totals = null; agent.activity.clear(); agent.stopPending = false; agent.error = ""; terminal.id = null; terminal.error = ""
+            agent.resetHistory(); agent.totals = null; agent.activity.clear(); agent.stopPending = false; agent.error = ""; terminal.id = null; terminal.error = ""
             agent.debugger?.close()
             agent.debugger = NativeDebugger(next, workspaceScope, recordedMessages = true)
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
             buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showTemplates=false;sourceTemplates.close();sourceTemplates=SourceTemplatesModel();showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
-            if (preview == null) { layout = PaneLayout(); focused = "document-group" }
+            if (preview == null) { layout = PaneLayout.workspaceDefault(); focused = "document-group" }
             else buffers[preview.source.path] = preview.editor
             if (requestedTabIsCurrent) { requestedGeneration = generation; requestedNavigation = foregroundNavigation }
             status = root
@@ -842,8 +842,14 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         show("terminal"); terminal.open(server)
     }
     fun show(tab: String, group: String? = null) {
-        if (tab == "files") hiddenFilesPane = null
-        val target = group ?: layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
+        if (tab == "files" || tab == "agent-history") hiddenFilesPane = null
+        val groups = layout.groups()
+        val documents = groups.filter { "files" !in it.tabs && "agent-history" !in it.tabs }
+        val target = group ?: groups.firstOrNull { tab in it.tabs }?.id ?: when (tab) {
+            "agent-history" -> groups.firstOrNull { "files" in it.tabs }?.id ?: groups.firstOrNull()?.id
+            "files" -> null
+            else -> documents.firstOrNull { it.id == focused }?.id ?: documents.firstOrNull()?.id
+        } ?: focused
         newestOpen.remove(target)
         foregroundNavigation++
         layout = layout.activate(tab, target); focused = target
@@ -872,7 +878,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         adoptTabLayout(layout.move(tab, target), target)
     }
     fun label(tab: String) = when (tab) {
-        "files" -> "Files"; "agent" -> "Agent"; "terminal" -> "Terminal"
+        "files" -> "Files"; "agent" -> "Agent"; "agent-history" -> "Agent History"; "terminal" -> "Terminal"
         else -> (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""
     }
     var savingAll = false

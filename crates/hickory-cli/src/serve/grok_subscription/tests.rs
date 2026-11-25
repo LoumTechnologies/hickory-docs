@@ -79,6 +79,7 @@ fn selection_restores_only_latest_subscription_and_never_prices_it() {
         backend: "python".into(),
         id: "fixture".into(),
         parent_id: None,
+        parent_is_user: false,
         prompt: String::new(),
         answer: None,
         status: "ok".into(),

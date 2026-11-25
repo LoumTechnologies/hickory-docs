@@ -14,7 +14,7 @@ fun Workspace.commands(descriptors:List<CommandDescriptor>,ui:Map<String,()->Uni
         "editor.undo" to {currentBuffer?.snippets?.undoSource();Unit},"editor.redo" to {currentBuffer?.snippets?.redoSource();Unit},
         "editor.snippetNext" to {currentBuffer?.snippets?.move(1);Unit},"editor.snippetPrevious" to {currentBuffer?.snippets?.move(-1);Unit},"editor.snippetFinish" to {currentBuffer?.snippets?.finish();Unit},"editor.snippetChoices" to {currentBuffer?.showSnippetTools=true;Unit},
         "editor.tools" to {runCommand {currentBuffer?.language?.inspect()};runCommand {currentBuffer?.language?.complete()}},"editor.rectangle" to {currentBuffer?.selectRectangle();Unit},"editor.cursorBelow" to {currentBuffer?.addCursor(1);Unit},"editor.cursorAbove" to {currentBuffer?.addCursor(-1);Unit},
-        "view.files" to {show("files")},"view.toggleFiles" to {toggleFilesPane()},"view.agent" to {show("agent")},"view.terminal" to {runCommand {openTerminal()}},"view.splitRight" to {split("horizontal")},"view.splitBelow" to {split("vertical")},"view.move" to {moveNext()}
+        "view.files" to {show("files")},"view.toggleFiles" to {toggleFilesPane()},"view.agent" to {show("agent")},"view.agentHistory" to {show("agent-history")},"view.terminal" to {runCommand {openTerminal()}},"view.splitRight" to {split("horizontal")},"view.splitBelow" to {split("vertical")},"view.move" to {moveNext()}
     )
     for(query in SemanticQuery.entries)handlers["semantic."+query.name.replaceFirstChar {it.lowercase()}]={runCommand {currentBuffer?.language?.navigate(query)}}
     handlers.putAll(ui)

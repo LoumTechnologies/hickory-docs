@@ -168,6 +168,7 @@ mod tests {
                 text: "hello",
                 turn: "turn-1",
                 parent: None,
+                parent_is_user: false,
                 provider: "acp:codex",
                 model: "default",
             })

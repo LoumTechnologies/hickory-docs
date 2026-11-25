@@ -116,6 +116,7 @@ pub struct Conversation {
     pub subject: Option<PathBuf>,
     pub turn: Option<String>,
     pub parent: Option<String>,
+    pub parent_is_user: bool,
     pub provider: String,
     pub context: String,
     pub prior_turns: Vec<PriorTurn>,
@@ -646,6 +647,7 @@ pub async fn run_conversation(
             text: &config.prompt,
             turn,
             parent: conversation.parent.as_deref(),
+            parent_is_user: conversation.parent_is_user,
             provider: &conversation.provider,
             model: client.model_name(),
         });

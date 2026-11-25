@@ -361,6 +361,12 @@ command still brings Files into view.
     "requires": "always"
   },
   {
+    "id": "view.agentHistory",
+    "label": "Agent History",
+    "group": "View",
+    "requires": "always"
+  },
+  {
     "id": "view.terminal",
     "label": "Terminal",
     "group": "View",

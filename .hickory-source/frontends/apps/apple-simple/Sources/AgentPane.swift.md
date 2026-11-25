@@ -20,6 +20,33 @@ import Observation
 
 @MainActor @Observable final class AgentSession {
     var turns: [AgentTurn] = []
+    struct Selection { let id: String?; var userFork: Bool? = nil }
+    var selection: Selection?
+    var tip: String? { if let selection { return selection.id }; return turns.last?.id }
+    var historyLoaded = false
+    var messageForks = false
+    var historyError = ""
+    var transcript: [NativeAgentMessagePair] {
+        var id = tip, userOnly = selection?.userFork == true
+        var seen = Set<String>(), rows: [NativeAgentMessagePair] = []
+        let byID = Dictionary(turns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        while let current = id, seen.insert(current).inserted, let turn = byID[current] {
+            rows.append(.init(turn: turn, userOnly: userOnly))
+            id = turn.parent_id
+            userOnly = turn.parent_is_user == true
+        }
+        return Array(rows.reversed())
+    }
+    func select(_ id: String?, fork: Bool? = nil) {
+        guard !running else { return }
+        guard fork == nil || messageForks else { return }
+        guard prompt.isEmpty else { error = "Send or clear your current draft before switching conversations."; return }
+        selection = Selection(id: id, userFork: fork)
+        error = ""
+    }
+    func resetHistory() {
+        turns = []; selection = nil; historyLoaded = false; messageForks = false; historyError = ""; liveTurn = nil; sending = false; mutation += 1; earlyEvents.removeAll()
+    }
     var totals: AgentTotals?
     var activity: [String: NativeAgentActivity] = [:]
     @ObservationIgnored private var earlyEvents: [NativeAgentEvent] = []
@@ -131,13 +158,16 @@ import Observation
                 guard !Task.isCancelled, current() else { return }
                 if mutation == self.mutation && !sending {
                     turns = history.turns
+                    historyLoaded = true
+                    messageForks = history.message_forks == true
+                    historyError = ""
                     totals = history.totals
                     if !canStop { stopPending = false }
                     try await answerCapture(engine, mutation: mutation, current: current)
                 }
             } catch {
                 guard !Task.isCancelled, current() else { return }
-                self.error = error.localizedDescription
+                self.historyError = "Cannot read agent history: \(error.localizedDescription)"
             }
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
@@ -185,6 +215,57 @@ Inspect reads that operation's before and after outputs from the completed
 capture. It checks the exact recorded bytes, namespace and line again before
 showing the comparison in the gutter popover. Those output bytes carry no
 Apply or Save authority.
+
+Use the already guarded observer for the sidebar, rather than writing session
+state from a second task. Child rows disclose their descendants; choosing a row
+only loads its ancestry and never starts an agent.
+
+<ui:copy id="simple-apple-agent-history">
+struct NativeAgentMessagePair: Identifiable {
+    let turn: AgentTurn
+    let userOnly: Bool
+    var id: String { turn.id }
+}
+
+struct NativeAgentHistoryPane: View {
+    var session: AgentSession
+    var open: () -> Void
+    var body: some View {
+        let ids = Set(session.turns.map(\.id))
+        let children = Dictionary(grouping: session.turns) { turn in
+            turn.parent_id.flatMap { ids.contains($0) ? $0 : nil }
+        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Button("New conversation") { session.select(nil); open() }.disabled(session.running)
+                if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
+                if session.turns.isEmpty && session.historyError.isEmpty {
+                    Text(session.historyLoaded ? "No conversations yet." : "Loading conversations…").foregroundStyle(.secondary)
+                }
+                rows(children[nil] ?? [], children: children, seen: [])
+            }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+        }.accessibilityLabel("Agent History")
+    }
+    @ViewBuilder private func rows(_ turns: [AgentTurn], children: [String?: [AgentTurn]], seen: Set<String>) -> some View {
+        ForEach(turns.filter { !seen.contains($0.id) }) { turn in
+            let title = turn.prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Conversation"
+            let source = session.turns.first { $0.id == turn.parent_id }
+            let fork = source?.session != nil && turn.session != nil && source?.session != turn.session
+            let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title
+            let descendants = children[turn.id] ?? []
+            if descendants.isEmpty {
+                Button(label) { session.select(turn.id); open() }.buttonStyle(.plain)
+            } else {
+                DisclosureGroup {
+                    AnyView(rows(descendants, children: children, seen: seen.union([turn.id]))).padding(.leading, 8)
+                } label: {
+                    Button(label) { session.select(turn.id); open() }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+</ui:copy>
 
 <ui:copy id="simple-apple-agent-pane">
 struct NativeRecordedRunTerminal: Decodable {
@@ -542,20 +623,28 @@ struct AgentPane: View {
     #endif
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text("Workspace agent").bold(); Spacer(); Text("Hickory · Python only").font(.caption).foregroundStyle(.secondary) }.padding(12)
+            HStack { Text("Workspace agent").bold(); Spacer(); Button("New conversation") { session.select(nil) }.disabled(session.running) }.padding(12)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if session.turns.isEmpty {
+                    if session.transcript.isEmpty {
                         Text("What shall we work on?").font(.title2).padding(.top, 24)
                         Text("Write a literate document below. Code and explanations belong together.").foregroundStyle(.secondary)
                     }
-                    ForEach(session.turns) { turn in
+                    ForEach(session.transcript) { row in
+                        let turn = row.turn
                         VStack(alignment: .leading, spacing: 5) {
                             Text("You").font(.caption).foregroundStyle(.secondary)
+                            if session.messageForks && (turn.backend == nil || turn.backend == "python") {
+                                Button("Branch from user message") { session.select(turn.id, fork: true) }.disabled(session.running)
+                            }
                             message(session.document("\(turn.id)-user", turn.prompt), turn: turn.id, side: .user).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 12)).padding(.leading, 24)
+                            if !row.userOnly {
                             let activity = session.activity[turn.id]
                             Text(turn.model.map { "Agent · \($0)" } ?? "Agent").font(.caption).foregroundStyle(.secondary)
+                            if session.messageForks && turn.answer != nil && (turn.backend == nil || turn.backend == "python") {
+                                Button("Branch from assistant message") { session.select(turn.id, fork: false) }.disabled(session.running)
+                            }
                             if let tools = activity?.tools, !tools.isEmpty {
                                 DisclosureGroup("Tool calls (\(tools.count))") {
                                     ForEach(tools.indices, id: \.self) { index in
@@ -579,10 +668,12 @@ struct AgentPane: View {
                                     NativeAgentProse(text: answer)
                                 }
                             }
+                            }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }.padding(10)
             }.accessibilityLabel("Conversation")
+            if let user = session.selection?.userFork { Text("New branch from \(user ? "user" : "assistant") message. Send to start it.").font(.caption) }
             if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
             Divider()
             VStack(alignment: .leading, spacing: 8) {
@@ -647,17 +738,27 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
     private func send() async {
         guard let engine, !session.running, !session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let submitted = session.prompt
+        let parent = session.tip, fork = session.selection?.userFork
+        if let backend = session.turns.first(where: { $0.id == parent })?.backend, backend != "python" {
+            session.error = "This conversation uses a different agent. Start a new conversation to send with Hickory Python."
+            return
+        }
+        guard fork == nil || session.messageForks else {
+            session.error = "This workspace server does not support message branches. Update the server before sending."
+            return
+        }
         #if os(iOS)
         let submittedDraft = session.draft.sourceEditIdentity
         #endif
         session.sending = true; session.error = ""; session.mutation += 1
-        defer { session.replayEarlyEvents(for: ""); session.sending = false; session.mutation += 1 }
+        defer { if workspaceCurrent() { session.replayEarlyEvents(for: ""); session.sending = false; session.mutation += 1 } }
         do {
             let context = try session.liveAgentContext()
-            let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort, context: context)
+            let started = try await engine.send(submitted, parent: parent, provider: session.provider, model: session.model, effort: session.effort, context: context, fork: fork)
             guard workspaceCurrent() else { return }
             session.liveTurn = context == nil ? nil : started.session_id
-            session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
+            session.selection = .init(id: started.session_id)
+            session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running", parent_id: parent, parent_is_user: fork))
             session.replayEarlyEvents(for: started.session_id)
             #if os(iOS)
             if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
@@ -667,7 +768,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
             #else
             if session.prompt == submitted { session.prompt = "" }
             #endif
-        } catch { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." }
+        } catch { if workspaceCurrent() { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." } }
     }
 }
 </ui:copy>
@@ -806,6 +907,6 @@ struct NativePatchCommentView: View {
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Sources/AgentPane.swift"><ui:paste select="#simple-42e0887630-0"/><ui:paste select="#simple-apple-agent-pane"/><ui:paste select="#simple-42e0887630-1"/><ui:paste select="#apple-recorded-patch-comment"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/AgentPane.swift"><ui:paste select="#simple-42e0887630-0"/><ui:paste select="#simple-apple-agent-history"/><ui:paste select="#simple-apple-agent-pane"/><ui:paste select="#simple-42e0887630-1"/><ui:paste select="#apple-recorded-patch-comment"/></ui:file>
 
 </ui:doc>

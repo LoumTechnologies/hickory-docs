@@ -1548,6 +1548,24 @@ final class ParityTests: XCTestCase {
         XCTAssertGreaterThan(buffer.visibleDebugLines[1].y - buffer.visibleDebugLines[0].y, buffer.visibleDebugLines[0].height * 2)
     }
     #endif
+    @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {
+        let session = AgentSession()
+        session.messageForks = true
+        session.turns = [
+            AgentTurn(id: "root", prompt: "Original", answer: "Reply", status: "ok"),
+            AgentTurn(id: "sibling", prompt: "Original follow-up", status: "ok", parent_id: "root"),
+            AgentTurn(id: "fork", prompt: "Fork", status: "ok", parent_id: "root", parent_is_user: true)
+        ]
+        session.select("fork")
+        XCTAssertEqual(session.transcript.map(\.id), ["root", "fork"])
+        XCTAssertEqual(session.transcript.map(\.userOnly), [true, false])
+        session.select("root", fork: false)
+        XCTAssertEqual(session.transcript.map(\.userOnly), [false])
+        session.select(nil)
+        XCTAssertTrue(session.transcript.isEmpty)
+        XCTAssertEqual(PaneLayout.workspaceDefault().nodes["files-group"]?.tabs, ["files", "agent-history"])
+    }
+
     func testSharedLayoutScenarios() throws {
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: apps.appendingPathComponent("simple-contract/layout-cases.json"))

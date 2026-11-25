@@ -43,6 +43,7 @@ pub struct TurnRecord {
     pub backend: String,
     pub id: String,
     pub parent_id: Option<String>,
+    pub parent_is_user: bool,
     pub prompt: String,
     pub answer: Option<String>,
     /// `"running"`, `"ok"`, or `"error"`.
@@ -59,8 +60,8 @@ pub struct TurnRecord {
     /// the run failed before reporting usage.
     pub usage: Option<Usage>,
     /// The session file this turn is recorded in, relative to the served
-    /// folder. One file per conversation: a child turn appends to its
-    /// parent's file, so the tree is on disk and survives a restart.
+    /// folder. A continuation appends; an explicit fork starts a new
+    /// file whose first turn retains its parent across files.
     pub session: String,
 }
 /// The per-document model choice the dock last posted. `None` fields mean
@@ -154,6 +155,7 @@ impl AgentHub {
                     ),
                     id: t.id.clone(),
                     parent_id: t.parent,
+                    parent_is_user: t.parent_is_user,
                     prompt: t.prompt,
                     answer: t
                         .answer
@@ -303,9 +305,16 @@ pub use super::subscription::totals_of;
 ///
 /// Only completed exchanges replay: a turn that errored produced no answer
 /// to stand in the assistant seat, and replaying a half-exchange would feed
-/// the model a conversation that never happened. A cycle (impossible through
-/// the API, cheap to guard) terminates instead of hanging the request.
+/// the model a conversation that never happened. An explicit user-message
+/// edge is the exception: its prompt is visible and its reply is not. Read
+/// that edge again on every continuation, not only on the first fork send.
+/// A cycle (impossible through the API, cheap to guard) terminates instead
+/// of hanging the request.
 pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn> {
+    history_through(turns, tip, false)
+}
+
+fn history_through(turns: &[TurnRecord], tip: Option<&str>, mut user_only: bool) -> Vec<PriorTurn> {
     let by_id: HashMap<&str, &TurnRecord> = turns.iter().map(|t| (t.id.as_str(), t)).collect();
     let mut chain = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -315,12 +324,13 @@ pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn>
             break;
         }
         let Some(turn) = by_id.get(id) else { break };
-        if let Some(answer) = &turn.answer {
+        if user_only || turn.answer.is_some() {
             chain.push(PriorTurn {
                 prompt: turn.prompt.clone(),
-                answer: answer.clone(),
+                answer: if user_only { None } else { turn.answer.clone() },
             });
         }
+        user_only = turn.parent_is_user;
         cursor = turn.parent_id.as_deref();
     }
     chain.reverse();
@@ -342,6 +352,12 @@ pub struct AgentRequest {
     /// branch; `null` starts a new thread.
     #[serde(default)]
     pub parent_id: Option<String>,
+    /// A fork gets its own record; a user-message fork excludes the answer
+    /// to that message, including on later sends and after rehydration.
+    #[serde(default)]
+    pub fork: bool,
+    #[serde(default)]
+    pub parent_is_user: bool,
     /// Provider selector for this and subsequent turns (`"anthropic"`,
     /// `"openai"`, `"deepseek"`, `"grok"`, `"openrouter"`). Absent keeps
     /// the document's current choice; empty clears back to the resolved
@@ -429,6 +445,12 @@ pub async fn start_turn(
         return Err(ApiError::bad_request(
             "The Rust agent was removed. Select Hickory Python or an ACP agent.",
         ));
+    }
+    if (body.fork || body.parent_is_user) && (backend != "python" || body.parent_id.is_none()) {
+        return Err(ApiError::bad_request("Select a recorded Hickory Python message to branch from."));
+    }
+    if body.parent_is_user && !body.fork {
+        return Err(ApiError::bad_request("Branch explicitly to continue from a user message."));
     }
     if backend != "python" {
         return super::acp::start_turn(state, id, body, backend).await;
@@ -518,17 +540,33 @@ pub async fn start_turn(
         {
             return Err(ApiError::conflict("Start a new thread to switch agents."));
         }
-        let prior = prior_turns_of(turns, body.parent_id.as_deref());
-        // The conversation's file: the parent's when continuing, a fresh one
-        // at the root of a new thread.
-        let session_rel = body
-            .parent_id
-            .as_deref()
+        if body.fork
+            && !body.parent_is_user
+            && turns
+                .iter()
+                .find(|t| Some(&t.id) == body.parent_id.as_ref())
+                .is_none_or(|t| t.answer.is_none())
+        {
+            return Err(ApiError::bad_request(
+                "There is no recorded assistant answer at this branch point.",
+            ));
+        }
+        let prior = if body.parent_is_user {
+            history_through(turns, body.parent_id.as_deref(), true)
+        } else {
+            prior_turns_of(turns, body.parent_id.as_deref())
+        };
+        // Preserve the original file when forking. Include the turn ID in new
+        // filenames so identical prompts in the same second cannot alias.
+        let session_rel = body.parent_id.as_deref()
+            .filter(|_| !body.fork)
             .and_then(|p| turns.iter().find(|t| t.id == p))
             .map(|t| t.session.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                let abs = hickory_agent::session_file_path(&session_root, &prompt);
+                let base = hickory_agent::session_file_path(&session_root, &prompt);
+                let stem = base.file_stem().unwrap_or_default().to_string_lossy();
+                let abs = base.with_file_name(format!("{stem}-{turn_id}.md"));
                 abs.strip_prefix(state.index.root())
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| abs.display().to_string())
@@ -537,6 +575,7 @@ pub async fn start_turn(
             backend: backend.clone(),
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
+            parent_is_user: body.parent_is_user,
             prompt: prompt.clone(),
             answer: None,
             status: "running".into(),
@@ -616,6 +655,7 @@ pub async fn start_turn(
                     session: task_state.index.root().join(&session_rel),
                     turn: run_key.clone(),
                     parent: parent_for_run.clone(),
+                    parent_is_user: body.parent_is_user,
                     cancel,
                     context,
                     primary,
@@ -715,6 +755,7 @@ pub(super) struct TurnIdentity {
     pub(super) session: std::path::PathBuf,
     pub(super) turn: String,
     pub(super) parent: Option<String>,
+    pub(super) parent_is_user: bool,
     /// The stop button's flag for this run — travels with the identity
     /// because a run without its cord is the bug this exists to fix.
     pub(super) cancel: Arc<std::sync::atomic::AtomicBool>,
@@ -1056,7 +1097,7 @@ mod recorded_fence_debug_tests {
 
     fn fixture() -> TurnRecord {
         TurnRecord {
-            backend: "fixture".into(), id: "fixture".into(), parent_id: None,
+            backend: "fixture".into(), id: "fixture".into(), parent_id: None, parent_is_user: false,
             prompt: "Prose 😀\r\n  ```python\r\n  value = 41\r\n  print(value + 1)\r\n  ```\r\n\r\n```python\r\nraise RuntimeError('wrong fence')\r\n```\r\n".into(),
             answer: Some("Answer\n\n~~~py\nvalue = 41\nprint(value + 1)\n~~~\n".into()),
             status: "ok".into(), error: None, created_at: String::new(),
@@ -1223,6 +1264,7 @@ mod recorded_fence_debug_tests {
 /// `GET /api/docs/:id/agent/turns` — the document's turn tree, in creation
 /// order, plus what the next turn would run on and the session's spend:
 ///
+/// - `message_forks` — the engine honors a fork's exact message boundary.
 /// - `provider` / `model` — the current choice with defaults resolved
 ///   (e.g. `"anthropic"` / `"claude-sonnet-5"` on a machine with only an
 ///   Anthropic key and nothing chosen).
@@ -1266,6 +1308,7 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
     Json(json!({
         "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().map(|t| t.backend.clone())).unwrap_or_else(|| "python".into()),
         "turns": turns,
+        "message_forks": true,
         "provider": provider,
         "model": model,
         "totals": {
@@ -1289,6 +1332,7 @@ mod tests {
             backend: "python".into(),
             id: id.into(),
             parent_id: parent.map(Into::into),
+            parent_is_user: false,
             prompt: format!("p:{id}"),
             answer: answer.map(Into::into),
             status: if answer.is_some() { "ok" } else { "error" }.into(),
@@ -1330,6 +1374,45 @@ mod tests {
     #[test]
     fn a_new_thread_replays_nothing() {
         assert!(prior_turns_of(&tree(), None).is_empty());
+    }
+
+    #[test]
+    fn a_user_fork_excludes_the_answer_on_subsequent_sends_too() {
+        let mut turns = tree();
+        assert_eq!(history_through(&turns, Some("a"), true).iter()
+            .map(|t| (t.prompt.as_str(), t.answer.as_deref())).collect::<Vec<_>>(),
+            [("p:root", Some("a:root")), ("p:a", None)]);
+        turns[3].parent_id = Some("a".into());
+        turns[3].parent_is_user = true;
+        assert_eq!(prior_turns_of(&turns, Some("b")).iter()
+            .map(|t| (t.prompt.as_str(), t.answer.as_deref())).collect::<Vec<_>>(),
+            [("p:root", Some("a:root")), ("p:a", None), ("p:b", Some("a:b"))]);
+    }
+
+    #[test]
+    fn rehydrated_conversation_retains_its_cross_file_user_fork() {
+        use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        let subject = root.join(".hick-workspace-agent");
+        for (id, parent, parent_is_user, answer) in [
+            ("origin", None, false, "Do not replay this reply"),
+            ("fork", Some("origin"), true, "The other approach"),
+        ] {
+            let log = HickSessionLog::create_for(&root.join("sessions").join(format!("{id}.md")), Some(&subject)).unwrap();
+            log.record(SessionEvent::UserTurn { text: id, turn: id, parent, parent_is_user, provider: "anthropic", model: "test" });
+            log.record(SessionEvent::Assistant { prose: answer, action: None, reasoning: None });
+            log.record(SessionEvent::End);
+            log.check().unwrap();
+        }
+        let hub = AgentHub::default();
+        hub.hydrate(root, "workspace", &subject);
+        let turns = hub.snapshot("workspace");
+        assert_eq!(turns.len(), 2);
+        assert!(turns.iter().find(|t| t.id == "fork").unwrap().parent_is_user);
+        assert_eq!(prior_turns_of(&turns, Some("fork")).iter()
+            .map(|t| (t.prompt.as_str(), t.answer.as_deref())).collect::<Vec<_>>(),
+            [("origin", None), ("fork", Some("The other approach"))]);
     }
 
     #[test]

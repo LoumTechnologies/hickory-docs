@@ -73,7 +73,7 @@ struct NativeSourceMap<Value>:ExpressibleByDictionaryLiteral,Sequence {
     }
 }
 /** Utility routes and source addresses are separate identities even when their displayed spelling matches. */
-enum NativeUtilityTab:String,Hashable,Sendable {case files,agent,terminal}
+enum NativeUtilityTab:String,Hashable,Sendable {case files,agent,terminal; case agentHistory = "agent-history"}
 enum NativeTabIdentity:Hashable,Sendable {
     case source(NativeSourceKey)
     case utility(NativeUtilityTab)

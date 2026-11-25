@@ -27,7 +27,8 @@ import java.net.URLEncoder
 data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?, val language: String? = null)
 data class StartupSource(val path: String, val content: String, val rootPath: String, val workspaceID: String?)
 data class FileText(val content: String, val hash: String, val saveGuard:String?=null, val saveGuardReason:String?=null)
-data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String, val model: String? = null)
+data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String, val model: String? = null,
+    val parentID: String? = null, val parentIsUser: Boolean = false, val session: String? = null, val backend: String? = null)
 data class AgentTotals(val tokens: Long, val usd: Double?)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
@@ -101,16 +102,17 @@ class Engine(address: String) {
         return request("PUT", "/api/file", JSONObject().put("path", file.path).put("content", text).put("base_hash", hash)).getString("hash")
     }
     suspend fun turns(): List<AgentTurn> = agentHistory().first
-    suspend fun agentHistory(): Pair<List<AgentTurn>, AgentTotals?> {
+    suspend fun agentHistory(): Triple<List<AgentTurn>, AgentTotals?, Boolean> {
         val result = request("GET", "/api/docs/workspace/agent/turns")
         val turns = result.getJSONArray("turns").objects().map {
-            AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"), it.optional("model"))
+            AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"), it.optional("model"),
+                it.optional("parent_id"), it.optBoolean("parent_is_user"), it.optional("session"), it.optional("backend"))
         }
         val totals = result.optJSONObject("totals")?.let {
             AgentTotals(listOf("input", "output", "cache_read", "cache_write").sumOf { key -> it.optLong(key) },
                 if (it.isNull("usd") || it.optBoolean("subscription")) null else it.optDouble("usd").takeIf(Double::isFinite))
         }
-        return turns to totals
+        return Triple(turns, totals, result.optBoolean("message_forks"))
     }
 
     fun agentEvents() = callbackFlow {
@@ -125,8 +127,8 @@ class Engine(address: String) {
         })
         awaitClose { socket.cancel() }
     }
-    suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String, context:JSONObject?=null): String = request("POST", "/api/docs/workspace/agent",
-        JSONObject().put("prompt", prompt).put("context",context ?: JSONObject()).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null })).getString("session_id")
+    suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String, context:JSONObject?=null, fork: Boolean? = null): String = request("POST", "/api/docs/workspace/agent",
+        JSONObject().put("prompt", prompt).put("context",context ?: JSONObject()).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null }).put("fork", fork != null).put("parent_is_user", fork == true)).getString("session_id")
     suspend fun stop() { request("POST", "/api/docs/workspace/agent/stop", JSONObject()) }
     suspend fun openTerminal(): String = request("POST", "/api/terminals", JSONObject().put("title", "Terminal")).getString("id")
     suspend fun terminalInput(id: String, data: String) { request("POST", "/api/terminals/$id/input", JSONObject().put("data", data)) }

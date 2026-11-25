@@ -29,6 +29,7 @@ pub struct SessionTurn {
     pub id: String,
     /// The parent turn's id — the branch point — when recorded.
     pub parent: Option<String>,
+    pub parent_is_user: bool,
     pub prompt: String,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -168,6 +169,7 @@ pub fn session_view(source: &str) -> SessionView {
                 turns.push(SessionTurn {
                     id,
                     parent: tag.get_attribute("parent").map(str::to_string),
+                    parent_is_user: tag.get_attribute("parent-side") == Some("user"),
                     prompt: prompt.trim().to_string(),
                     provider: tag.get_attribute("provider").map(str::to_string),
                     model: tag.get_attribute("model").map(str::to_string),

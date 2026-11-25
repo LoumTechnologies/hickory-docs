@@ -112,6 +112,7 @@ fn seed_guarded_routes(root: &Path) -> String {
         text: "Synthetic captured boundary",
         turn: "guard-turn",
         parent: None,
+        parent_is_user: false,
         provider: "fixture",
         model: "fixture",
     });
