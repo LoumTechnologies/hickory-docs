@@ -342,6 +342,10 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(result['printed'], '42\n')
                 self.assertEqual(''.join(event['text'] for event in result['print_events']), '42\n')
                 self.assertTrue(all(event['stream'] == 'stdout' for event in result['print_events']))
+                observed = next(message['content'] for message in agent.messages
+                                if message['content'].startswith('Worker observation'))
+                visible = json.loads(observed.split(': ', 1)[1])
+                self.assertEqual(visible, {'ok': True, 'printed': '42\n', 'result': result['result']})
 
     def test_standalone_cli_uses_temporary_workspace_and_no_rust(self):
         with tempfile.TemporaryDirectory() as root:

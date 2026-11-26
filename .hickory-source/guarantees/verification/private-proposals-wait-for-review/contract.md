@@ -220,7 +220,12 @@ class Agent:
 
         def observe(data):
             self.record('observation', data)
-            text = 'Worker observation (not independent verification): ' + json.dumps(data)
+            # The audit retains individual print events. Their concatenated
+            # text already carries the snippet output in the model request.
+            visible = data.copy()
+            if 'printed' in visible:
+                visible.pop('print_events', None)
+            text = 'Worker observation (not independent verification): ' + json.dumps(visible)
             self.context.register(text, getattr(self.context, 'references', ()))
             self.messages.append({'role': 'user', 'content': text})
 
