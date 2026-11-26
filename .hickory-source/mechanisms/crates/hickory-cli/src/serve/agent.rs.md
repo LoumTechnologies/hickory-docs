@@ -85,6 +85,9 @@ pub struct TurnRecord {
     pub status: String,
     pub error: Option<String>,
     pub created_at: String,
+    /// Timestamp of the newest durable message, normalized for history sorting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message_at_ms: Option<i64>,
     /// Provider selector this turn ran on (`"anthropic"`, `"openai"`, …;
     /// `"scripted"` under the test seam with no explicit choice).
     pub provider: String,
@@ -190,6 +193,8 @@ impl AgentHub {
             return;
         }
         let mut turns: Vec<TurnRecord> = Vec::new();
+        // Older recordings provide a session start but no message time.
+        // Use that recorded fallback without consulting changing file metadata.
         for (path, view) in
             hickory_agent::session_view::conversations_for(&root.join("sessions"), doc_path)
         {
@@ -218,6 +223,7 @@ impl AgentHub {
                     status: super::acp::recovered_status(&path, &t.id).0,
                     error: super::acp::recovered_status(&path, &t.id).1,
                     created_at: view.start.clone().unwrap_or_default(),
+                    last_message_at_ms: t.last_message_at_ms,
                     provider: t.provider.unwrap_or_default(),
                     model: t.model.unwrap_or_default(),
                     usage: t.usage.map(|u| Usage {
@@ -249,7 +255,13 @@ impl AgentHub {
             .unwrap_or_default()
     }
 
-    fn finish(&self, doc_id: &str, turn_id: &str, outcome: Result<(String, Usage), String>) {
+    fn finish(
+        &self,
+        doc_id: &str,
+        turn_id: &str,
+        outcome: Result<(String, Usage), String>,
+        last_message_at_ms: Option<i64>,
+    ) {
         self.cancels.lock().unwrap().remove(turn_id);
         let mut map = self.turns.lock().unwrap();
         let Some(turn) = map
@@ -258,6 +270,7 @@ impl AgentHub {
         else {
             return;
         };
+        turn.last_message_at_ms = last_message_at_ms;
         match outcome {
             Ok((answer, usage)) => {
                 turn.answer = Some(answer);
@@ -542,7 +555,8 @@ pub async fn save_assistant_branch(
     record.check().map_err(|error| ApiError::unprocessable(format!("The branch recording was not confirmed: {error}. Keep your draft and inspect history.")))?;
     drop(record);
     pending.persist_noclobber(&path).map_err(|error| ApiError::conflict(format!("The branch record was not published: {error}. Keep your draft and refresh history.")))?;
-    let turn = TurnRecord {backend: "python".into(), id: turn_id, parent_id: source.parent_id, parent_is_user: source.parent_is_user, prompt: source.prompt, answer: Some(body.answer), status: "ok".into(), error: None, created_at: now_rfc3339(), provider: "human-edited".into(), model: "Edited answer".into(), usage: Some(Usage::default()),
+    let last_message_at_ms = recorded_message_time(&path, &turn_id);
+    let turn = TurnRecord {backend: "python".into(), id: turn_id, parent_id: source.parent_id, parent_is_user: source.parent_is_user, prompt: source.prompt, answer: Some(body.answer), status: "ok".into(), error: None, created_at: now_rfc3339(), last_message_at_ms, provider: "human-edited".into(), model: "Edited answer".into(), usage: Some(Usage::default()),
         session: path.strip_prefix(state.index.root()).unwrap_or(&path).display().to_string() };
     turns.push(turn.clone());
     Ok(Json(turn))
@@ -755,6 +769,7 @@ pub async fn start_turn(
             status: "running".into(),
             error: None,
             created_at: now_rfc3339(),
+            last_message_at_ms: None,
             provider: provider_name,
             model: model_name,
             usage: None,
@@ -906,7 +921,8 @@ pub async fn start_turn(
         } else {
             status
         };
-        task_state.agent.finish(&doc_id, &run_key, outcome);
+        let message_time = recorded_message_time(&record.path, &run_key);
+        task_state.agent.finish(&doc_id, &run_key, outcome, message_time);
         super::agent_projects::release(&task_state, &run_key);
 
         task_state
@@ -1343,7 +1359,7 @@ mod recorded_fence_debug_tests {
             backend: "fixture".into(), id: "fixture".into(), parent_id: None, parent_is_user: false,
             prompt: "Prose 😀\r\n  ```python\r\n  value = 41\r\n  print(value + 1)\r\n  ```\r\n\r\n```python\r\nraise RuntimeError('wrong fence')\r\n```\r\n".into(),
             answer: Some("Answer\n\n~~~py\nvalue = 41\nprint(value + 1)\n~~~\n".into()),
-            status: "ok".into(), error: None, created_at: String::new(),
+            status: "ok".into(), error: None, created_at: String::new(), last_message_at_ms: None,
             provider: String::new(), model: String::new(), usage: None, session: String::new(),
         }
     }
@@ -1598,13 +1614,27 @@ pub async fn update_conversation_history(
 ///
 /// Empty turns for a document nothing has asked about yet, which the dock
 /// renders as an empty conversation rather than an error.
+pub(super) fn recorded_message_time(path: &std::path::Path, turn: &str) -> Option<i64> {
+    let source = std::fs::read_to_string(path).ok()?;
+    hickory_agent::session_view::session_view(&source)
+        .turns
+        .into_iter()
+        .find(|record| record.id == turn)?
+        .last_message_at_ms
+}
+
 pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
     if let Ok(doc_path) = super::agent_context::subject(&state, &id)
         && let Ok(root) = super::agent_context::session_root(&state, &id)
     {
         state.agent.hydrate(&root, &id, &doc_path);
     }
-    let turns = state.agent.snapshot(&id);
+    let mut turns = state.agent.snapshot(&id);
+    for turn in &mut turns {
+        if turn.last_message_at_ms.is_none() {
+            turn.last_message_at_ms = hickory_agent::session_view::message_timestamp_ms(&turn.created_at);
+        }
+    }
     let selection = state.agent.selection_of(&id);
     let provider = selection.provider.clone().unwrap_or_else(|| {
         // Under the test seam provider resolution is bypassed (and reading
@@ -1667,6 +1697,7 @@ mod tests {
             status: if answer.is_some() { "ok" } else { "error" }.into(),
             error: None,
             created_at: "2026-01-01T00:00:00Z".into(),
+            last_message_at_ms: None,
             provider: "anthropic".into(),
             model: "claude-sonnet-5".into(),
             usage: None,
@@ -1738,6 +1769,10 @@ mod tests {
         hub.hydrate(root, "workspace", &subject);
         let turns = hub.snapshot("workspace");
         assert_eq!(turns.len(), 2);
+        for turn in &turns {
+            assert!(turn.last_message_at_ms.is_some());
+            assert_eq!(turn.last_message_at_ms, recorded_message_time(&root.join(&turn.session), &turn.id));
+        }
         assert!(turns.iter().find(|t| t.id == "fork").unwrap().parent_is_user);
         assert_eq!(prior_turns_of(&turns, Some("fork")).iter()
             .map(|t| (t.prompt.as_str(), t.answer.as_deref())).collect::<Vec<_>>(),

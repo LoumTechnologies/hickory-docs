@@ -39,6 +39,8 @@ export interface AgentTurn {
   status: "running" | "ok" | "error" | string;
   error: string | null;
   created_at: string;
+  /** Newest recorded message time, with the session start as a legacy fallback. */
+  last_message_at_ms?: number;
   /** Provider selector this turn ran on ("anthropic", "openai", …). */
   provider: string;
   /** Model id this turn ran on — recorded per turn, so a mid-conversation

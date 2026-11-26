@@ -384,9 +384,19 @@ struct NativeAgentHistoryPane: View {
             if view == .archived { return state?.archived == true }
             return state?.archived != true && (view == .history || state?.favorite == true)
         }
-        let ids = Set(visible.map(\.id))
-        let children = Dictionary(grouping: visible) { turn in
-            turn.parent_id.flatMap { ids.contains($0) ? $0 : nil }
+        let visibleById = Dictionary(visible.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let newest = Dictionary(grouping: visible, by: historyIdentity).compactMapValues { turns in
+            turns.compactMap(messageTime).max()
+        }
+        var children = Dictionary(grouping: visible) { turn -> String? in
+            guard let id = turn.parent_id, let source = visibleById[id] else { return nil }
+            if let parentSession = source.session, let session = turn.session, parentSession != session { return nil }
+            return id
+        }
+        let roots = (children.removeValue(forKey: nil) ?? []).sorted { a, b in
+            let aFavorite = flagsFor(a)?.favorite == true, bFavorite = flagsFor(b)?.favorite == true
+            if view == .history && aFavorite != bFavorite { return aFavorite }
+            return (newest[historyIdentity(a)] ?? .min) > (newest[historyIdentity(b)] ?? .min)
         }
         VStack(spacing: 0) {
             ScrollView {
@@ -407,7 +417,7 @@ struct NativeAgentHistoryPane: View {
                     if visible.isEmpty && session.historyError.isEmpty {
                         Text(emptyMessage).foregroundStyle(.secondary)
                     }
-                    rows(children[nil] ?? [], children: children, seen: [])
+                    rows(roots, children: children, seen: [])
                 }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityLabel("Agent History")
             PaneStatusBar {
@@ -423,10 +433,22 @@ struct NativeAgentHistoryPane: View {
         }.task(id: reload) { await readFlags() }
     }
 
+    private func historyIdentity(_ turn: AgentTurn) -> String {
+        turn.session.flatMap { $0.isEmpty ? nil : $0 } ?? turn.id
+    }
+
+    private func messageTime(_ turn: AgentTurn) -> Int64? {
+        if let milliseconds = turn.last_message_at_ms { return milliseconds }
+        guard let created = turn.created_at else { return nil }
+        let date = (try? Date(created, strategy: .iso8601))
+            ?? (try? Date(created, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
+    }
+
     private func historyStatus(_ visible: [AgentTurn]) -> String {
         if !session.historyError.isEmpty || !organizationError.isEmpty { return "History unavailable" }
         guard session.historyLoaded, flags != nil else { return "Loading history…" }
-        let count = Set(visible.map { $0.session ?? $0.id }).count
+        let count = Set(visible.map(historyIdentity)).count
         let noun = view == .favorites ? "favorite" : view == .archived ? "archived conversation" : "conversation"
         return "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
@@ -1147,8 +1169,9 @@ Capture the prompt before sending and clear it only if the user has not typed a 
 
 The iPhone inspector is owned by the Agent pane instead of its scrolling message row. When the keyboard takes vertical space, the selected recorded source keeps its inspector. If the recorded source or workspace closes, retire that presentation.
 
-The history strip uses the same scoped rows as the tree, counting each
-retained session once. A retry restarts the history read or flags request
+Sort each conversation by its newest message, keeping favorites first in
+History. Cross-session branches sort independently while same-session replies
+stay under their parent. The history strip counts each displayed session once. A retry restarts the history read or flags request
 without changing the open conversation or its activity subscription.
 
 <ui:copy id="simple-42e0887630-1">

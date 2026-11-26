@@ -436,8 +436,11 @@ keep its visible branch at the top level and use the full tree for the
 branch's origin label. A failed write leaves the last confirmed flags visible
 and asks the reader to reload them before making another change.
 
-The history strip counts the filtered session identities. Follow-up turns
-share one identity, while a fork contributes its own. Rows already available
+Sort the top-level entries using the newest recorded message in each session.
+A continuation can move its conversation up without moving the reply inside
+that conversation. A fork keeps its original parent for replay and its branch
+label, but gets a top-level slot so its own favorite and date decide its position.
+The status strip counts the same filtered session identities. Rows already available
 remain readable while a listing or organization request fails. Retry restarts
 the failed reading through the observer or organization loader.
 
@@ -506,14 +509,27 @@ export function AgentHistoryPane({ session, open }: { session: AgentSession; ope
     if (view === "Archived") return state?.archived === true;
     return !state?.archived && (view === "History" || state?.favorite);
   });
-  const visibleIDs = new Set(visible.map(turn => turn.id));
+  const identity = (turn: AgentTurn) => turn.session || turn.id;
+  const visibleById = new Map(visible.map(turn => [turn.id, turn]));
+  const newest = new Map<string, number>();
   const children = new Map<string | null, AgentTurn[]>();
   for (const turn of visible) {
-    const parent = turn.parent_id && visibleIDs.has(turn.parent_id) ? turn.parent_id : null;
+    const key = identity(turn);
+    const at = turn.last_message_at_ms ?? Date.parse(turn.created_at);
+    if (Number.isFinite(at) && at > (newest.get(key) ?? -Infinity)) newest.set(key, at);
+
+    const source = turn.parent_id ? visibleById.get(turn.parent_id) : undefined;
+    const fork = source?.session && turn.session && source.session !== turn.session;
+    const parent = source && !fork ? source.id : null;
     const siblings = children.get(parent) ?? [];
     siblings.push(turn);
     children.set(parent, siblings);
   }
+  children.get(null)?.sort((a, b) => {
+    const favorites = view === "History" ? Number(!!stateOf(b)?.favorite) - Number(!!stateOf(a)?.favorite) : 0;
+    return favorites || (newest.get(identity(b)) ?? Number.MIN_SAFE_INTEGER) - (newest.get(identity(a)) ?? Number.MIN_SAFE_INTEGER);
+  });
+
   const rows = (parent: string | null, seen: Set<string>): ReactNode => {
     const group = (children.get(parent) ?? []).filter(turn => !seen.has(turn.id));
     return group.length ? <ul>{group.map(turn => {
@@ -552,7 +568,7 @@ export function AgentHistoryPane({ session, open }: { session: AgentSession; ope
       </li>;
     })}</ul> : null;
   };
-  const count = new Set(visible.map(turn => turn.session ?? turn.id)).size;
+  const count = new Set(visible.map(identity)).size;
   const noun = view === "Favorites" ? "favorite" : view === "Archived" ? "archived conversation" : "conversation";
   const failure = session.historyError || organizationError;
   const reading = failure ? "History unavailable" : !session.historyLoaded || !flags ? "Loading history…" : `${count} ${noun}${count === 1 ? "" : "s"}`;

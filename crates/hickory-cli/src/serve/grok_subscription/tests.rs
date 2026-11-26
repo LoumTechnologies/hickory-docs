@@ -85,6 +85,7 @@ fn selection_restores_only_latest_subscription_and_never_prices_it() {
         status: "ok".into(),
         error: None,
         created_at: "now".into(),
+        last_message_at_ms: None,
         provider: SELECTOR.into(),
         model: "claude-sonnet-5".into(),
         usage: Some(Usage {

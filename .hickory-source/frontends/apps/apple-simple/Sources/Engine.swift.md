@@ -48,6 +48,8 @@ struct AgentTurn: Decodable, Identifiable {
     var model: String? = nil
     var parent_id: String? = nil
     var parent_is_user: Bool? = nil
+    var created_at: String? = nil
+    var last_message_at_ms: Int64? = nil
     var session: String? = nil
     var backend: String? = nil
     var usage: NativeAgentEvent.Usage? = nil

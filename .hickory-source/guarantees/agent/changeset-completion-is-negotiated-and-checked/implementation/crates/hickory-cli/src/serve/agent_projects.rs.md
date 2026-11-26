@@ -931,6 +931,7 @@ mod recorded_declared_patch_tests {
             status: "ok".into(),
             error: None,
             created_at: String::new(),
+            last_message_at_ms: None,
             provider: String::new(),
             model: String::new(),
             usage: None,

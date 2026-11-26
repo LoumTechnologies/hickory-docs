@@ -514,8 +514,10 @@ moves a visible branch to the top level and keeps the label derived from the
 full history. A menu action updates the conversation's session flags, and a
 failed write keeps the last confirmed view available while the reader refreshes.
 
-Count the conversation identities after filtering by the current history
-view. A listing failure leaves retained rows available. The retry control
+Rank top-level conversations by the latest message among their turns.
+A cross-session branch ranks independently. Keep replies within their own
+session tree and use the same session groups for the status count. A listing
+failure leaves retained rows available. The retry control
 restarts the failed read while the activity stream continues independently.
 
 <ui:copy id="simple-android-agent-history">
@@ -581,8 +583,20 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
             ConversationHistoryView.Archived -> state?.archived == true
         }
     }
-    val visibleIDs = visible.mapTo(mutableSetOf()) { it.id }
-    val children = visible.groupBy { turn -> turn.parentID?.takeIf(visibleIDs::contains) }
+    fun identity(turn: AgentTurn) = turn.session?.takeIf { it.isNotEmpty() } ?: turn.id
+    val visibleById = visible.associateBy { it.id }
+    val newest = visible.groupBy(::identity).mapValues { (_, turns) -> turns.mapNotNull { it.lastMessageAtMs }.maxOrNull() }
+    val children = visible.groupBy { turn ->
+        val source = turn.parentID?.let(visibleById::get)
+        val fork = source?.session != null && turn.session != null && source.session != turn.session
+        source?.id?.takeUnless { fork }
+    }
+    val roots = children[null].orEmpty().sortedWith(
+        compareByDescending<AgentTurn> { turn ->
+            view == ConversationHistoryView.History && turn.session?.let { flags?.get(it)?.favorite } == true
+        }
+            .thenByDescending { newest[identity(it)] }
+    )
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(5.dp)) {
             Row {
@@ -609,14 +623,14 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                     ConversationHistoryView.Archived -> "No archived conversations."
                 }
             )
-            AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
+            AgentHistoryRows(roots, children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
         }
         val failed = session.historyError.isNotEmpty() || error.isNotEmpty()
         val status = when {
             failed -> "History unavailable"
             !session.historyLoaded || flags == null -> "Loading history…"
             else -> {
-                val count = visible.map { it.session ?: it.id }.toSet().size
+                val count = newest.size
                 val noun = when (view) {
                     ConversationHistoryView.History -> "conversation"
                     ConversationHistoryView.Favorites -> "favorite"

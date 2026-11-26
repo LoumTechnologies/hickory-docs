@@ -441,6 +441,7 @@ pub async fn start_turn(
             status: "running".into(),
             error: None,
             created_at: super::now_rfc3339(),
+            last_message_at_ms: None,
             provider: format!("acp:{backend}"),
             model: client.model(),
             usage: None,
@@ -608,12 +609,14 @@ pub async fn start_turn(
         client.host.changeset.lock().await.take();
         super::agent_projects::release(&state, &run_id);
         state.agent.cancels.lock().unwrap().remove(&run_id);
+        let message_time = super::agent::recorded_message_time(&record_path, &run_id);
         let status = {
             let mut map = state.agent.turns.lock().unwrap();
             let turn = map
                 .get_mut(&doc_id)
                 .and_then(|ts| ts.iter_mut().find(|t| t.id == run_id))
                 .expect("registered");
+            turn.last_message_at_ms = message_time;
             match outcome {
                 Ok(answer) => {
                     turn.answer = Some(answer);

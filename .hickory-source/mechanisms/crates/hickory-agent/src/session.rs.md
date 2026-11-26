@@ -400,12 +400,16 @@ impl SessionLog for HickSessionLog {
             return;
         };
         let result: std::io::Result<()> = (|| {
+            // Capture message time while holding the writer lock so it
+            // describes the durable record rather than later run bookkeeping.
+            let message_time = || Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             match event {
                 SessionEvent::User { text } => {
                     let id = self.next_input_id();
                     writeln!(
                         writer,
-                        "<hick:user id=\"{id}\">{}</hick:user>",
+                        "<hick:user id=\"{id}\" at=\"{}\">{}</hick:user>",
+                        message_time(),
                         framed_body(&safe_prose(text.trim()))
                     )?;
                 }
@@ -424,7 +428,8 @@ impl SessionLog for HickSessionLog {
                     let side = if parent_is_user { r#" parent-side="user""# } else { "" };
                     writeln!(
                         writer,
-                        r#"<hick:user id="{id}" turn="{turn}"{parent}{side} provider="{provider}" model="{model}">{}</hick:user>"#,
+                        r#"<hick:user id="{id}" turn="{turn}"{parent}{side} provider="{provider}" model="{model}" at="{}">{}</hick:user>"#,
+                        message_time(),
                         framed_body(&safe_prose(text.trim()))
                     )?;
                 }
@@ -438,12 +443,13 @@ impl SessionLog for HickSessionLog {
                         (None, None) => {
                             writeln!(
                                 writer,
-                                "<hick:assistant>{}</hick:assistant>",
+                                "<hick:assistant at=\"{}\">{}</hick:assistant>",
+                                message_time(),
                                 framed_body(&prose)
                             )?;
                         }
                         (action, reasoning) => {
-                            writeln!(writer, "<hick:assistant>")?;
+                            writeln!(writer, "<hick:assistant at=\"{}\">", message_time())?;
                             write_reasoning(&mut *writer, reasoning)?;
                             if !prose.is_empty() {
                                 writeln!(writer, "{prose}")?;
@@ -860,8 +866,9 @@ mod tests {
         });
         let source = std::fs::read_to_string(path).unwrap();
         assert!(source.contains(">\nhello\n</hick:user>"), "{source}");
+        assert!(source.contains("<hick:assistant at=\""), "{source}");
         assert!(
-            source.contains("<hick:assistant>\nreply\n</hick:assistant>"),
+            source.contains(">\nreply\n</hick:assistant>"),
             "{source}"
         );
         assert!(
@@ -879,7 +886,7 @@ mod tests {
         // No End yet — the file on disk must still contain the turn.
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(
-            source.contains("<hick:user id=\"in0\">\nhello\n</hick:user>"),
+            source.contains("<hick:user id=\"in0\" at=\"") && source.contains(">\nhello\n</hick:user>"),
             "{source}"
         );
     }

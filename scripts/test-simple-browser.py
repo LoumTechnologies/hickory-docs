@@ -965,11 +965,20 @@ def conversation_history_organization_acceptance(driver, folder):
     def change(title, label):
         driver.act("conversation-history-action", title=title, label=label)
 
+    def order(*titles):
+        driver.act("conversation-history-order", titles=titles)
+
     show("History")
+    order(first, branch, second)
     driver.act("conversation-history-entry", title=first, open=True)
     driver.act("draft", text="Keep my open draft")
+    change(second, "Favorite")
+    order(second, first, branch)
     change(follow_up, "Favorite")
+    order(first, second, branch)
     show("Favorites")
+    order(first, second)
+    change(second, "Remove favorite")
     observe(first)
     observe(follow_up)
     observe(second, False)
@@ -978,6 +987,7 @@ def conversation_history_organization_acceptance(driver, folder):
     change(first, "Archive")
     observe(first, False)
     show("History")
+    order(branch, second)
     observe(branch)
     observe(second)
     observe(follow_up, False)
@@ -998,6 +1008,7 @@ def conversation_history_organization_acceptance(driver, folder):
     change(first, "Remove favorite")
     observe(first, False)
     show("History")
+    order(first, branch, second)
     observe(first)
     assert {path.name: path.read_bytes() for path in sessions.glob("*.md")} == before
     driver.act("pane-status-layout")
@@ -1021,6 +1032,7 @@ def conversation_tabs_acceptance(driver, folder):
     assert state["assistantDraft"] == "First answer" and state["userDraft"] == "First conversation", state
     assert "First conversation" not in state["userReading"], state
     assert state["savedBranch"]["answer"] == "Edited first answer" and state["savedBranch"]["provider"] == "human-edited", state
+    assert isinstance(state["savedBranch"]["last_message_at_ms"], int), state
     assert "0 tokens" in state["zeroTokens"] and state["openedVisible"] and state["reopenedVisible"], state
     assert all((folder / "sessions" / name).read_bytes() == data for name, data in before.items())
 
@@ -1428,14 +1440,18 @@ if __name__ == "__main__":
                     + '</hick:session>\n')
         if "--conversation-history-only" in sys.argv:
             first = folder / "sessions/1.md"
+            second = folder / "sessions/2.md"
+            # The second conversation is a legacy record with only the start time.
+            # The fork is newer than the follow-up prompt, but older than its answer.
+            second.write_text(second.read_text().replace("2026-11-13T10:00:00Z", "2026-11-13T05:03:00-05:00"))
             tail = (
-                '<hick:user id="u3" turn="conversation-3" parent="conversation-1">First follow-up</hick:user>\n'
-                '<hick:assistant>Follow-up answer</hick:assistant>\n'
+                '<hick:user id="u3" turn="conversation-3" parent="conversation-1" at="2026-11-13T10:02:00Z">First follow-up</hick:user>\n'
+                '<hick:assistant at="2026-11-13T10:05:00.125Z">Follow-up answer</hick:assistant>\n'
             )
             first.write_text(first.read_text().replace('</hick:session>', tail + '</hick:session>'))
             (folder / "sessions/branch.md").write_text(
                 '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:01:00Z" doc=".hick-workspace-agent">\n'
-                '<hick:user id="u4" turn="conversation-4" parent="conversation-1">Independent branch</hick:user>\n'
+                '<hick:user id="u4" turn="conversation-4" parent="conversation-1" at="2026-11-13T10:04:00Z">Independent branch</hick:user>\n'
                 '<hick:assistant>Branch answer</hick:assistant>\n'
                 '</hick:session>\n'
             )
@@ -1510,7 +1526,7 @@ raise RuntimeError('wrong assistant fence')
                 print("Browser: recorded user and assistant patches reached guarded review, draft Apply and Undo")
             elif "--conversation-history-only" in sys.argv:
                 conversation_history_organization_acceptance(driver, folder)
-                print("Browser: favorite, archive, reopen, restore and remove favorite through real Agent History, with independent branches and unchanged session files")
+                print("Browser: favorite-first message recency, archive and restore, independent branches, unchanged session files and pane status placement")
             elif "--conversation-tabs-only" in sys.argv:
                 conversation_tabs_acceptance(driver, folder)
                 print("Browser: independent conversation tabs, retained multiline drafts, message-bound branches, pane usage and immutable history passed")

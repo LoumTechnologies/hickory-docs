@@ -1218,6 +1218,13 @@ try {
           expect(bottom(lower)).toBeCloseTo(bottom(filesBar), 0);
           break;
         }
+        case "conversation-history-order": {
+          const history = page.getByRole("region", { name: "Agent History" });
+          const entries = history.locator(".file-tree > ul > li > .conversation-history-row > .conversation-history-title");
+          await expect.poll(async () => (await entries.allTextContents()).map(label => label.replace(/^[○●]\s*/, "")))
+            .toEqual(request.titles);
+          break;
+        }
         case "conversation-history-view": {
           const history = page.getByRole("region", { name: "Agent History" });
           if (!(await history.isVisible())) await menu("View", "Agent History");
@@ -1257,7 +1264,9 @@ try {
         case "conversation-tabs": {
           await menu('View', 'Agent History');
           const history = page.getByRole('region', {name:'Agent History'});
-          await history.getByRole('button', {name:'First conversation',exact:true}).click();
+          // The edited branch can have the same title and sort above its source.
+          const originalEntry = await history.getByRole('button', {name:'First conversation',exact:true}).elementHandle();
+          await originalEntry.click();
           const first = page.getByRole('tab', {name:'First conversation',exact:true});
           const draft = editor('conversation/draft.md');
           await draft.fill('Keep first'); await draft.press('End'); await draft.press('Enter'); await page.keyboard.insertText('next line');
@@ -1303,12 +1312,12 @@ try {
             await page.waitForFunction(()=>{const node=document.querySelector('.group.focused [role=tab][aria-selected=true]');if(!node)return false;const box=node.parentElement.getBoundingClientRect(),strip=node.closest('[role=tablist]').getBoundingClientRect();return box.left>=strip.left-1&&box.right<=strip.right+1;});
             openedVisible = openedVisible && await visibleInStrip(active);
           }
-          await history.getByRole('button', {name:'First conversation',exact:true}).first().click();
+          await originalEntry.click();
           await strip.evaluate(node=>{node.scrollLeft=node.scrollWidth;});
-          await history.getByRole('button', {name:'First conversation',exact:true}).first().click();
+          await originalEntry.click();
           await page.waitForFunction(()=>{const node=document.querySelector('.group.focused [role=tab][aria-selected=true]');const b=node.parentElement.getBoundingClientRect(),s=node.closest('[role=tablist]').getBoundingClientRect();return b.left>=s.left-1&&b.right<=s.right+1;});
           const reopenedVisible = await visibleInStrip(first.first());
-          const footerSettings = await page.locator('footer').getByRole('button', {name:'Agent settings',exact:true}).count();
+          const footerSettings = await page.locator('main > footer').getByRole('button', {name:'Agent settings',exact:true}).count();
           await first.first().click();
           const target = first.first().locator('../..').locator('..').getByRole('tabpanel');
           const bounds = await target.boundingBox();

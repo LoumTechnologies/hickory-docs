@@ -62,6 +62,9 @@ pub struct SessionTurn {
     /// The parent turn's id — the branch point — when recorded.
     pub parent: Option<String>,
     pub parent_is_user: bool,
+    /// Newest recorded user or assistant message, in UTC milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message_at_ms: Option<i64>,
     pub prompt: String,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -228,6 +231,7 @@ pub fn session_view(source: &str) -> SessionView {
                     id,
                     parent: tag.get_attribute("parent").map(str::to_string),
                     parent_is_user: tag.get_attribute("parent-side") == Some("user"),
+                    last_message_at_ms: tag.get_attribute("at").and_then(message_timestamp_ms),
                     prompt: prompt.trim().to_string(),
                     provider: tag.get_attribute("provider").map(str::to_string),
                     model: tag.get_attribute("model").map(str::to_string),
@@ -238,6 +242,11 @@ pub fn session_view(source: &str) -> SessionView {
                 });
             }
             "assistant" => {
+                if let Some(turn) = turns.last_mut()
+                    && let Some(at) = tag.get_attribute("at").and_then(message_timestamp_ms)
+                {
+                    turn.last_message_at_ms = turn.last_message_at_ms.max(Some(at));
+                }
                 let mut prose = String::new();
                 for child in &tag.children {
                     match child {
@@ -401,6 +410,12 @@ fn append_message_tag(output: &mut String, tag: &hick_lang::HickTag, source: &st
     }
 }
 
+pub fn message_timestamp_ms(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|at| at.timestamp_millis())
+}
+
 fn flush_prose(turns: &mut [SessionTurn], prose: &mut String, line: usize) {
     let text = prose.trim().to_string();
     prose.clear();
@@ -494,6 +509,23 @@ turn and step interpretation covered by the original session fixture.
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_time_uses_user_and_assistant_tags_with_rfc3339_offsets() {
+        let source = r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z">
+<hick:user turn="legacy">Old message</hick:user>
+<hick:assistant>Old answer</hick:assistant>
+<hick:user turn="follow-up" at="2026-11-13T10:02:00Z">More</hick:user>
+<hick:assistant at="2026-11-13T05:05:00.125-05:00">Newest answer</hick:assistant>
+<hick:assistant at="invalid">Missing valid time</hick:assistant>
+<hick:context kind="status" at="2026-11-13T10:06:00Z">Metadata</hick:context>
+<hick:user turn="pending" at="2026-11-13T10:07:00Z">Query alone</hick:user>
+</hick:session>"#;
+        let view = session_view(source);
+        assert_eq!(view.turns[0].last_message_at_ms, None);
+        assert_eq!(view.turns[1].last_message_at_ms, Some(message_timestamp_ms("2026-11-13T10:05:00.125Z").unwrap()));
+        assert_eq!(view.turns[2].last_message_at_ms, Some(message_timestamp_ms("2026-11-13T10:07:00Z").unwrap()));
+    }
 
     #[test]
     fn retains_literal_patch_fences_in_both_recorded_message_sides() {

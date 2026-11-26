@@ -500,8 +500,20 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
             ConversationHistoryView.Archived -> state?.archived == true
         }
     }
-    val visibleIDs = visible.mapTo(mutableSetOf()) { it.id }
-    val children = visible.groupBy { turn -> turn.parentID?.takeIf(visibleIDs::contains) }
+    fun identity(turn: AgentTurn) = turn.session?.takeIf { it.isNotEmpty() } ?: turn.id
+    val visibleById = visible.associateBy { it.id }
+    val newest = visible.groupBy(::identity).mapValues { (_, turns) -> turns.mapNotNull { it.lastMessageAtMs }.maxOrNull() }
+    val children = visible.groupBy { turn ->
+        val source = turn.parentID?.let(visibleById::get)
+        val fork = source?.session != null && turn.session != null && source.session != turn.session
+        source?.id?.takeUnless { fork }
+    }
+    val roots = children[null].orEmpty().sortedWith(
+        compareByDescending<AgentTurn> { turn ->
+            view == ConversationHistoryView.History && turn.session?.let { flags?.get(it)?.favorite } == true
+        }
+            .thenByDescending { newest[identity(it)] }
+    )
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(5.dp)) {
             Row {
@@ -528,14 +540,14 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                     ConversationHistoryView.Archived -> "No archived conversations."
                 }
             )
-            AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
+            AgentHistoryRows(roots, children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
         }
         val failed = session.historyError.isNotEmpty() || error.isNotEmpty()
         val status = when {
             failed -> "History unavailable"
             !session.historyLoaded || flags == null -> "Loading history…"
             else -> {
-                val count = visible.map { it.session ?: it.id }.toSet().size
+                val count = newest.size
                 val noun = when (view) {
                     ConversationHistoryView.History -> "conversation"
                     ConversationHistoryView.Favorites -> "favorite"

@@ -586,7 +586,7 @@ async fn the_session_records_reads_and_writes_as_elements() {
     log.record(SessionEvent::End);
 
     let source = std::fs::read_to_string(dir.path().join("s.md")).unwrap();
-    assert!(source.contains(r#"<hick:user id="in0">"#), "{source}");
+    assert!(source.contains(r#"<hick:user id="in0" at=""#), "{source}");
     assert!(
         source.contains(r#"<hick:read file="notes.txt""#),
         "{source}"

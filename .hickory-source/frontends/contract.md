@@ -92,7 +92,13 @@ Agent pane without moving the editor. Switching folders must not show entries
 or accept late list results from the previous folder. A failed history lookup
 must not appear to be an empty history or prevent reading an open transcript.
 Use a row's **More actions** menu to favorite or archive its conversation.
-**Favorites** shows starred conversations from active history. **Archived**
+**History** shows favorites first, then other active conversations. Each group
+runs from newest to oldest by the latest recorded user or assistant message
+in the conversation. A fork sorts as its own entry and keeps its branch label.
+Replies in the same conversation stay under their parent. Use the recorded
+session start when a legacy record has no message timestamp.
+**Favorites** shows starred conversations from active history in the same
+newest-first order. **Archived**
 lets you reopen or restore an archived conversation and retains its favorite
 status. These choices persist for the folder across launches. A conversation's
 follow-up turns share its choices, while a fork can be organized independently.
@@ -111,11 +117,16 @@ The [browser sidebar witness](apps/web/src/simple/parity.test.ts.md) checks
 what opening, branching and starting a conversation show before Send.
 The [browser history organization witness](scripts/test-simple-browser.py.md)
 drives Favorite, Archive and Restore through the real engine and compares the
-recorded session files before and after. It also measures the status strips
+recorded session files before and after. It checks that a timestamp on a
+follow-up answer can move the conversation ahead of a newer fork, that a
+legacy start time remains sortable, and that starring an older conversation
+moves it into the favorite group. It also measures the status strips
 when swapping sidebar tabs and splitting the editor below.
 
-On 2026-11-26, the focused Chromium witness verified that Files and Agent
-History occupy the same strip bounds, adjacent strips align, and a vertical
+On 2026-11-26, the focused Chromium witness verified favorite priority,
+recency by follow-up answer, and ordering after archive and restore. It also
+verified that Files and Agent History occupy the same strip bounds, adjacent
+strips align, and a vertical
 split gives each pane its own bottom strip. The focused browser component
 tests covered Files retry with a retained editor and conversation counts
 across history views. The macOS target and Android Kotlin sources compiled.
