@@ -17,12 +17,45 @@ fn binary_comparison_does_not_equal_same_length_placeholders() {
 // Guarantee: docs/guarantees/literate-projects/markdown-constructs-the-complete-project.md
 #[tokio::test]
 async fn pipeline_uses_the_same_pure_complete_evaluator() {
-    let source = "<hick:project/><hick:file id=\"base\" path=\"x\">a\n</hick:file><hick:patch after=\"base\">\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n</hick:patch>";
+    let source = concat!(
+        "<hick:project/>\r\n",
+        "λ<hick:file path=\"first.txt\">first body</hick:file>\r\n",
+        "<hick:file path=\"second.txt\">second body</hick:file>\n",
+        "<hick:file id=\"base\" path=\"x\">a\n</hick:file>",
+        "<hick:patch after=\"base\">\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n</hick:patch>",
+    );
     let run = hick_literate::run_pipeline_weave(&[("project.md", source)], &[], None)
         .await
         .unwrap();
     assert_eq!(run.files["x"].as_text(), Some("b\n"));
-    assert_eq!(run.evaluated_project.unwrap().new.entries().len(), 1);
+    assert_eq!(run.evaluated_project.unwrap().new.entries().len(), 3);
+    use hick_exec::node::SourceOrigin;
+    for (path, body, prefix, line) in [
+        (
+            "first.txt",
+            "first body",
+            "λ<hick:file path=\"first.txt\">",
+            2,
+        ),
+        (
+            "second.txt",
+            "second body",
+            "<hick:file path=\"second.txt\">",
+            3,
+        ),
+    ] {
+        assert_eq!(run.files[path].as_text(), Some(body));
+        let origin = &run.provenance_maps[path].spans()[0].origin;
+        let SourceOrigin::Literal { file, span } = origin else {
+            panic!("expected literal origin for {path}");
+        };
+        let start = source.find(body).unwrap();
+        assert_eq!(file.as_ref(), "project.md");
+        assert_eq!(
+            *span,
+            hick_lang::SourceSpan::new(start, start + body.len(), line, prefix.chars().count())
+        );
+    }
     assert!(run.transcripts.is_empty());
     assert!(
         hick_literate::run_pipeline_weave(&[("p.md", "<hick:patch>diff</hick:patch>")], &[], None)

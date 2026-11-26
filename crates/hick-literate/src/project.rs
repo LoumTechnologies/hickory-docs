@@ -31,6 +31,7 @@ pub fn pipeline(entry: &str, sources: &BTreeMap<String, String>) -> Result<Pipel
     }
     let mut files = HashMap::new();
     let mut provenance_maps = HashMap::new();
+    let mut coordinates = HashMap::new();
     for (path, entry) in evaluated.new.entries() {
         // Symlinks have metadata rather than file content; callers must use
         // evaluated_project for full inventory and materialization.
@@ -43,23 +44,19 @@ pub fn pipeline(entry: &str, sources: &BTreeMap<String, String>) -> Result<Pipel
         }
         let mut map = ProvenanceMap::new();
         for origin in &entry.origins {
-            let source = sources
-                .get(&origin.document)
+            let (document, source) = sources
+                .get_key_value(&origin.document)
                 .ok_or_else(|| anyhow::anyhow!("missing provenance source {}", origin.document))?;
-            let prefix = source
-                .get(..origin.source.0)
-                .ok_or_else(|| anyhow::anyhow!("invalid provenance coordinate"))?;
-            let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;
-            let col = prefix.rsplit('\n').next().unwrap_or("").chars().count();
+            let index = match coordinates.entry(document.as_str()) {
+                std::collections::hash_map::Entry::Occupied(found) => found.into_mut(),
+                std::collections::hash_map::Entry::Vacant(missing) => {
+                    missing.insert(SourceCoordinates::new(source)?)
+                }
+            };
             map.push(hick_exec::node::ProvenanceSpan {
                 output_start: origin.output.0,
                 output_end: origin.output.1,
-                origin: origin_kind(
-                    sources,
-                    &origin.document,
-                    origin.source,
-                    SourceSpan::new(origin.source.0, origin.source.1, line, col),
-                )?,
+                origin: index.origin(source, document, origin.source)?,
             });
         }
         provenance_maps.insert(path.clone(), map);
@@ -234,45 +231,81 @@ fn named_pipeline(entry: &str, sources: &[(&str, &str)]) -> Result<PipelineResul
     Ok(result)
 }
 
-fn origin_kind(
-    sources: &BTreeMap<String, String>,
-    document: &str,
-    range: (usize, usize),
-    span: SourceSpan,
-) -> Result<SourceOrigin> {
-    let source = &sources[document];
-    let doc = hick_lang::parse(source)?;
-    let bom = usize::from(source.starts_with('\u{feff}')) * 3;
-    for tag in doc.all_tags() {
-        if tag.name != "ingested"
-            || tag.source_span.is_none_or(|s| s.end + bom > range.0)
-            || tag.close_span.is_none_or(|s| range.1 > s.start + bom)
-        {
-            continue;
-        }
-        if tag.get_attribute("key").is_none() {
-            return Ok(SourceOrigin::Ingested {
+enum RetainedOrigin {
+    Scaffold(Arc<str>),
+    Recorded(SourceOrigin),
+}
+
+struct SourceCoordinates {
+    line_starts: Vec<usize>,
+    retained: Vec<(std::ops::Range<usize>, RetainedOrigin)>,
+}
+
+impl SourceCoordinates {
+    fn new(source: &str) -> Result<Self> {
+        let line_starts = std::iter::once(0)
+            .chain(source.match_indices('\n').map(|(offset, _)| offset + 1))
+            .collect();
+        let document = hick_lang::parse(source)?;
+        let tags = document.all_tags();
+        let bom = usize::from(source.starts_with('\u{feff}')) * 3;
+        let retained = tags
+            .iter()
+            .copied()
+            .filter(|tag| tag.name == "ingested")
+            .filter_map(|tag| {
+                let range = (tag.source_span?.end + bom)..(tag.close_span?.start + bom);
+                let origin = if tag.get_attribute("key").is_none() {
+                    RetainedOrigin::Scaffold(Arc::from(tag.get_attribute("sha256").unwrap_or("")))
+                } else {
+                    let cell = tags
+                        .iter()
+                        .find(|cell| cell.child_tags().any(|child| std::ptr::eq(child, tag)))?;
+                    let origin = if cell.name == "exec" {
+                        SourceOrigin::Exec {
+                            container: Arc::from(cell.get_attribute("container").unwrap_or("")),
+                            tag_line: cell.source_line,
+                        }
+                    } else {
+                        SourceOrigin::Synthetic
+                    };
+                    RetainedOrigin::Recorded(origin)
+                };
+                Some((range, origin))
+            })
+            .collect();
+        Ok(Self {
+            line_starts,
+            retained,
+        })
+    }
+
+    fn origin(
+        &self,
+        source: &str,
+        document: &str,
+        (start, end): (usize, usize),
+    ) -> Result<SourceOrigin> {
+        let line = self.line_starts.partition_point(|offset| *offset <= start);
+        let prefix = source
+            .get(self.line_starts[line - 1]..start)
+            .ok_or_else(|| anyhow::anyhow!("invalid provenance coordinate"))?;
+        let span = SourceSpan::new(start, end, line, prefix.chars().count());
+        let retained = self
+            .retained
+            .iter()
+            .find(|(body, _)| body.start <= start && end <= body.end);
+        Ok(match retained {
+            Some((_, RetainedOrigin::Scaffold(run))) => SourceOrigin::Ingested {
                 file: Arc::from(document),
                 span,
-                run: Arc::from(tag.get_attribute("sha256").unwrap_or("")),
-            });
-        }
-        if let Some(cell) = doc
-            .all_tags()
-            .into_iter()
-            .find(|cell| cell.child_tags().any(|child| std::ptr::eq(child, tag)))
-        {
-            if cell.name == "exec" {
-                return Ok(SourceOrigin::Exec {
-                    container: Arc::from(cell.get_attribute("container").unwrap_or("")),
-                    tag_line: cell.source_line,
-                });
-            }
-            return Ok(SourceOrigin::Synthetic);
-        }
+                run: run.clone(),
+            },
+            Some((_, RetainedOrigin::Recorded(origin))) => origin.clone(),
+            None => SourceOrigin::Literal {
+                file: Arc::from(document),
+                span,
+            },
+        })
     }
-    Ok(SourceOrigin::Literal {
-        file: Arc::from(document),
-        span,
-    })
 }
