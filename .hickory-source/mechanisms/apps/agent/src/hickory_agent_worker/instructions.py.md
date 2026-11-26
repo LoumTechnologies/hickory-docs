@@ -144,8 +144,9 @@ and snippet observations are declarations, never independent verification.
 <storycode:copy id="f-4915d386d720-expression_statement-3">
 DOCUMENT_GUIDANCE = r'''
 Document work:
- - For a workspace coding task, use read_file to inspect the repository entry and
-   maintainer instructions (for example project.md and AGENTS.md) when present.
+ - For a workspace coding task, use read_file with base="workspace" to inspect
+   the root repository entry and maintainer instructions (for example project.md
+   and AGENTS.md) when present.
    Read relevant lines with from/to when the file is large. Use search
    to narrow the change, then read the owning source and focused tests. In a
    document-backed project, edit the owner, not a generated file in isolation.

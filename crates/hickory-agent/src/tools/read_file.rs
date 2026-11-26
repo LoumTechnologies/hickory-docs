@@ -6,8 +6,15 @@ pub fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolOutcome 
     let Some(rel) = inv.arg("path") else {
         return ToolOutcome::err(
             NAME,
-            "read_file needs a path argument, relative to the document's directory".into(),
+            "read_file needs a path argument".into(),
         );
+    };
+    let base = match inv.arg("base") {
+        None | Some("document") => base,
+        Some("workspace") => root,
+        Some(_) => {
+            return ToolOutcome::err(NAME, "read_file base must be document or workspace".into());
+        }
     };
     let candidate = base.join(rel);
     let canonical = match candidate.canonicalize() {
@@ -179,5 +186,39 @@ mod tests {
             (outcome.reads[0].first_line, outcome.reads[0].last_line),
             (2, 2)
         );
+    }
+
+    #[test]
+    fn the_workspace_base_uses_the_root_and_preserves_confinement() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("project");
+        let base = root.join("notes");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(root.join("AGENTS.md"), "workspace rules").unwrap();
+        std::fs::write(base.join("AGENTS.md"), "local rules").unwrap();
+        std::fs::write(dir.path().join("outside.md"), "outside text").unwrap();
+        let read = |path: &str, choice: &str| {
+            let inv = ToolInvocation::synthetic(
+                "read_file",
+                vec![("path".into(), path.into()), ("base".into(), choice.into())],
+                None,
+            )
+            .unwrap();
+            read_file(&root, &base, &inv)
+        };
+
+        let workspace = read("AGENTS.md", "workspace");
+        assert!(workspace.ok, "{}", workspace.text);
+        assert_eq!(workspace.reads[0].path, "AGENTS.md");
+        assert_eq!(workspace.reads[0].content, "workspace rules");
+        let document = read("AGENTS.md", "document");
+        assert_eq!(document.reads[0].path, "notes/AGENTS.md");
+        assert_eq!(document.reads[0].content, "local rules");
+
+        let escaped = read("../outside.md", "workspace");
+        assert!(!escaped.ok && escaped.reads.is_empty());
+        assert!(!escaped.text.contains("outside text"));
+        let invalid = read("AGENTS.md", "unknown");
+        assert!(!invalid.ok && invalid.reads.is_empty());
     }
 }

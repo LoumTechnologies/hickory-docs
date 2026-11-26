@@ -59,8 +59,9 @@ pub(super) fn tool_catalogue() -> Value {
                 "name": "read_file",
                 "description":
                     "Read any file of the project, read-only, hashline-rendered — a data \
-                     export, a config, a source file. Paths are relative to the selected document's \
-                     directory, or the workspace root when there is no document. They must stay \
+                     export, a config, a source file. Use base=workspace for root-relative paths. \
+                     By default paths are relative to the selected document's directory or the \
+                     workspace root when there is no document. They must stay \
                      in the workspace. A directory lists its entries. The read is \
                      recorded in the session as context: which file, at which hash and commit, \
                      which lines were in front of the agent when it later wrote.",
@@ -68,7 +69,8 @@ pub(super) fn tool_catalogue() -> Value {
                     "type": "object",
                     "properties": {
                         "doc": doc_arg,
-                        "path": { "type": "string", "description": "File path relative to the workspace or selected document." },
+                        "path": { "type": "string", "description": "File or directory path interpreted using base." },
+                        "base": { "type": "string", "enum": ["document", "workspace"], "description": "Use workspace for repository-root paths, regardless of the selected document." },
                         "from": { "type": "integer", "description": "First line (1-based)." },
                         "to": { "type": "integer", "description": "Last line (1-based, inclusive)." }
                     },
