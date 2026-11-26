@@ -470,16 +470,28 @@ struct StartupSourceObservation {
     private var newestOpen: [String: UUID] = [:]
     let agent = AgentSession()
     var conversations: [String: AgentSession] = [:]
+    var tabRevealRequest = UUID()
     var allAgentSessions: [AgentSession] { [agent] + Array(conversations.values) }
     func agentSession(_ tab: String?) -> AgentSession? {
         guard let tab else { return nil }
         return tab == "agent" ? agent : conversations[tab]
     }
-    func openConversation(_ tip: String? = nil, fork: Bool? = nil) {
+    func openConversation(_ tip: String? = nil, fork: Bool? = nil, origin: AgentSession? = nil) {
+        if let tip, fork == nil, let existing = conversations.first(where: { pair in pair.value.sameConversation(tip) && layout.groups().contains { $0.tabs.containsTab(pair.key) } }) { show(existing.key); return }
+        let origin = origin ?? agent
         let session = AgentSession()
-        session.turns = agent.turns; session.messageForks = agent.messageForks
+        session.turns = origin.turns; session.messageForks = origin.messageForks
         session.selection = .init(id: tip, userFork: fork)
-        session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort
+        session.openedTip = tip
+        if fork == nil { session.conversationKey = origin.turns.first { $0.id == tip }?.session }
+        if let fork, let tip, let turn = origin.turns.first(where: { $0.id == tip }) {
+            guard fork || turn.answer != nil else { return }
+            let source = fork ? turn.prompt : turn.answer!
+            session.branchEdit = .init(turn: tip, user: fork, source: source, request: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
+            session.prompt = source
+            if fork { session.selection = .init(id: turn.parent_id, userFork: turn.parent_id == nil ? nil : turn.parent_is_user == true ? true : origin.turns.first(where: { $0.id == turn.parent_id })?.answer != nil ? false : nil) }
+        }
+        session.provider = origin.provider; session.model = origin.model; session.effort = origin.effort
         session.captureContext = { [weak self] in
             guard let self else { throw EngineError(message: "Original agent workspace closed.") }
             return try nativeAgentContext(self)
@@ -946,7 +958,7 @@ struct StartupSourceObservation {
         guard groups.contains(where: { $0.id == target }) else { return }
         newestOpen.removeValue(forKey: target)
         paneInteraction = UUID()
-        layout.activate(tab, in: target); focused = target
+        layout.activate(tab, in: target); focused = target; tabRevealRequest = UUID()
     }
     private func adoptTabLayout(_ next: PaneLayout, focus group: String? = nil) {
         let groups = next.groups()
@@ -1070,7 +1082,7 @@ struct StartupSourceObservation {
         moveTab(active, to: target)
     }
     func tabIcon(_ tab: String) -> String {
-        if agentSession(tab) != nil { return "sparkles" }
+        if let session = agentSession(tab) { return session.working() ? "arrow.triangle.2.circlepath" : "bubble.left" }
         switch NativeTabIdentity(address: tab).utility {
         case .files: return "folder"
         case .agentHistory: return "clock.arrow.circlepath"

@@ -281,6 +281,13 @@ without an originating UI window. Compare source and index bytes afterward;
 the final answer must retain its Markdown without document/project boilerplate.
 This witness does not exercise a paid provider or a native frontend.
 
+The assistant-branch witness saves an edited answer through real HTTP without
+calling a model, checks idempotent retries and stale-hash/path-collision refusals,
+and reopens its immutable recording after restart. With the confined worker
+configured, its follow-up must replay the edited text in the assistant role,
+never the replaced original answer. The test's explicit non-subscription choice
+uses the scripted model transport; it does not relax subscription admission.
+
 <storycode:copy id="f-08f0cd3133cc-python">
 fn python() -> Option<String> {
     let value = std::env::var("HICKORY_AGENT_TEST_PYTHON").ok();
@@ -322,6 +329,68 @@ async fn python_git_status_is_read_only_and_answers_with_bare_markdown() {
     assert_eq!(std::fs::read(app.root.join(".git/index")).unwrap(), index);
     assert_eq!(std::fs::read_to_string(app.root.join("untracked space.md")).unwrap(), "Untouched source\n");
     assert_eq!(std::fs::read_to_string(app.root.join("note.md")).unwrap(), "Original human input\n");
+}
+
+// Contract: .hickory-source/frontends/contract.md
+#[tokio::test(flavor = "multi_thread")]
+async fn assistant_branch_saves_an_immutable_idempotent_human_answer() {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+    use sha2::Digest;
+    let app = App::start().await;
+    let original = app.root.join("sessions/original.md");
+    let record = HickSessionLog::create_for(&original, Some(&app.root.join("note.md"))).unwrap();
+    record.record(SessionEvent::UserTurn {text:"Original prompt",turn:"original",parent:None,parent_is_user:false,provider:"codex-subscription",model:"original-model"});
+    record.record(SessionEvent::Context {kind:"python-runtime",data:&json!({"backend":"python"})});
+    record.record(SessionEvent::Assistant {prose:"Original answer",action:None,reasoning:None});
+    record.record(SessionEvent::Context {kind:"acp-turn-status",data:&json!({"turn":"original","status":"ok"})});
+    record.record(SessionEvent::End); record.check().unwrap();
+    let bytes = std::fs::read(&original).unwrap();
+    let model = Model::new([]); app.state.agent.set_llm_override(model.clone());
+    let body = json!({"turn":"original","source_hash":hex::encode(sha2::Sha256::digest(b"Original answer")),"answer":"Edited answer\n\n```python\nprint(2)\n```","request_id":"a".repeat(32)});
+    let (status, edited) = app.request("POST", &app.route("/branch"), body.clone()).await;
+    assert_eq!(status,200,"{edited}");
+    assert_eq!(edited["prompt"],"Original prompt"); assert_eq!(edited["answer"],body["answer"]);
+    assert_eq!(edited["parent_id"],Value::Null); assert_eq!(edited["provider"],"human-edited");
+    assert_eq!(edited["usage"]["input_tokens"],0);
+    let (status, repeated) = app.request("POST", &app.route("/branch"), body.clone()).await;
+    assert_eq!(status,200); assert_eq!(repeated["id"],edited["id"]);
+    let mut stale = body.clone(); stale["source_hash"]=json!("0".repeat(64));
+    assert_eq!(app.request("POST", &app.route("/branch"), stale).await.0,409);
+    let mut conflicting = body.clone(); conflicting["answer"]=json!("Different answer");
+    assert_eq!(app.request("POST", &app.route("/branch"), conflicting).await.0,409);
+    #[cfg(unix)] {
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("must-not-be-created");
+        let collision = app.root.join("sessions/edited-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md");
+        std::os::unix::fs::symlink(&target, &collision).unwrap();
+        let mut linked = body.clone(); linked["request_id"]=json!("b".repeat(32));
+        assert_eq!(app.request("POST", &app.route("/branch"), linked).await.0,409);
+        assert!(!target.exists()); assert!(std::fs::symlink_metadata(&collision).unwrap().file_type().is_symlink());
+        std::fs::remove_file(collision).unwrap();
+    }
+    assert_eq!(std::fs::read(&original).unwrap(),bytes); assert!(model.requests.lock().unwrap().is_empty());
+    let source = std::fs::read_to_string(app.root.join(edited["session"].as_str().unwrap())).unwrap();
+    assert!(source.contains("human-edited") && source.contains("\"verification\":\"none\""));
+    assert!(!source.contains("python-verified-changeset"));
+    let restarted = prepare(ServeOptions {target:app.root.clone(),port:0,params:vec![],executor:ExecutorChoice::Local,key_store_path:Some(app.root.join("keys.json")),ui_settings_path:Some(app.root.join("ui.json"))}).await.unwrap();
+    let history = hickory_cli::serve::agent::list_turns(axum::extract::State(restarted.state),axum::extract::Path(app.doc.clone())).await.0;
+    assert_eq!(history["provider"],"codex-subscription"); assert_eq!(history["model"],"original-model");
+    let turns = history["turns"].as_array().unwrap(); assert_eq!(turns.len(),2);
+    let restored = turns.iter().find(|turn|turn["id"]==edited["id"]).unwrap();
+    assert_eq!(restored["answer"],body["answer"]); assert_eq!(restored["status"],"ok"); assert_eq!(restored["backend"],"python");
+    if let Ok(python) = std::env::var("HICKORY_AGENT_TEST_PYTHON") {
+        app.configure(&python).await;
+        let continuation = Model::new([json!({"done":"Continued from the edited assistant answer."})]);
+        app.state.agent.set_llm_override(continuation.clone());
+        let (status, started) = app.request("POST", &app.route(""), json!({"backend":"python","prompt":"Follow up","parent_id":edited["id"],"provider":"anthropic","model":""})).await;
+        assert_eq!(status,202,"{started}");
+        let next = started["session_id"].as_str().unwrap().to_string();
+        let completed = app.wait(&next).await; assert_eq!(completed["status"],"ok","{completed}");
+        let requests = continuation.requests.lock().unwrap();
+        assert!(requests.first().unwrap().iter().any(|message| matches!(message.role,hickory_agent::Role::Assistant) && message.content == body["answer"].as_str().unwrap()));
+        assert!(!requests.first().unwrap().iter().any(|message| matches!(message.role,hickory_agent::Role::Assistant) && message.content == "Original answer"));
+        assert_eq!(std::fs::read(&original).unwrap(),bytes);
+    }
 }
 
 </storycode:copy>

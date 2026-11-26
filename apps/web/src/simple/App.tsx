@@ -147,12 +147,26 @@ export function App() {
     session.workspaceCurrent = agentCurrent;
     if (session !== agent) session.captureContext = () => agent.captureContext?.()!;
   }
-  function openConversation(id: string | null = null, fork?: 'user' | 'assistant') {
+  function openConversation(id: string | null = null, fork?: 'user' | 'assistant', origin: AgentSession = agent) {
+    if (id && !fork) {
+      const existing = [...conversations].find(([address, session]) =>
+        (address !== "agent" || groups(liveLayout.current).some(group => group.tabs.includes(address))) && session.sameConversation(id));
+      if (existing) { openTab(existing[0]); return; }
+    }
     const session = new AgentSession();
-    session.setTurns(agent.turns);
-    session.messageForks = agent.messageForks;
+    session.openedTip = id;
+    session.setTurns(origin.turns);
+    session.messageForks = origin.messageForks;
     session.selection = {id, fork};
-    session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort;
+    if (!fork) session.conversationKey = origin.turns.find(turn => turn.id === id)?.session;
+    if (fork && id) {
+      const turn = origin.turns.find(row => row.id === id);
+      if (!turn || fork === 'assistant' && turn.answer == null) return;
+      session.branchEdit = {turn: id, side: fork, source: fork === 'user' ? turn.prompt : turn.answer!, request: crypto.randomUUID().replaceAll('-', '')};
+      session.prompt = session.branchEdit.source;
+      if (fork === 'user') session.selection = {id: turn.parent_id, ...(turn.parent_is_user ? {fork: 'user' as const} : turn.parent_id && origin.turns.find(row => row.id === turn.parent_id)?.answer != null ? {fork: 'assistant' as const} : {})};
+    }
+    session.provider = origin.provider; session.model = origin.model; session.effort = origin.effort;
     const address = '\0agent:' + crypto.randomUUID();
     conversations.set(address, session);
     refreshConversations(value => value + 1);
@@ -563,7 +577,10 @@ export function App() {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>;
     if (tab === "agent-history") return <AgentHistoryPane session={agent} open={openConversation} />;
     if (tab === "terminal") return <Terminal session={terminal} />;
-    if (isAgentTab(tab)) return <Agent key={tab} session={conversations.get(tab) ?? agent} newConversation={openConversation} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
+    if (isAgentTab(tab)) {
+      const session = conversations.get(tab) ?? agent;
+      return <Agent key={tab} session={session} newConversation={(id = null, fork) => openConversation(id, fork, session)} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
+    }
     const document = bufferForTab(tab);
     return document ? <Document key={document.file.path} buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} /> : null;
   }
@@ -788,9 +805,26 @@ function LayoutView(props: LayoutProps) {
     window.addEventListener("dragend", clear);
     return () => window.removeEventListener("dragend", clear);
   }, []);
+  const tabStrip = useRef<HTMLDivElement>(null);
+  const activeAddress = isGroup(node) ? node.active : null;
+  useEffect(() => {
+    const strip = tabStrip.current;
+    if (!strip) return;
+    const reveal = () => {
+      const tab = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.parentElement;
+      if (!tab) return;
+      const bounds = strip.getBoundingClientRect(), item = tab.getBoundingClientRect();
+      if (item.left < bounds.left) strip.scrollLeft -= bounds.left - item.left;
+      else if (item.right > bounds.right) strip.scrollLeft += item.right - bounds.right;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal); observer.observe(strip);
+    const selected = strip.querySelector('[role="tab"][aria-selected="true"]')?.parentElement; if (selected) observer.observe(selected);
+    return () => observer.disconnect();
+  }, [node, activeAddress]);
   if (isGroup(node)) return <section className={`group ${props.focused === node.id ? "focused" : ""}`}
     style={props.collapsedFilesPane === node.id ? {visibility: "hidden"} : undefined} onFocusCapture={() => props.focus(node.id)}>
-    <div className="tabs" role="tablist" aria-label="Pane tabs"
+    <div ref={tabStrip} className="tabs" role="tablist" aria-label="Pane tabs"
       onDragOver={event => { if (event.dataTransfer.types.includes("application/x-hickory-tab")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
       onDrop={event => { event.preventDefault(); setDropBefore(null); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id); }}>
 

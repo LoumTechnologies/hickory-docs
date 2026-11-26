@@ -471,13 +471,24 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     private val newestOpen = mutableMapOf<String, Any>()
     val agent = AgentSession()
     val conversations = mutableStateMapOf<String, AgentSession>()
+    var tabRevealRequest by mutableStateOf(0L)
     val allAgentSessions get() = listOf(agent) + conversations.values
     fun agentSession(tab: String?): AgentSession? = if (tab == "agent") agent else tab?.let { conversations[it] }
-    fun openConversation(tip: String? = null, fork: Boolean? = null) {
+    fun openConversation(tip: String? = null, fork: Boolean? = null, origin: AgentSession = agent) {
+        if (tip != null && fork == null) conversations.entries.firstOrNull { (tab, session) -> session.sameConversation(tip) && layout.groups().any { tab in it.tabs } }?.let { show(it.key); return }
         val session = AgentSession()
-        session.turns = agent.turns; session.messageForks = agent.messageForks
+        session.turns = origin.turns; session.messageForks = origin.messageForks
         session.selection = AgentSession.Selection(tip, fork)
-        session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort
+        session.openedTip = tip
+        if (fork == null) session.conversationKey = origin.turns.firstOrNull { it.id == tip }?.session
+        if (fork != null && tip != null) {
+            val turn = origin.turns.firstOrNull { it.id == tip } ?: return
+            val source = if (fork) turn.prompt else turn.answer ?: return
+            session.branchEdit = AgentSession.BranchEdit(tip, fork, source)
+            session.prompt = source
+            if (fork) session.selection = AgentSession.Selection(turn.parentID, if (turn.parentID == null) null else if (turn.parentIsUser) true else if (origin.turns.firstOrNull { it.id == turn.parentID }?.answer != null) false else null)
+        }
+        session.provider = origin.provider; session.model = origin.model; session.effort = origin.effort
         engine?.let { session.debugger = NativeDebugger(it, workspaceScope, recordedMessages = true) }
         val tab = "\u0000agent:" + UUID.randomUUID()
         conversations[tab] = session
@@ -866,7 +877,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         } ?: focused
         newestOpen.remove(target)
         foregroundNavigation++
-        layout = layout.activate(tab, target); focused = target
+        layout = layout.activate(tab, target); focused = target; tabRevealRequest++
     }
     internal fun adoptTabLayout(next: PaneLayout, group: String? = null): Boolean {
         if (layout === next) return false
@@ -900,7 +911,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         adoptTabLayout(layout.move(tab, target), target)
     }
     fun label(tab: String): String = agentSession(tab)?.let { session ->
-        "✦ " + (session.transcript.firstOrNull()?.first?.prompt?.trim()?.lineSequence()?.firstOrNull()?.take(80) ?: "New conversation")
+        (if (session.working()) "✦ ● " else "✦ ○ ") + (session.transcript.firstOrNull()?.first?.prompt?.trim()?.lineSequence()?.firstOrNull()?.take(80) ?: "New conversation")
     } ?: when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "agent-history" -> "Agent History"; "terminal" -> "Terminal"
         else -> "▤ " + (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""

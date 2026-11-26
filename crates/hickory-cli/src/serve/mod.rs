@@ -672,6 +672,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/agent/acp/permission", post(acp::permission))
         .route("/docs/{id}/agent/acp/edits", post(acp::edit_decision))
         .route("/docs/{id}/agent", post(agent::start_turn))
+        .route("/docs/{id}/agent/branch", post(agent::save_assistant_branch))
         .route("/docs/{id}/agent/stop", post(agent::stop_turn))
         .route("/docs/{id}/agent/turns", get(agent::list_turns))
         .route("/docs/{id}/agent/turns/{turn}/fence-debug", post(agent::prepare_fence_debug))

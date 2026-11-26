@@ -1116,6 +1116,9 @@ try {
           await draft.fill('Keep first'); await draft.press('End'); await draft.press('Enter'); await page.keyboard.insertText('next line');
           const firstDraft = await draft.locator('.cm-line').allTextContents().then(lines=>lines.join('\n'));
           const firstUsage = await page.locator('.agent-pane-status').innerText();
+          await history.getByRole('button', {name:'First conversation',exact:true}).click();
+          const reused = await first.count() === 1;
+          const originalAnswer = await page.getByText('First answer', {exact:true}).innerText();
           await history.getByRole('button', {name:'Second conversation',exact:true}).click();
           await editor('conversation/draft.md').fill('Keep second');
           const secondUsage = await page.locator('.agent-pane-status').innerText();
@@ -1127,15 +1130,44 @@ try {
           await branch.click();
           const branches = await page.getByRole('tab', {name:'First conversation',exact:true}).count();
           const reading = await page.getByRole('log', {name:'Conversation'}).innerText();
+          const assistantDraft = await editor('conversation/draft.md').locator('.cm-line').allTextContents().then(lines=>lines.join('\n'));
+          await editor('conversation/draft.md').fill('Edited first answer');
+          const saved = page.waitForResponse(reply => reply.url().endsWith('/agent/branch') && reply.request().method() === 'POST');
+          await page.getByRole('button', {name:'Save assistant branch',exact:true}).click();
+          const response = await saved; if (!response.ok()) throw Error(await response.text());
+          await page.getByText('Edited first answer', {exact:true}).waitFor();
+          const savedBranch = await response.json();
+          await first.first().click();
+          const originalPreserved = await page.getByText('First answer', {exact:true}).innerText() === originalAnswer;
+          await page.getByRole('button', {name:'Branch from user message',exact:true}).click();
+          const userDraft = await editor('conversation/draft.md').locator('.cm-line').allTextContents().then(lines=>lines.join('\n'));
+          const userReading = await page.getByRole('log', {name:'Conversation'}).innerText();
           await history.getByRole('button', {name:'New conversation',exact:true}).click();
           const empty = await page.getByText('What shall we work on?', {exact:true}).isVisible();
+          const zeroTokens = await page.locator('.agent-pane-status').innerText();
+          const newButton = history.getByRole('button', {name:'New conversation',exact:true});
+          const iconButton = await newButton.innerText() === '✎' && await newButton.evaluate(node=>parseFloat(getComputedStyle(node).borderTopWidth)>0);
+          const strip = first.first().locator('../..');
+          const visibleInStrip = async node => node.evaluate(button=>{const box=button.parentElement.getBoundingClientRect(),strip=button.closest('[role=tablist]').getBoundingClientRect();return box.left>=strip.left-1&&box.right<=strip.right+1;});
+          let openedVisible = true;
+          for (let index=0;index<9;index++) {
+            await menu('View','Agent');
+            const active = strip.locator('[role=tab][aria-selected=true]');
+            await page.waitForFunction(()=>{const node=document.querySelector('.group.focused [role=tab][aria-selected=true]');if(!node)return false;const box=node.parentElement.getBoundingClientRect(),strip=node.closest('[role=tablist]').getBoundingClientRect();return box.left>=strip.left-1&&box.right<=strip.right+1;});
+            openedVisible = openedVisible && await visibleInStrip(active);
+          }
+          await history.getByRole('button', {name:'First conversation',exact:true}).first().click();
+          await strip.evaluate(node=>{node.scrollLeft=node.scrollWidth;});
+          await history.getByRole('button', {name:'First conversation',exact:true}).first().click();
+          await page.waitForFunction(()=>{const node=document.querySelector('.group.focused [role=tab][aria-selected=true]');const b=node.parentElement.getBoundingClientRect(),s=node.closest('[role=tablist]').getBoundingClientRect();return b.left>=s.left-1&&b.right<=s.right+1;});
+          const reopenedVisible = await visibleInStrip(first.first());
           const footerSettings = await page.locator('footer').getByRole('button', {name:'Agent settings',exact:true}).count();
           await first.first().click();
           const target = first.first().locator('../..').locator('..').getByRole('tabpanel');
           const bounds = await target.boundingBox();
           await page.getByRole('tab', {name:'Second conversation',exact:true}).locator('..').dragTo(target, {targetPosition:{x:bounds.width - 5,y:bounds.height / 2}});
           const splitUsage = await page.locator('.agent-pane-status').allTextContents();
-          value = {firstDraft, restored, firstUsage, secondUsage, branches, below, reading, empty, footerSettings, splitUsage,
+          value = {firstDraft, restored, firstUsage, secondUsage, branches, below, reading, empty, footerSettings, splitUsage, reused, assistantDraft, userDraft, userReading, savedBranch, originalPreserved, zeroTokens, iconButton, openedVisible, reopenedVisible,
             titles: await page.getByRole('tab').allTextContents(), redundantHeading: await page.getByText('Workspace agent', {exact:true}).count()};
           break;
         }

@@ -480,12 +480,74 @@ supervisor exists. A cancelled capture cannot start inference; the ordinary
 terminal status path restores the conversation controls. The bounded blocking
 read may finish in the background, but has no write authority or retained result.
 
+An assistant edit is a new immutable conversation record, not a model request or an amendment to the original. Validate the original answer hash, bind retries to one request ID, and publish the completed record before exposing its turn. Retain original ancestry and prompt, explicitly attribute the answer to the user, record zero inference usage, and inherit no executable or verified-project artifact. A stale hash or reused ID with different content refuses without changing the original.
+
 <storycode:copy id="f-2ce16640df92-start_turn">
 /// `POST /api/docs/:id/agent` — start one agent run on the document.
 ///
 /// Returns `{session_id}` immediately; the run proceeds in the background,
 /// streaming on the run channel. The session id doubles as the turn id and
 /// the `run_id` of its stream.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantBranchRequest {
+    turn: String,
+    source_hash: String,
+    answer: String,
+    request_id: String,
+}
+
+/// Save a human-edited assistant answer as a fresh immutable branch. No model,
+/// workspace edit, executable receipt or verified artifact is inherited.
+pub async fn save_assistant_branch(
+    State(state): State<LocalState>, Path(id): Path<String>, Json(body): Json<AssistantBranchRequest>,
+) -> ApiResult<Json<TurnRecord>> {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+    if !super::resource_saves::hex(&body.request_id, 32) || body.answer.len() > 1024 * 1024 {
+        return Err(ApiError::bad_request("The branch request is invalid or too large. Keep the edited answer and start a fresh branch."));
+    }
+    let source = recorded_turn(&state, &id, &body.turn)?;
+    if source.backend != "python" || source.status == "running" || source.answer.as_ref().is_none_or(|answer| super::workspace_fs::view::hash(answer.as_bytes()) != body.source_hash) {
+        return Err(ApiError::conflict("The recorded assistant message changed or is unavailable. Keep your draft and reopen the branch from history."));
+    }
+    let root = super::agent_context::session_root(&state, &id)?;
+    let subject = super::agent_context::subject(&state, &id)?;
+    let turn_id = format!("edited-{}", body.request_id);
+    let path = root.join("sessions").join(format!("{turn_id}.md"));
+    let mut map = state.agent.turns.lock().unwrap();
+    let turns = map.entry(id).or_default();
+    if let Some(existing) = turns.iter().find(|turn| turn.id == turn_id) {
+        let status = super::acp::record::status(&path, &turn_id);
+        if existing.answer.as_deref() == Some(body.answer.as_str()) && status.as_ref().is_some_and(|status| status["source_turn"] == body.turn && status["source_hash"] == body.source_hash) {
+            return Ok(Json(existing.clone()));
+        }
+        return Err(ApiError::conflict("This branch request already saved different content. Keep the draft and start a fresh branch."));
+    }
+    if std::fs::symlink_metadata(&path).is_ok() { return Err(ApiError::conflict("An earlier branch save has an uncertain recording. Keep the draft and refresh history before retrying.")); }
+    let directory = root.join("sessions");
+    std::fs::create_dir_all(&directory).map_err(|error| ApiError::unprocessable(error.to_string()))?;
+    if std::fs::symlink_metadata(&directory).map_err(|error| ApiError::unprocessable(error.to_string()))?.file_type().is_symlink() {
+        return Err(ApiError::conflict("The session directory is a symlink. Keep your draft and restore a real session directory before saving."));
+    }
+    // Readers see only the complete .md record. Persist without replacing any
+    // existing path, including a dangling symlink or another publisher's file.
+    let pending = tempfile::NamedTempFile::new_in(&directory).map_err(|error| ApiError::unprocessable(error.to_string()))?;
+    let record = HickSessionLog::create_for(pending.path(), Some(&subject)).map_err(|error| ApiError::unprocessable(error.to_string()))?;
+    record.record(SessionEvent::UserTurn { text: &source.prompt, turn: &turn_id, parent: source.parent_id.as_deref(), parent_is_user: source.parent_is_user, provider: "human-edited", model: "Edited answer" });
+    record.record(SessionEvent::Context {kind: "python-runtime", data: &json!({"backend":"python","turn":turn_id,"context":null,"prior_turns":[]})});
+    record.record(SessionEvent::Assistant {prose: &body.answer, action: None, reasoning: None});
+    record.record(SessionEvent::Context {kind: "acp-turn-status", data: &json!({"turn":turn_id,"status":"ok","source_turn":source.id,"source_hash":body.source_hash,"actor":"user","verification":"none","request_id":body.request_id})});
+    record.record(SessionEvent::Usage {turn: Some(0), usage: Usage::default(), cost_usd: Some(0.0)});
+    record.record(SessionEvent::End);
+    record.check().map_err(|error| ApiError::unprocessable(format!("The branch recording was not confirmed: {error}. Keep your draft and inspect history.")))?;
+    drop(record);
+    pending.persist_noclobber(&path).map_err(|error| ApiError::conflict(format!("The branch record was not published: {error}. Keep your draft and refresh history.")))?;
+    let turn = TurnRecord {backend: "python".into(), id: turn_id, parent_id: source.parent_id, parent_is_user: source.parent_is_user, prompt: source.prompt, answer: Some(body.answer), status: "ok".into(), error: None, created_at: now_rfc3339(), provider: "human-edited".into(), model: "Edited answer".into(), usage: Some(Usage::default()),
+        session: path.strip_prefix(state.index.root()).unwrap_or(&path).display().to_string() };
+    turns.push(turn.clone());
+    Ok(Json(turn))
+}
+
 pub async fn start_turn(
     State(state): State<LocalState>,
     Path(id): Path<String>,

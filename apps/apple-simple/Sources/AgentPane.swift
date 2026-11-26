@@ -28,6 +28,21 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     private(set) var reviewBusy = false
     private(set) var reviewError = ""
     private(set) var reviewReadError = ""
+    struct BranchEdit { let turn: String; let user: Bool; let source: String; let request: String }
+    var branchEdit: BranchEdit?
+    var openedTip: String?
+    var conversationKey: String?
+    func sameConversation(_ id: String) -> Bool {
+        guard branchEdit == nil else { return false }
+        let selected = turns.first { $0.id == tip }, requested = turns.first { $0.id == id }
+        return openedTip == id || tip == id || ((selected?.session ?? conversationKey) != nil && (selected?.session ?? conversationKey) == requested?.session)
+    }
+    func working(_ id: String? = nil) -> Bool {
+        if id == nil && branchEdit != nil { return sending }
+        if id == nil && sending { return true }
+        let selected = turns.first { $0.id == (id ?? tip) }
+        return turns.contains { $0.status == "running" && ($0.id == selected?.id || selected?.session != nil && $0.session == selected?.session) && !(reviewTurn == $0.id && !pendingReviews.isEmpty) }
+    }
     var turns: [AgentTurn] = []
     struct Selection { let id: String?; var userFork: Bool? = nil }
     var selection: Selection?
@@ -88,7 +103,7 @@ struct NativePendingAgentReview: Decodable, Identifiable {
         case "tool_finished":
             if let index = value.tools.lastIndex(where: { $0.name == message.event.name && $0.ok == nil }) {
                 value.tools[index].ok = message.event.ok
-                value.tools[index].result = message.event.text.map { String($0.prefix(4000)) }
+                value.tools[index].result = message.event.text.map { String($0.prefix(262144)) }
             }
             value.phase = "Preparing the next step…"
         default: return
@@ -172,6 +187,7 @@ struct NativePendingAgentReview: Decodable, Identifiable {
                 guard !Task.isCancelled, current() else { return }
                 if mutation == self.mutation && !sending {
                     turns = history.turns
+                    if branchEdit == nil, let key = turns.first(where: { $0.id == tip })?.session { conversationKey = key }
                     historyLoaded = true
                     messageForks = history.message_forks == true
                     historyError = ""
@@ -269,7 +285,8 @@ struct NativeAgentHistoryPane: View {
         }
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Button("New conversation") { open(nil) }
+                Button { open(nil) } label: { Image(systemName: "square.and.pencil").frame(width: 26, height: 22) }
+                    .buttonStyle(.bordered).accessibilityLabel("New conversation").help("New conversation")
                 if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
                 if session.turns.isEmpty && session.historyError.isEmpty {
                     Text(session.historyLoaded ? "No conversations yet." : "Loading conversations…").foregroundStyle(.secondary)
@@ -286,12 +303,12 @@ struct NativeAgentHistoryPane: View {
             let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title
             let descendants = children[turn.id] ?? []
             if descendants.isEmpty {
-                Button(label) { open(turn.id) }.buttonStyle(.plain)
+                Button { open(turn.id) } label: { Label(label, systemImage: session.working(turn.id) ? "arrow.triangle.2.circlepath" : "bubble.left") }.buttonStyle(.plain)
             } else {
                 DisclosureGroup {
                     AnyView(rows(descendants, children: children, seen: seen.union([turn.id]))).padding(.leading, 8)
                 } label: {
-                    Button(label) { open(turn.id) }.buttonStyle(.plain)
+                    Button { open(turn.id) } label: { Label(label, systemImage: session.working(turn.id) ? "arrow.triangle.2.circlepath" : "bubble.left") }.buttonStyle(.plain)
                 }
             }
         }
@@ -507,15 +524,42 @@ private func nativeConstructionDigest(_ text: String) -> Bool {
     }
 }
 
+func formattedNativeToolJSON(_ source: String) -> String {
+    guard source.utf8.count <= 262144, (try? JSONSerialization.jsonObject(with: Data(source.utf8), options: .fragmentsAllowed)) != nil else { return source }
+    let chars = Array(source)
+    var output = "", depth = 0, quoted = false, escaped = false
+    func newline() { output += "\n" + String(repeating: "  ", count: max(0, depth)) }
+    for index in chars.indices {
+        let char = chars[index]
+        if quoted { output.append(char); if escaped { escaped = false } else if char == "\\" { escaped = true } else if char == "\"" { quoted = false }; continue }
+        if char.isWhitespace { continue }
+        if char == "\"" { quoted = true; output.append(char) }
+        else if char == "{" || char == "[" {
+            output.append(char)
+            let next = chars.dropFirst(index + 1).first { !$0.isWhitespace }
+            if next != (char == "{" ? "}" : "]") { depth += 1; if depth > 64 { return source }; newline() }
+        } else if char == "}" || char == "]" {
+            let previous = chars.prefix(index).last { !$0.isWhitespace }
+            if previous != (char == "}" ? "{" : "[") { depth -= 1; newline() }
+            output.append(char)
+        } else if char == "," { output.append(char); newline() }
+        else if char == ":" { output += ": " }
+        else { output.append(char) }
+    }
+    return output
+}
+
 struct NativeAgentActivity {
     struct Tool {
         let name: String
         let label: String
+        let input: String?
         var ok: Bool?
         var result: String?
 
         init(name: String, data: String?) {
             self.name = name
+            self.input = data
             let operation: String
             let fields: [String]
             switch name {
@@ -564,7 +608,7 @@ struct NativeAgentStatus: View {
         let known = session.transcript.filter { !$0.userOnly }.compactMap { row in
             row.turn.status == "running" ? session.activity[row.turn.id]?.tokens : row.turn.usage?.tokens
         }
-        return known.isEmpty ? nil : known.reduce(0, +)
+        return known.isEmpty ? (session.transcript.isEmpty && !session.sending ? 0 : nil) : known.reduce(0, +)
     }
     private var models: [String] {
         switch session.provider {
@@ -737,7 +781,8 @@ struct AgentPane: View {
                                         let status = tool.ok.map { $0 ? "Completed" : "Failed" }
                                             ?? (turn.status == "running" ? "Running" : "Outcome unavailable")
                                         DisclosureGroup {
-                                            if let result = tool.result { Text(result).font(.caption.monospaced()).textSelection(.enabled) }
+                                            if let input = tool.input { Text("Input").font(.caption.bold()); Text(formattedNativeToolJSON(input)).font(.caption.monospaced()).textSelection(.enabled) }
+                                            if let result = tool.result { Text("Result").font(.caption.bold()); Text(formattedNativeToolJSON(result)).font(.caption.monospaced()).textSelection(.enabled) }
                                         } label: {
                                             Text(tool.label + " · " + status).lineLimit(1).truncationMode(.middle)
                                         }
@@ -780,7 +825,7 @@ struct AgentPane: View {
                  scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom)
              }
             }
-            if let user = session.selection?.userFork { Text("New branch from \(user ? "user" : "assistant") message. Send to start it.").font(.caption) }
+            if let user = session.selection?.userFork { Text("New branch from \(user ? "user" : "assistant") message. \(session.branchEdit?.user == false ? "Save the edited answer to create it." : "Send to start it.")").font(.caption) }
             if let turn = session.reviewTurn, turn == session.tip {
                 ForEach(session.pendingReviews) { change in
                     Button {
@@ -795,6 +840,7 @@ struct AgentPane: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: 4) {
+                if let edit = session.branchEdit { Text("Edit \(edit.user ? "user" : "assistant") message · The original stays unchanged.").font(.caption) }
                 NativeEditor(buffer: session.draft, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
                 HStack {
                     Spacer()
@@ -804,10 +850,10 @@ struct AgentPane: View {
                         }.accessibilityLabel("Stop").disabled(reason: session.stopPending ? "A stop request is in progress." : nil)
                     } else {
                         Button { Task { await send() } } label: {
-                            Image(systemName: "arrow.up").frame(width: 24, height: 24)
-                        }.accessibilityLabel("Send")
+                            Image(systemName: session.branchEdit?.user == false ? "checkmark" : "arrow.up").frame(width: 24, height: 24)
+                        }.accessibilityLabel(session.branchEdit?.user == false ? "Save assistant branch" : "Send")
                             .keyboardShortcut(.return, modifiers: .shift)
-                            .help("Send (⇧↩)")
+                            .help(session.branchEdit?.user == false ? "Save assistant branch (⇧↩)" : "Send (⇧↩)")
                             .disabled(reason: sendDisabled)
                     }
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
@@ -884,8 +930,8 @@ struct AgentPane: View {
     private var sendDisabled: String? {
         if engine == nil { return "Connect to a workspace server first." }
         if !session.historyLoaded { return "Wait for conversation history to load." }
-        if session.running { return "Wait for the current agent turn to finish." }
-        if session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a message first." }
+        if session.sending || session.branchEdit?.user != false && session.running { return "Wait for the current agent turn to finish." }
+        if session.branchEdit?.user != false && session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a message first." }
         return nil
     }
     private var presentRecordedInspection: ((NativeDebugInspector) -> Void)? {
@@ -912,6 +958,19 @@ struct AgentPane: View {
     }
     private func send() async {
         guard let engine, workspaceCurrent(), sendDisabled == nil else { return }
+        if let edit = session.branchEdit, !edit.user {
+            let text = session.prompt
+            session.sending = true; session.mutation += 1
+            defer { session.sending = false; session.mutation += 1 }
+            do {
+                let turn: AgentTurn = try await engine.request("POST", "/api/docs/workspace/agent/branch", body: ["turn": edit.turn, "source_hash": nativeSourceHash(edit.source), "answer": text, "request_id": edit.request])
+                guard workspaceCurrent() else { return }
+                session.turns.removeAll { $0.id == turn.id }; session.turns.append(turn); session.selection = .init(id: turn.id); session.openedTip = turn.id; session.conversationKey = turn.session
+                if exactUTF8(session.prompt, text) { session.prompt = ""; session.branchEdit = nil }
+                else { session.branchEdit = .init(turn: turn.id, user: false, source: text, request: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()) }
+            } catch { if workspaceCurrent() { session.error = error.localizedDescription + " Your edited answer is retained. Refresh history before retrying." } }
+            return
+        }
         let submitted = session.prompt
         let parent = session.tip, fork = session.selection?.userFork
         if let backend = session.turns.first(where: { $0.id == parent })?.backend, backend != "python" {
@@ -930,7 +989,8 @@ struct AgentPane: View {
             let started = try await engine.send(submitted, parent: parent, provider: session.provider, model: session.model, effort: session.effort, context: context, fork: fork)
             guard workspaceCurrent() else { return }
             session.liveTurn = context == nil ? nil : started.session_id
-            session.selection = .init(id: started.session_id)
+            session.conversationKey = fork == nil ? session.conversationKey ?? session.turns.first(where: { $0.id == parent })?.session : nil
+            session.selection = .init(id: started.session_id); session.openedTip = started.session_id; session.branchEdit = nil
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running", parent_id: parent, parent_is_user: fork))
             session.replayEarlyEvents(for: started.session_id)
             if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {

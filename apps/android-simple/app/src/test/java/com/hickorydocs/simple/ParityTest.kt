@@ -1588,6 +1588,11 @@ class ParityTest {
         val first = workspace.active!!
         val firstSession = workspace.agentSession(first)!!
         firstSession.prompt = "Keep this draft"
+        workspace.openConversation("fork")
+        assertEquals(first, workspace.active)
+        assertEquals(1, workspace.conversations.size)
+        assertTrue(formattedToolJSON("{\"value\":9007199254740993123,\"ok\":true}").contains("\n  \"value\": 9007199254740993123"))
+        assertEquals("plain output", formattedToolJSON("plain output"))
         workspace.openConversation("sibling")
         val second = workspace.active!!
         assertTrue(first != second)

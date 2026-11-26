@@ -55,14 +55,60 @@ data class AgentFenceReading(val turn: String, val side: String, val source: Str
     }
 }
 
-data class AgentTool(val name: String, val ok: Boolean? = null, val result: String? = null)
+data class AgentTool(val name: String, val input: String? = null, val ok: Boolean? = null, val result: String? = null)
 data class AgentActivity(val phase: String = "Starting…", val answer: String? = null, val tools: List<AgentTool> = emptyList(), val tokens: Long = 0)
 
 internal fun liveAgentContext(snapshot: JSONObject): JSONObject =
     snapshot.put("live", true).put("projection", JSONObject()
         .put("version", 1).put("documents", JSONArray()).put("observations", JSONArray()))
 
+internal fun formattedToolJSON(source: String): String {
+    if (source.length > 262144) return source
+    val first = source.trimStart().firstOrNull() ?: return source
+    if (first !in "{[\"-0123456789" && source.trim() !in listOf("true", "false", "null")) return source
+    try { val tokens = org.json.JSONTokener(source); tokens.nextValue(); if (tokens.nextClean() != '\u0000') return source } catch (_: Exception) { return source }
+    val output = StringBuilder(); var depth = 0; var quoted = false; var escaped = false
+    fun newline() { output.append('\n').append("  ".repeat(depth.coerceAtLeast(0))) }
+    source.forEachIndexed { index, char ->
+        if (quoted) { output.append(char); if (escaped) escaped = false else if (char == '\\') escaped = true else if (char == '"') quoted = false }
+        else if (!char.isWhitespace()) when (char) {
+            '"' -> { quoted = true; output.append(char) }
+            '{', '[' -> {
+                output.append(char)
+                var nextIndex = index + 1; while (nextIndex < source.length && source[nextIndex].isWhitespace()) nextIndex++
+                val next = source.getOrNull(nextIndex)
+                if (next != if (char == '{') '}' else ']') { depth++; if (depth > 64) return source; newline() }
+            }
+            '}', ']' -> {
+                var previousIndex = index - 1; while (previousIndex >= 0 && source[previousIndex].isWhitespace()) previousIndex--
+                val previous = source.getOrNull(previousIndex)
+                if (previous != if (char == '}') '{' else '[') { depth--; newline() }
+                output.append(char)
+            }
+            ',' -> { output.append(char); newline() }
+            ':' -> output.append(": ")
+            else -> output.append(char)
+        }
+    }
+    return output.toString()
+}
+
 class AgentSession {
+    data class BranchEdit(val turn: String, val user: Boolean, val source: String, val request: String = java.util.UUID.randomUUID().toString().replace("-", ""))
+    var branchEdit by mutableStateOf<BranchEdit?>(null)
+    var openedTip: String? = null
+    var conversationKey: String? = null
+    fun sameConversation(id: String): Boolean {
+        if (branchEdit != null) return false
+        val selected = turns.firstOrNull { it.id == tip }; val requested = turns.firstOrNull { it.id == id }
+        return openedTip == id || tip == id || (selected?.session ?: conversationKey) != null && (selected?.session ?: conversationKey) == requested?.session
+    }
+    fun working(id: String? = tip): Boolean {
+        if (id == tip && sending) return true
+        val selected = turns.firstOrNull { it.id == id }
+        return turns.any { it.status == "running" && (it.id == id || selected?.session != null && it.session == selected.session) && waitingTurn != it.id }
+    }
+    var waitingTurn by mutableStateOf<String?>(null)
     var totals by mutableStateOf<AgentTotals?>(null)
     val activity = mutableStateMapOf<String, AgentActivity>()
     private val earlyEvents = mutableListOf<JSONObject>()
@@ -86,11 +132,11 @@ class AgentSession {
                 val usage = event.optJSONObject("total_usage") ?: return
                 previous.copy(tokens = listOf("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens").sumOf { usage.optLong(it) })
             }
-            "tool_started" -> previous.copy(phase = name, tools = previous.tools + AgentTool(name))
+            "tool_started" -> previous.copy(phase = name, tools = previous.tools + AgentTool(name, event.optString("data")))
             "tool_finished" -> {
                 val index = previous.tools.indexOfLast { it.name == name && it.ok == null }
                 val tools = previous.tools.toMutableList()
-                if (index >= 0) tools[index] = tools[index].copy(ok = event.optBoolean("ok"), result = event.optString("text").take(4000))
+                if (index >= 0) tools[index] = tools[index].copy(ok = event.optBoolean("ok"), result = event.optString("text").take(262144))
                 previous.copy(phase = "Preparing the next step…", tools = tools)
             }
             else -> return
@@ -248,6 +294,22 @@ acknowledgment. A refusal leaves the draft available for inspection.
 
 <ui:copy id="simple-android-agent-send">
     internal suspend fun send(engine: Engine, current: () -> Boolean = { true }, captureContext: () -> JSONObject) {
+        if (!current() || sending) return
+        val edit = branchEdit
+        if (edit != null && !edit.user) {
+            val text = prompt
+            sending = true; mutation++; error = ""
+            try {
+                val turn = decodedAgentTurn(engine.request("POST", "/api/docs/workspace/agent/branch", JSONObject().put("turn", edit.turn).put("source_hash", debugHash(edit.source)).put("answer", text).put("request_id", edit.request)))
+                if (!current()) return
+                turns = turns.filterNot { it.id == turn.id } + turn; selection = Selection(turn.id); openedTip = turn.id; conversationKey = turn.session
+                if (prompt == text) { prompt = ""; branchEdit = null }
+                else branchEdit = BranchEdit(turn.id, false, text)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (current()) error = "${failure.message} Your edited answer is retained. Refresh history before retrying." }
+            finally { sending = false; mutation++ }
+            return
+        }
         val submitted = prompt
         if (running || submitted.isBlank()) return
         val revision = draft.sourceRevision
@@ -269,7 +331,8 @@ acknowledgment. A refusal leaves the draft available for inspection.
             val id = engine.send(submitted, parent, provider, model, effort, liveAgentContext(captureContext()), fork)
             if (!current()) return
             liveTurn = id
-            selection = Selection(id)
+            conversationKey = if (fork == null) conversationKey ?: turns.firstOrNull { it.id == parent }?.session else null
+            selection = Selection(id); openedTip = id; branchEdit = null
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running", parentID = parent, parentIsUser = fork == true)
             earlyEvents.filter { it.optString("run_id") == id }.forEach(::receive)
             if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
@@ -452,7 +515,7 @@ Expand state is local to the sidebar, never a change to the recorded turns.
     val byId = session.turns.associateBy { it.id }
     val children = session.turns.groupBy { turn -> turn.parentID?.takeIf(byId::containsKey) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
-        TextButton(onClick = { open(null) }) { Text("New conversation") }
+        OutlinedButton(onClick = { open(null) }, modifier = Modifier.semantics { contentDescription = "New conversation" }) { Text("✎") }
         if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
         if (session.turns.isEmpty() && session.historyError.isEmpty())
             Text(if (session.historyLoaded) "No conversations yet." else "Loading conversations…")
@@ -475,6 +538,7 @@ Expand state is local to the sidebar, never a change to the recorded turns.
                 if (descendants.isNotEmpty()) Text(if (expanded) "▾" else "▸",
                     Modifier.clickable { expanded = !expanded }.padding(4.dp)
                         .semantics { contentDescription = if (expanded) "Hide replies" else "Show replies" })
+                Text(if (session.working(turn.id)) "●" else "○", Modifier.semantics { contentDescription = if (session.working(turn.id)) "Working" else "Waiting for input" }.padding(4.dp))
                 Text(if (fork) "Branch from ${if (turn.parentIsUser) "user" else "agent"} · $title" else title,
                     Modifier.weight(1f).clickable { open(turn.id) }.padding(4.dp), maxLines = 2)
             }
@@ -491,6 +555,8 @@ draft, settings and recorded editors remain with that tab while independent
 observers attach durable history and live activity. The server still admits runs;
 a pane's Stop and usage only describe its selected ancestry. Put branch controls
 after the message and settings beneath the composer, so split panes stay clear.
+
+Branch copies are composer drafts, never editable recorded cards. An assistant-answer save creates an immutable human-edited branch with a request ID and original-source hash; it performs no inference. Tool inputs/results retain raw payloads and display formatted JSON on expansion. Conversation reuse and activity indicators are independent of file identity.
 
 <ui:copy id="simple-android-agent-pane">
 @Composable internal fun ObserveSimpleAgent(workspace: Workspace) {
@@ -514,22 +580,26 @@ after the message and settings beneath the composer, so split panes stay clear.
                 if (workspace.engine !== engine) return@LaunchedEffect
                 if (mutation == session.mutation && !session.sending) {
                     session.turns = latest
+                    if (session.branchEdit == null) latest.firstOrNull { it.id == session.tip }?.session?.let { session.conversationKey = it }
                     session.historyLoaded = true
                     session.messageForks = messageForks
                     session.historyError = ""
                     session.totals = totals
                     if (!session.canStop) session.stopPending = false
                     val own = session.liveTurn
-                    if (own != null && latest.any { it.id == own && it.status == "running" }) {
+                    val active = latest.firstOrNull { it.status == "running" }
+                    if (active != null) {
                         val state = engine.request("GET", "/api/docs/workspace/agent/python")
                         val capture = state.optJSONObject("edits")?.opt("captureRequest") as? String
+                        val changes = state.optJSONObject("edits")?.optJSONArray("changes")
+                        session.waitingTurn = active.id.takeIf { state.opt("turn") == active.id && changes != null && (0 until changes.length()).any { changes.optJSONObject(it)?.optString("status") == "pending" } }
                         if (capture != null && state.opt("turn") == own && isActive && workspace.engine === engine &&
                             mutation == session.mutation && own == session.liveTurn) {
                             engine.request("POST", "/api/docs/workspace/agent/python/review",
                                 JSONObject().put("capture_request", capture)
                                     .put("context", liveAgentContext(simpleAgentContext(workspace))))
                         }
-                    } else if (own != null) session.liveTurn = null
+                    } else { session.waitingTurn = null; if (own != null) session.liveTurn = null }
                 }
             }
             catch (cancelled: CancellationException) { throw cancelled }
@@ -541,7 +611,7 @@ after the message and settings beneath the composer, so split panes stay clear.
 
 @Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
     val scope = workspace.viewModelScope
-    val running = session.running
+    val running = if (session.branchEdit?.user == false) session.sending else session.running
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (session.transcript.isEmpty()) item {
@@ -556,7 +626,7 @@ after the message and settings beneath the composer, so split panes stay clear.
                     }
                 }
                 if (session.messageForks && (turn.backend == null || turn.backend == "python"))
-                    TextButton(onClick = { workspace.openConversation(turn.id, true) }) { Text("Branch from user message") }
+                    TextButton(onClick = { workspace.openConversation(turn.id, true, session) }) { Text("Branch from user message") }
                 if (!userOnly) {
                 val activity = session.activity[turn.id]
                 Text(turn.model?.let { "Agent · $it" } ?: "Agent", style = MaterialTheme.typography.labelMedium)
@@ -572,7 +642,10 @@ after the message and settings beneath the composer, so split panes stay clear.
                                 null -> if (turn.status == "running") "Running" else "Outcome unavailable"
                             })
                         }
-                        if (detail) tool.result?.let { SelectionContainer { Text(it, fontSize = 12.sp) } }
+                        if (detail) {
+                            tool.input?.let { Text("Input", fontSize = 11.sp); SelectionContainer { Text(formattedToolJSON(it), fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) } }
+                            tool.result?.let { Text("Result", fontSize = 11.sp); SelectionContainer { Text(formattedToolJSON(it), fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) } }
+                        }
                     }
                 }
                 if (turn.status == "running") Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -586,19 +659,19 @@ after the message and settings beneath the composer, so split panes stay clear.
                     } else AgentProse(answer)
                 }
                 if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
-                    TextButton(onClick = { workspace.openConversation(turn.id, false) }) { Text("Branch from assistant message") }
+                    TextButton(onClick = { workspace.openConversation(turn.id, false, session) }) { Text("Branch from assistant message") }
                 }
             } }
         }
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
-        session.selection?.userFork?.let { Text("New branch from ${if (it) "user" else "assistant"} message. Send to start it.", fontSize = 12.sp) }
+        session.selection?.userFork?.let { Text("New branch from ${if (it) "user" else "assistant"} message. ${if (session.branchEdit?.user == false) "Save the edited answer to create it." else "Send to start it."}", fontSize = 12.sp) }
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(
                 Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Your message · Paste any source excerpts you want the model to read.", style = MaterialTheme.typography.labelMedium)
+                Text(session.branchEdit?.let { "Edit ${if (it.user) "user" else "assistant"} message · The original stays unchanged." } ?: "Your message · Paste any source excerpts you want the model to read.", style = MaterialTheme.typography.labelMedium)
                 LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp).onPreviewKeyEvent { event ->
                     if (event.key == Key.Enter && event.isShiftPressed && !event.isCtrlPressed && !event.isAltPressed && !event.isMetaPressed && session.draft.state.composition == null) {
                         if (event.type == KeyEventType.KeyDown && engine != null && session.draft.state.composition == null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -614,11 +687,11 @@ after the message and settings beneath the composer, so split panes stay clear.
                         Text("■", Modifier.semantics { contentDescription = "Stop" })
                     } }
                 } else {
-                    WithDisabledReason(if (engine == null) "Connect to a workspace server first." else if (running) "Wait for the current agent turn to finish." else if (!(session.prompt.isNotBlank())) "Enter a message first." else null) { available -> FilledIconButton(enabled = available, onClick = {
+                    WithDisabledReason(if (engine == null) "Connect to a workspace server first." else if (running) "Wait for the current agent turn to finish." else if (session.branchEdit?.user != false && !(session.prompt.isNotBlank())) "Enter a message first." else null) { available -> FilledIconButton(enabled = available, onClick = {
                         if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
                             session.send(engine, current = { workspace.engine === engine }) { simpleAgentContext(workspace) }
                         }
-                    }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) } }
+                    }) { Text("↑", Modifier.semantics { contentDescription = if (session.branchEdit?.user == false) "Save assistant branch" else "Send" }, fontSize = 22.sp) } }
                 }
             }
         }
@@ -734,7 +807,7 @@ move the conversation. Changing a selection retains the draft buffer.
         val known = session.transcript.filterNot { it.second }.mapNotNull { (turn, _) ->
             if (turn.status == "running") session.activity[turn.id]?.tokens else turn.tokens
         }
-        Text(if (known.isEmpty()) "Tokens unavailable" else "${java.text.NumberFormat.getIntegerInstance().format(known.sum())} tokens", fontSize = 11.sp, maxLines = 1)
+        Text(if (known.isEmpty() && session.transcript.isEmpty() && !session.sending) "0 tokens" else if (known.isEmpty()) "Tokens unavailable" else "${java.text.NumberFormat.getIntegerInstance().format(known.sum())} tokens", fontSize = 11.sp, maxLines = 1)
     }
 }
 

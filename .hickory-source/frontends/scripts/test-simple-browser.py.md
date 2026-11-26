@@ -1046,7 +1046,12 @@ def conversation_tabs_acceptance(driver, folder):
     assert any("10 tokens" in usage for usage in state["splitUsage"]), state
     assert any("25 tokens" in usage for usage in state["splitUsage"]), state
     assert any("✦" in title for title in state["titles"]), state
-    assert {path.name: path.read_bytes() for path in (folder / "sessions").glob("*.md")} == before
+    assert state["reused"] and state["originalPreserved"] and state["iconButton"], state
+    assert state["assistantDraft"] == "First answer" and state["userDraft"] == "First conversation", state
+    assert "First conversation" not in state["userReading"], state
+    assert state["savedBranch"]["answer"] == "Edited first answer" and state["savedBranch"]["provider"] == "human-edited", state
+    assert "0 tokens" in state["zeroTokens"] and state["openedVisible"] and state["reopenedVisible"], state
+    assert all((folder / "sessions" / name).read_bytes() == data for name, data in before.items())
 
 def agent_acceptance(driver, folder):
     # Hydrate a Python conversation before continuing through the real send route.

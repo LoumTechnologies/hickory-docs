@@ -397,6 +397,7 @@ struct PaneView: View {
                 }
             } else {
                 VStack(spacing: 0) {
+                    ScrollViewReader { tabs in
                     ScrollView(.horizontal) {
                         HStack(spacing: 0) {
                             ForEach(node.tabs, id: \.nativeSourceKey) { tab in
@@ -411,7 +412,7 @@ struct PaneView: View {
                                         .accessibilityAddTraits(exactUTF8(node.active,tab) ? .isSelected : [])
                                     #endif
                                     Button("×") { workspace.close(tab) }.accessibilityLabel("Close \(workspace.label(tab))")
-                                }.padding(.horizontal, 5).frame(height: 28)
+                                }.padding(.horizontal, 5).frame(height: 28).id(tab.nativeSourceKey)
                                     .animation(SimpleMotion.animation(100, reduced: reducedMotion)) {
                                         $0.background(exactUTF8(node.active,tab) ? Color.accentColor.opacity(0.12) : Color.clear)
                                     }
@@ -435,6 +436,10 @@ struct PaneView: View {
                             Color.clear.frame(width: 20, height: 28).contentShape(Rectangle())
                         }
                     }.frame(height: 29).background(.quaternary.opacity(0.4))
+                        .onChange(of: node.active.map(NativeSourceKey.init), initial: true) { _, active in if let active { tabs.scrollTo(active) } }
+                        .onChange(of: node.tabs.map(NativeSourceKey.init)) { _, _ in if let active = node.active { tabs.scrollTo(active.nativeSourceKey) } }
+                        .onChange(of: workspace.tabRevealRequest) { _, _ in if workspace.focused == id, let active = node.active { tabs.scrollTo(active.nativeSourceKey) } }
+                        .onChange(of: node.active.map { workspace.label($0) }) { _, _ in if let active = node.active { tabs.scrollTo(active.nativeSourceKey) } }
                         #if os(macOS)
                         .coordinateSpace(name: "tabs-" + id)
                         .onPreferenceChange(TabFramePreference.self) { tabFrames = $0 }
@@ -454,6 +459,7 @@ struct PaneView: View {
                             workspace.moveTab(tab, to: id); return true
                         }
                         #endif
+                    }
                     Divider()
                     GeometryReader { geometry in
                         content(node.active).frame(width: geometry.size.width, height: geometry.size.height)
@@ -514,7 +520,7 @@ struct PaneView: View {
             NativeAgentHistoryPane(session: workspace.agent) { workspace.openConversation($0) }
         } else if let session = workspace.agentSession(tab) {
             let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
-            AgentPane(engine: workspace.engine, session: session, newConversation: { workspace.openConversation($0, fork: $1) }, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
+            AgentPane(engine: workspace.engine, session: session, newConversation: { workspace.openConversation($0, fork: $1, origin: session) }, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
                 Task { await workspace.agentProposals.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: line) }
             }, openProjectProposals: {
                 Task { await workspace.agentProposals.open(workspace) }

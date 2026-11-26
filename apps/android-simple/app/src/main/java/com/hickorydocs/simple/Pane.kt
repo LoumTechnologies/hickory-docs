@@ -2,6 +2,8 @@ package com.hickorydocs.simple
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
@@ -133,11 +135,13 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                         if (targeted) dropBefore = tab else if (dropBefore == tab) dropBefore = null
                     }
                     val active = node.active == tab
+                    val reveal = remember { BringIntoViewRequester() }
+                    LaunchedEffect(active, node.tabs.size, workspace.tabRevealRequest, workspace.label(tab)) { if (active) { withFrameNanos { }; reveal.bringIntoView() } }
                     val tabTextColor = if (active) palette.onSecondaryContainer else palette.onSurface
                     val tabColor by animateColorAsState(
                         if (active) palette.secondaryContainer else palette.surfaceContainer,
                         animationSpec = tween(SIMPLE_EMPHASIS_MS, easing = SimpleMotionEasing), label = "Tab emphasis")
-                    Row(Modifier.background(tabColor)
+                    Row(Modifier.bringIntoViewRequester(reveal).background(tabColor)
                         .drawWithContent {
                             drawContent()
                             if (node.active == tab) drawRect(activeColor, size = Size(size.width, 2.dp.toPx()))

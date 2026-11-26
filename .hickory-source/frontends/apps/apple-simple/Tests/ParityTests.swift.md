@@ -1571,6 +1571,11 @@ final class ParityTests: XCTestCase {
         let first = workspace.activeTab!
         let firstSession = workspace.agentSession(first)!
         firstSession.prompt = "Keep this draft"
+        workspace.openConversation("fork")
+        XCTAssertEqual(workspace.activeTab, first)
+        XCTAssertEqual(workspace.conversations.count, 1)
+        XCTAssertTrue(formattedNativeToolJSON("{\"value\":9007199254740993123,\"ok\":true}").contains("\n  \"value\": 9007199254740993123"))
+        XCTAssertEqual(formattedNativeToolJSON("plain output"), "plain output")
         workspace.openConversation("sibling")
         let second = workspace.activeTab!
         XCTAssertNotEqual(first, second)
@@ -1578,7 +1583,7 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(firstSession.prompt, "Keep this draft")
         XCTAssertEqual(firstSession.tip, "fork")
         XCTAssertEqual(workspace.agentSession(second)?.tip, "sibling")
-        XCTAssertEqual(workspace.tabIcon(first), "sparkles")
+        XCTAssertEqual(workspace.tabIcon(first), "bubble.left")
         XCTAssertEqual(workspace.tabIcon(nativeSourceTab("agent")), "doc.text")
         XCTAssertNil(NativeTabIdentity(address: first).sourcePath)
         workspace.close(first)

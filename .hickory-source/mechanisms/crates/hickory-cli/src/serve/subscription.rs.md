@@ -33,7 +33,7 @@ pub fn default_model(provider: &str) -> Option<&'static str> {
 pub fn retained_choice(turns: &[TurnRecord]) -> Option<DocSelection> {
     let turn = turns
         .iter()
-        .filter(|t| t.backend == "python")
+        .filter(|t| t.backend == "python" && t.provider != "human-edited")
         .max_by(|a, b| a.created_at.cmp(&b.created_at))?;
     is_subscription(&turn.provider).then(|| DocSelection {
         effort: None,

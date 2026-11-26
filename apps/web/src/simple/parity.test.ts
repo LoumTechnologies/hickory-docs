@@ -23,7 +23,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
-import { Agent, AgentHistory, AgentSession, MarkdownMessage, agentTranscript } from "./Agent";
+import { Agent, AgentHistory, AgentSession, MarkdownMessage, agentTranscript, formattedToolJSON } from "./Agent";
 import { App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
 import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
@@ -1519,6 +1519,59 @@ describe("simple literate subscription agent", () => {
       expect(session.historyLoaded).toBe(false);
     } finally { screen.unmount(); }
   });
+  it("formats expanded tool inputs and results without changing JSON lexemes", () => {
+    const payload = '{"large":9007199254740993123,"items":[1,{"quoted":"a\\\"b"}],"repeat":1,"repeat":2}';
+    const pretty = formattedToolJSON(payload);
+    expect(pretty).toContain('\n  "large": 9007199254740993123');
+    expect(pretty).toContain('"repeat": 1'); expect(pretty).toContain('"repeat": 2');
+    expect(JSON.parse(pretty)).toEqual(JSON.parse(payload));
+    expect(formattedToolJSON('not JSON')).toBe('not JSON');
+    const session = new AgentSession();
+    session.setTurns([{id:'running',parent_id:null,prompt:'Request',answer:null,error:null,status:'running',created_at:'',provider:'',model:'',usage:null}]);
+    session.activity.set('running',{tools:[{name:'read_file',label:'Read file',input:payload,result:'{"ok":true,"paths":["a","b"]}',ok:true}]});
+    const screen = render(createElement(Agent,{session}));
+    try {
+      const calls = screen.container.querySelector('.agent-tool-calls') as HTMLDetailsElement;
+      expect(calls.open).toBe(false);
+      fireEvent.click(calls.querySelector('summary')!);
+      const tool = calls.querySelector('details')!;
+      expect(tool.open).toBe(false); fireEvent.click(tool.querySelector('summary')!);
+      expect(tool.querySelector('pre')?.textContent).toBe(pretty);
+      expect(tool.querySelectorAll('pre')[1].textContent).toContain('\n  "ok": true');
+    } finally { screen.unmount(); }
+  });
+  it("reuses a conversation while its new running turn is waiting for durable session metadata", () => {
+    const session = new AgentSession();
+    const source = {id:'original',parent_id:null,prompt:'Question',answer:'Answer',error:null,status:'ok',created_at:'',provider:'',model:'',usage:null,session:'original.md'};
+    session.setTurns([source,{...source,id:'new',parent_id:'original',status:'running',answer:null,session:undefined}]);
+    session.selection = {id:'new'}; session.openedTip = 'new'; session.conversationKey = 'original.md';
+    expect(session.sameConversation('original')).toBe(true);
+  });
+  it("shows zero tokens for an empty conversation and activity only for its own conversation", () => {
+    const session = new AgentSession(); session.selection = {id:null};
+    const screen = render(createElement(Agent,{session}));
+    try { expect(screen.getByText(/0 tokens/)).toBeTruthy(); } finally { screen.unmount(); }
+    session.setTurns([{id:'one',parent_id:null,prompt:'One',answer:null,error:null,status:'running',created_at:'',provider:'',model:'',usage:null,session:'one.md'}]);
+    expect(session.working).toBe(false);
+    session.selection = {id:'one'}; expect(session.working).toBe(true);
+    session.pendingReviews = {turn:'one',changes:[{id:'review'} as never]}; expect(session.working).toBe(false);
+  });
+  it("saves an edited assistant copy without inference and preserves typing during its save", async () => {
+    const session = new AgentSession(); session.selection = {id:'source',fork:'assistant'};
+    const source = {id:'source',parent_id:null,prompt:'Question',answer:'Original',error:null,status:'ok',created_at:'',provider:'',model:'',usage:null};
+    session.setTurns([source]);
+    session.branchEdit = {turn:'source',side:'assistant',source:'Original',request:'a'.repeat(32)}; session.prompt = 'Revised';
+    let resolve!: (value: unknown) => void;
+    vi.mocked(request).mockImplementationOnce(() => new Promise(done=>{resolve=done;}));
+    const before = vi.mocked(api.agent).mock.calls.length;
+    const pending = session.send();
+    await waitFor(()=>expect(request).toHaveBeenCalledWith('POST','/api/docs/workspace/agent/branch',expect.objectContaining({answer:'Revised',request_id:'a'.repeat(32)})));
+    session.prompt = 'Revised while saving';
+    resolve({...source,id:'edited',answer:'Revised'}); await pending;
+    expect(source.answer).toBe('Original'); expect(session.prompt).toBe('Revised while saving');
+    expect(session.branchEdit).toMatchObject({turn:'edited',side:'assistant',source:'Revised'});
+    expect(session.tip).toBe('edited'); expect(api.agent).toHaveBeenCalledTimes(before);
+  });
   it("opens independent conversation tabs from history and branches below each message", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const row = (id: string, parent_id: string | null, prompt: string, session: string, parent_is_user = false) => ({
@@ -1544,7 +1597,10 @@ describe("simple literate subscription agent", () => {
       const view = EditorView.findFromDOM(draft.closest('.cm-editor') ?? draft)!;
       act(() => view.dispatch({changes: {from: 0, insert: 'Keep my draft'}}));
       const firstTab = screen.getByRole('tab', {name: /Root conversation/});
-      fireEvent.click(history.getByRole('button', {name: 'Original continuation'}));
+      const continuation = history.getByRole('button', {name: 'Original continuation'});
+      act(() => { fireEvent.click(continuation); fireEvent.click(continuation); });
+      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(2);
+      fireEvent.click(history.getByRole('button', {name:'Original continuation'}));
       expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(2);
       expect(screen.getByText('Answer later')).toBeTruthy();
       expect(screen.queryByText('Answer fork')).toBeNull();
@@ -1561,6 +1617,7 @@ describe("simple literate subscription agent", () => {
       expect(screen.getByRole('tab', {name: /New conversation/})).toBeTruthy();
       expect(screen.getByText('What shall we work on?')).toBeTruthy();
       expect(screen.container.textContent).not.toContain('153,000');
+      expect(screen.getByText(/0 tokens/)).toBeTruthy();
       expect(api.agent).toHaveBeenCalledTimes(before);
     } finally {
       screen.unmount();

@@ -206,4 +206,42 @@ Native keyboard, jump-to-latest, geometry and device acceptance remain unverifie
 No paid model, native build, broad regression or post-commit monitor was run.
 The maintainer can inspect later asynchronous checks with `just checks-status`.
 
+## Readable tools and editable branch copies (2026-11-26)
+
+This follow-up supersedes the earlier always-new history selection rule:
+reopening a recorded conversation selects its existing tab and preserves its
+composer. Explicit New conversation and message-branch actions remain distinct
+new drafts. A stable conversation key also covers the interval before a newly
+started turn receives its durable session metadata. A user-message branch puts
+that prompt in the bottom composer at the preceding boundary. An assistant
+branch puts a copy of its answer in that composer; Save assistant branch records
+an immutable, explicitly human-edited answer without inference, leaving the
+original untouched. Typing during the save remains an unsaved assistant draft.
+
+Executed focused checks:
+
+- Browser TypeScript checking passed.
+- `cd apps/web && npx vitest run src/simple/parity.test.ts -t 'formats expanded tool|zero tokens|edited assistant copy|independent conversation tabs|Shift Enter|early conversation draft|waiting for durable session metadata'`: seven selected tests passed. They cover default-collapsed, formatted tool input/result JSON, preservation of large numbers/duplicate keys, literal non-JSON results, zero-token starts, scoped activity, conversation reuse, and immutable branch copies.
+- `python3 scripts/test-simple-browser.py --conversation-tabs-only` passed against the real engine. The flow saves an edited assistant answer with no model, retains original recordings and drafts, prepares a user edit only in the composer, reuses an open conversation, checks a bordered history icon and zero tokens, and verifies active tabs remain visible through overflow and reopening an already-active tab after scrolling its strip away. Split-pane usage remains independent.
+- `python3 scripts/test-simple-browser.py --agent-only` passed for the normal composer, provider controls, Shift+Enter HTTP send, retained drafts and delayed/failed rendering.
+- `HICKORY_AGENT_TEST_PYTHON="$PWD/apps/agent/.venv/bin/python" cargo test --locked -p hickory-cli --test serve_python_agent assistant_branch_saves_an_immutable_idempotent_human_answer` passed. Real HTTP validates source hashes, idempotent retries, conflicting content and dangling-symlink refusal, zero inference usage, unchanged original bytes and restart rehydration. The configured confined worker then replays the edited answer in the assistant role for a follow-up; the replaced answer does not replay. Model transport is scripted and the continuation explicitly selects the non-subscription test transport.
+
+Tool payload formatting preserves raw data and formats original JSON lexemes
+instead of round-tripping numbers through a machine-number representation.
+Session publication uses a complete temporary record and a no-clobber rename;
+a partial or existing path never becomes a successful saved branch.
+
+Apple and Android source/test witnesses were updated but not executed: their
+toolchains remain unavailable here. Their native scrolling, activity imagery,
+formatting and branch-composer behavior still need platform validation. This is
+not a paid-provider acceptance result or a broad regression receipt.
+
+File reuse was inspected without changing it. Normal reopened files select an
+existing tab on all three frontends. Concurrent initial opens of one unloaded
+file into different panes can race to duplicate tabs; that file-loading behavior
+is deliberately unchanged in response to the maintainer's instruction. The
+shared tab-strip reveal change applies to file and conversation activations.
+Post-commit/broad-regression monitoring remains with the maintainer via
+`just checks-status`.
+
 </book:doc>

@@ -23,11 +23,26 @@ the Agent setting opens a floating picker. A manual model ID remains available
 when a subscription catalog omits a model. The Agent pane shows live host
 activity, accepted Markdown and collapsed tool calls. Costs are shown only when
 the engine knows the amount.
-History selections and New conversation open independent conversation tabs.
+New conversation opens an independent tab. History selects the existing tab for that recorded conversation, including its later turns, and allocates a tab only when it is not already open.
 Each tab retains its draft, selected ancestry and settings. Its title is the
 conversation's first prompt, or New conversation before the first prompt, with
 an agent icon; source tabs have file icons. Remove the redundant Agent heading.
 Branch actions sit below their own user or assistant message and open a new tab.
+Copy a user message into the bottom composer at the preceding message boundary;
+sending the edit must not duplicate the original user message. Copy an assistant
+answer into the bottom composer while retaining the read-only original as the
+last message. Save that edited answer as a new human-edited assistant record
+before allowing a user follow-up. Preserve originals and exclude inherited
+execution/verification claims. Saving is idempotent and guarded by the original
+answer hash, and does not call a model. All recorded messages stay immutable.
+Expanded tool input/result payloads display indented JSON by default; preserve
+raw lexemes, plain text and malformed/over-budget data without hidden repairs.
+An empty conversation reports zero tokens. Unknown actual model usage remains
+unknown. The history's New conversation action is a visibly bordered icon button.
+History and tab headers show Working or Waiting for input activity icons.
+Every tab-opening/activation path reveals the selected tab horizontally within
+its own tab strip, including an already-active tab that was scrolled out of view.
+This reveal never scrolls editor content or changes file-deduplication policy.
 Enter inserts a newline; Shift+Enter sends without consuming IME composition.
 Keep recorded messages immutable, with source-bound code and patch tools.
 New response constructions use ordinary Markdown without redundant doc/project
