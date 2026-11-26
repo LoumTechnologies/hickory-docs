@@ -27,7 +27,6 @@ struct WorkspaceView: View {
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{showServerConnection()}])}
     var body: some View {
         let epoch = workspace.sourceNavigationEpoch
-        let observeAgent = workspace.agent.running || workspace.layout.groups().contains { $0.active == "agent" || $0.active == "agent-history" }
         VStack(spacing: 0) {
             #if !os(macOS)
             HStack {
@@ -66,11 +65,9 @@ struct WorkspaceView: View {
                     DevBuildStatus(ui: stamp, engine: workspace.engine)
                         .id(workspace.engine?.origin)
                 }
-                Text(workspace.status).lineLimit(1).help(workspace.status)
+                if workspace.agentSession(workspace.activeTab) == nil { Text(workspace.status).lineLimit(1).help(workspace.status) }
                 Spacer(minLength: 8)
-                if workspace.activeTab == "agent" {
-                    NativeAgentStatus(session: workspace.agent, engine: workspace.engine).id(workspace.engine?.origin)
-                } else if let buffer = workspace.currentBuffer {
+                if workspace.agentSession(workspace.activeTab) == nil, let buffer = workspace.currentBuffer {
                     let position = languagePosition(buffer.text, buffer.selection.location)
                     Text("Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)").fixedSize()
                     if let language = buffer.language { Text(language.completionNotice.isEmpty ? language.status:language.completionNotice).lineLimit(1).frame(maxWidth: 310).help(language.completionNotice.isEmpty ? language.status:language.completionNotice) } else if !buffer.snippets.notice.isEmpty {Text(buffer.snippets.notice).lineLimit(1).frame(maxWidth:310).help(buffer.snippets.notice)}
@@ -112,17 +109,13 @@ struct WorkspaceView: View {
             if phase == .active { Task { await workspace.refreshCurrentSource() } }
         }
         .task{await workspace.editorRecovery.captureLoop(workspace)}
-        .task(id: epoch.uuidString + String(observeAgent)) {
-            guard observeAgent else { return }
-            guard let engine = workspace.engine else {
-                workspace.agent.historyError = "Connect to a workspace server to use the agent."
-                return
+        .background {
+            ForEach(["agent"] + workspace.conversations.keys.sorted(), id: \.self) { address in
+                if let session = workspace.agentSession(address) {
+                    NativeConversationObserver(session: session, engine: workspace.engine, epoch: epoch,
+                        current: { workspace.sourceNavigationEpoch == epoch })
+                }
             }
-            await workspace.agent.observe(engine) { workspace.sourceNavigationEpoch == epoch }
-        }
-        .task(id: epoch.uuidString + String(observeAgent)) {
-            guard observeAgent, let engine = workspace.engine else { return }
-            await workspace.agent.observeActivity(engine) { workspace.sourceNavigationEpoch == epoch }
         }
         .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
@@ -408,6 +401,7 @@ struct PaneView: View {
                         HStack(spacing: 0) {
                             ForEach(node.tabs, id: \.nativeSourceKey) { tab in
                                 HStack(spacing: 0) {
+                                    Image(systemName: workspace.tabIcon(tab)).imageScale(.small).accessibilityHidden(true)
                                     #if os(macOS)
                                     MacTabLabel(tab: tab, label: workspace.label(tab), activate: {
                                         workspace.show(tab, in: id)
@@ -517,10 +511,10 @@ struct PaneView: View {
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agentHistory {
-            NativeAgentHistoryPane(session: workspace.agent) { workspace.showUtility(.agent) }
-        } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agent {
+            NativeAgentHistoryPane(session: workspace.agent) { workspace.openConversation($0) }
+        } else if let session = workspace.agentSession(tab) {
             let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
-            AgentPane(engine: workspace.engine, session: workspace.agent, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
+            AgentPane(engine: workspace.engine, session: session, newConversation: { workspace.openConversation($0, fork: $1) }, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
                 Task { await workspace.agentProposals.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: line) }
             }, openProjectProposals: {
                 Task { await workspace.agentProposals.open(workspace) }
@@ -528,7 +522,7 @@ struct PaneView: View {
                 guard let workspace else { return false }
                 return workspace.sourceNavigationEpoch == epoch && exactUTF8(workspace.sourceRootAddress, root)
                     && exactUTF8(workspace.sourceWorkspaceID, id)
-            }).onAppear{workspace.configureAgentContext()}
+            }).id(ObjectIdentifier(session)).onAppear{workspace.configureAgentContext()}
         } else if let tab, let buffer = workspace.bufferForTab(tab) {
             VStack(spacing: 0) {
                 let session = workspace.engine?.session

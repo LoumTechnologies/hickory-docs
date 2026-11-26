@@ -145,12 +145,13 @@ fn evaluate_project_with_selection(
             .ok_or_else(|| format!("Markdown closure missing {entry}"))?;
         let doc = parse(source).map_err(|e| e.to_string())?;
         let projects = doc.find_tags("project");
-        if projects.len() != 1 {
-            return Err(format!(
-                "{entry} must declare exactly one project or project entry route"
-            ));
+        if projects.len() > 1 {
+            return Err(format!("{entry} must declare at most one project or project entry route"));
         }
-        let Some(target) = projects[0].get_attribute("entry") else {
+        // A bare entry uses the default inventory. It can still construct an
+        // exact transition; there is no need to print an empty project tag.
+        let Some(project) = projects.first() else { break };
+        let Some(target) = project.get_attribute("entry") else {
             break;
         };
         if projects[0]
@@ -413,8 +414,8 @@ fn visit(
         }
     }
     let projects = doc.find_tags("project");
-    if entry && projects.len() != 1 {
-        return Err("entry Markdown must declare exactly one project inventory".into());
+    if entry && projects.len() > 1 {
+        return Err("entry Markdown must declare at most one project inventory".into());
     }
     if !entry && projects.iter().any(|p| p.get_attribute("entry").is_none()) {
         return Err(format!(

@@ -140,6 +140,13 @@ compiler collected. Match its opening in the owning document, then read that
 operation's own predecessor and successor trees. A bare Markdown patch fence
 has no declared identity for this inspection.
 
+A bare Markdown entry has the same default inventory as an empty project
+statement. This lets a conversation explain and reconstruct a transition without
+printing structural boilerplate. Only an explicit statement can add sources,
+exclusions or an entry route. Keep duplicate declarations, missing includes,
+cycles, path checks and operation ordering as errors. Defaulting the inventory
+does not default an ambiguous entry route or execute commands.
+
 <storycode:copy id="f-4957ad4b2f9a-evaluate_project">
 /// Evaluate a Markdown closure from captured input in memory. All source bytes
 /// must be supplied; this function cannot read files or spawn a process.
@@ -200,12 +207,13 @@ fn evaluate_project_with_selection(
             .ok_or_else(|| format!("Markdown closure missing {entry}"))?;
         let doc = parse(source).map_err(|e| e.to_string())?;
         let projects = doc.find_tags("project");
-        if projects.len() != 1 {
-            return Err(format!(
-                "{entry} must declare exactly one project or project entry route"
-            ));
+        if projects.len() > 1 {
+            return Err(format!("{entry} must declare at most one project or project entry route"));
         }
-        let Some(target) = projects[0].get_attribute("entry") else {
+        // A bare entry uses the default inventory. It can still construct an
+        // exact transition; there is no need to print an empty project tag.
+        let Some(project) = projects.first() else { break };
+        let Some(target) = project.get_attribute("entry") else {
             break;
         };
         if projects[0]
@@ -482,8 +490,8 @@ fn visit(
         }
     }
     let projects = doc.find_tags("project");
-    if entry && projects.len() != 1 {
-        return Err("entry Markdown must declare exactly one project inventory".into());
+    if entry && projects.len() > 1 {
+        return Err("entry Markdown must declare at most one project inventory".into());
     }
     if !entry && projects.iter().any(|p| p.get_attribute("entry").is_none()) {
         return Err(format!(

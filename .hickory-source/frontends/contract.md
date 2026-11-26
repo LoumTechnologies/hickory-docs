@@ -16,13 +16,28 @@ preconfigured workspace launches go directly to the requested workspace.
 A readable startup preview stays available while workspace authority loads.
 
 Development launches show the running UI's build commit in the status bar.
-The focused source tab shows its one-based line and column. The focused Agent
-tab shows the provider, model, effort and reported conversation usage. Selecting
+The focused source tab shows its one-based line and column. Each Agent pane
+shows provider, model, effort and reported conversation usage in its own bottom
+status strip, including when several conversations are split on screen. Selecting
 the Agent setting opens a floating picker. A manual model ID remains available
 when a subscription catalog omits a model. The Agent pane shows live host
 activity, accepted Markdown and collapsed tool calls. Costs are shown only when
 the engine knows the amount.
-Its disclosure shows full UI and engine hashes, each build's uncommitted
+History selections and New conversation open independent conversation tabs.
+Each tab retains its draft, selected ancestry and settings. Its title is the
+conversation's first prompt, or New conversation before the first prompt, with
+an agent icon; source tabs have file icons. Remove the redundant Agent heading.
+Branch actions sit below their own user or assistant message and open a new tab.
+Enter inserts a newline; Shift+Enter sends without consuming IME composition.
+Keep recorded messages immutable, with source-bound code and patch tools.
+New response constructions use ordinary Markdown without redundant doc/project
+wrappers. The jump-to-latest control is anchored to its conversation scroll view.
+Usage covers that tab's selected ancestry, including provisional running usage
+once, and must not present workspace totals as conversation totals. Unknown
+usage remains unknown. Workspace services retain their global status surface.
+The server remains authoritative for concurrent run admission and Stop scope.
+
+The build disclosure shows full UI and engine hashes, each build's uncommitted
 state, and the engine source checkout's current hash and working-tree state.
 Latest requires clean matching builds at a clean local checkout HEAD. A
 mismatch, a different checkout revision, unbuilt changes, or missing evidence

@@ -22,6 +22,12 @@ price, even if their model name happens to match a priced API model. The origina
 host tools, stale-edit checks and review gates still surround every action.
 This addition does not resolve the other explanation gaps in this large host.
 
+The trusted host admits Git status only when the workspace review client
+advertises it, using the same dispatch boundary as sealed project proposals.
+This grants no shell, arbitrary path or mutation tool. Private prediction
+sessions retain their separate catalogue and cannot acquire this operation
+through ordinary workspace dispatch.
+
 <storycode:copy id="f-d88916f0dc97-impl-Host-_">
 use super::*;
 
@@ -97,12 +103,12 @@ impl Host<'_> {
         let name = params["name"]
             .as_str()
             .context("Tool name must be a string")?;
-        if name == "propose_workspace_changes" {
+        if matches!(name, "propose_workspace_changes" | "git_status") {
             ensure!(
                 self.review.ui_tools().iter().any(|tool| tool["name"] == name),
-                "This client does not support sealed project proposals"
+                "This client does not advertise this workspace tool"
             );
-            let arguments = params.get("arguments").cloned().context("Proposal arguments are missing")?;
+            let arguments = params.get("arguments").cloned().context("Workspace tool arguments are missing")?;
             ensure!(arguments.is_object(), "Tool arguments must be an object");
             return self.review.ui_call(name, arguments).await;
         }

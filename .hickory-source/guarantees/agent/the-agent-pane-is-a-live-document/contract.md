@@ -21,7 +21,12 @@ The initial thread invites a request. Assistant messages use a quiet reading
 surface, user messages use a compact bubble, and the editable response stays
 anchored at the bottom while scrolling. Reasoning and the final project review
 start collapsed; opening them retains their native document tools. New thread is
-a direct header action and branch navigation lives in Conversation history.
+a direct pane action beside the composer. Conversation history opens an
+independent tab for every selection; message branch actions appear below the
+message they retain. A tab keeps its draft and selected ancestry while another
+conversation runs. Its bottom status strip owns provider, model, effort and
+reported usage for that ancestry. Enter adds a newline; Shift+Enter sends.
+Ordinary response Markdown needs no document wrapper or empty project element.
 
 A successful turn carries its final captured literate construction in a
 **Review project changes** disclosure immediately after its messages. This document presents the successful steps from beginning to

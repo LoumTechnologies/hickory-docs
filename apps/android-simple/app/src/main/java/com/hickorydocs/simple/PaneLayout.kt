@@ -5,9 +5,10 @@ sealed interface SourceTabIdentity {
  data class Source(val path:String):SourceTabIdentity
 }
 private const val SOURCE_TAB_PREFIX="\u0000source:"
-fun sourceTab(path:String):String=if(path in listOf("files","agent","agent-history","terminal")||path.startsWith(SOURCE_TAB_PREFIX))SOURCE_TAB_PREFIX+path else path
+fun sourceTab(path:String):String=if(path in listOf("files","agent","agent-history","terminal")||path.startsWith("\u0000"))SOURCE_TAB_PREFIX+path else path
 fun tabIdentity(address:String):SourceTabIdentity=when {
  address.startsWith(SOURCE_TAB_PREFIX)->SourceTabIdentity.Source(address.removePrefix(SOURCE_TAB_PREFIX))
+ address.startsWith("\u0000agent:")->SourceTabIdentity.Utility("agent")
  address in listOf("files","agent","agent-history","terminal")->SourceTabIdentity.Utility(address)
  else->SourceTabIdentity.Source(address)
 }

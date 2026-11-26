@@ -1525,6 +1525,25 @@ final class ParityTests: XCTestCase {
         session.select(nil)
         XCTAssertTrue(session.transcript.isEmpty)
         XCTAssertEqual(PaneLayout.workspaceDefault().nodes["files-group"]?.tabs, ["files", "agent-history"])
+        let workspace = Workspace()
+        workspace.agent.turns = session.turns
+        workspace.agent.messageForks = true
+        workspace.openConversation("fork")
+        let first = workspace.activeTab!
+        let firstSession = workspace.agentSession(first)!
+        firstSession.prompt = "Keep this draft"
+        workspace.openConversation("sibling")
+        let second = workspace.activeTab!
+        XCTAssertNotEqual(first, second)
+        XCTAssertFalse(workspace.agentSession(second) === firstSession)
+        XCTAssertEqual(firstSession.prompt, "Keep this draft")
+        XCTAssertEqual(firstSession.tip, "fork")
+        XCTAssertEqual(workspace.agentSession(second)?.tip, "sibling")
+        XCTAssertEqual(workspace.tabIcon(first), "sparkles")
+        XCTAssertEqual(workspace.tabIcon(nativeSourceTab("agent")), "doc.text")
+        XCTAssertNil(NativeTabIdentity(address: first).sourcePath)
+        workspace.close(first)
+        XCTAssertTrue(workspace.layout.groups().contains { $0.tabs.containsTab(first) })
     }
 
     func testSharedLayoutScenarios() throws {

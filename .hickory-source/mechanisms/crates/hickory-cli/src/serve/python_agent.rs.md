@@ -446,15 +446,30 @@ review token, never an edit application or verification result. This observation
 does not require a UI window; actual UI actions retain their independent window
 requirement and hosts still need their complete current editor lease to Apply.
 
+The agent can read Git state without gaining a shell or a write operation.
+Reuse the same structured, NUL-delimited status reading as the file review UI;
+this preserves rename paths, index/worktree columns and conflicts. Bind the
+read to this host workspace and reject arguments rather than letting model text
+select another repository. This tool is available without an originating UI
+window. Its receipt describes disk, while changeset_status owns reconstruction
+and the live editor snapshot owns unsaved text; none substitutes for another.
+
 <storycode:copy id="f-89d47ddc390d-impl-crate-python_agent-Review-for-Review">
 #[async_trait::async_trait]
 impl crate::python_agent::Review for Review {
     fn ui_tools(&self) -> Vec<Value> {
         let mut tools=super::agent_proposals::catalogue();
+        tools.push(json!({"name":"git_status","description":"Read the saved workspace's Git branch, upstream, ahead/behind and staged, unstaged, untracked or conflicted paths. This is a disk observation, not Hickory source/output verification or unsaved editor content. Use changeset_status for reconstruction. No mutation.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}));
         if self.ui_window.is_some(){tools.extend(super::ui_actions::catalogue());}
         tools
     }
     async fn ui_call(&mut self, name: &str, arguments: Value) -> anyhow::Result<Value> {
+        if name == "git_status" {
+            anyhow::ensure!(arguments.as_object().is_some_and(|args| args.is_empty()), "git_status accepts an empty argument object; it reads only this workspace.");
+            let value = super::git_ops::changes(State(self.state.clone())).await
+                .map_err(|error| anyhow::anyhow!("{}", error.message()))?.0;
+            return Ok(json!({"content":[{"type":"text","text":serde_json::to_string(&value)?}],"structuredContent":value,"isError":false}));
+        }
         if name=="propose_workspace_changes"{
             let review=super::agent_proposals::from_agent(self.state.clone(),&self.queue.edits,format!("python-agent-turn:{}",self.turn),&arguments).await.map_err(|error|anyhow::anyhow!("{}",error.message()))?.0;
             let summary=super::agent_proposals::summary(&review);

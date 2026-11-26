@@ -470,11 +470,24 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
     private val newestOpen = mutableMapOf<String, Any>()
     val agent = AgentSession()
+    val conversations = mutableStateMapOf<String, AgentSession>()
+    val allAgentSessions get() = listOf(agent) + conversations.values
+    fun agentSession(tab: String?): AgentSession? = if (tab == "agent") agent else tab?.let { conversations[it] }
+    fun openConversation(tip: String? = null, fork: Boolean? = null) {
+        val session = AgentSession()
+        session.turns = agent.turns; session.messageForks = agent.messageForks
+        session.selection = AgentSession.Selection(tip, fork)
+        session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort
+        engine?.let { session.debugger = NativeDebugger(it, workspaceScope, recordedMessages = true) }
+        val tab = "\u0000agent:" + UUID.randomUUID()
+        conversations[tab] = session
+        show(tab)
+    }
     val agentProposals = AgentProposalModel()
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = bufferForTab(active)
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || gitResolution.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true || agent.debugger?.active == true
+    val hasUnsavedChanges get() = allAgentSessions.any { it.prompt.isNotEmpty() || it.running } || resourceChanges.busy || resourceChanges.hasPending || gitResolution.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true || agent.debugger?.active == true
     fun connectFromLaunch(origin: String?, path: String?) {
         if (engine != null || address.isNotEmpty() || origin.isNullOrEmpty()) return
         address = origin
@@ -568,6 +581,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             launchFile = null
             directoryScope=""
             resourceChanges.reset();gitResolution.reset();sourceHistory.close();behaviorReading.close();retainedResourceTabs.clear()
+            conversations.values.forEach { it.debugger?.close(); it.resetHistory() }; conversations.clear()
             agent.resetHistory(); agent.totals = null; agent.activity.clear(); agent.stopPending = false; agent.error = ""; terminal.id = null; terminal.error = ""
             agent.debugger?.close()
             agent.debugger = NativeDebugger(next, workspaceScope, recordedMessages = true)
@@ -836,7 +850,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val source=buffer.text;buffer.debugRevealSource=source;buffer.debugRevealCurrent={valid()&&buffer.text==source}
         buffer.debugReveal=line to ((buffer.debugReveal?.second ?: 0)+1)
     }
-    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); agent.debugger?.close(); super.onCleared() }
+    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); allAgentSessions.forEach { it.debugger?.close() }; super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)
@@ -864,9 +878,17 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         return true
     }
     fun close(tab: String) {
+        agentSession(tab)?.let {
+            if (it.prompt.isNotEmpty() || it.sending || it.canStop) {
+                status = if (it.canStop) "Stop this request or wait for it to finish before closing its tab." else "Send or clear this conversation's draft before closing its tab."
+                it.error = status
+                return
+            }
+        }
         val buffer = bufferForTab(tab)
         if (buffer != null && (buffer.dirty || buffer.saving)) { status = "Unsaved edits retained. Save this document before closing its tab."; return }
         adoptTabLayout(layout.remove(tab))
+        conversations.remove(tab)?.debugger?.close()
     }
     fun split(axis: String) {
         val id = UUID.randomUUID().toString(); layout = layout.split(focused, axis, id); focused = "retained-$id"
@@ -877,9 +899,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val target = groups[(index + 1) % groups.size].id
         adoptTabLayout(layout.move(tab, target), target)
     }
-    fun label(tab: String) = when (tab) {
+    fun label(tab: String): String = agentSession(tab)?.let { session ->
+        "✦ " + (session.transcript.firstOrNull()?.first?.prompt?.trim()?.lineSequence()?.firstOrNull()?.take(80) ?: "New conversation")
+    } ?: when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "agent-history" -> "Agent History"; "terminal" -> "Terminal"
-        else -> (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""
+        else -> "▤ " + (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""
     }
     var savingAll = false
     var fileCommand by mutableStateOf<String?>(null)

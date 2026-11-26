@@ -1,3 +1,4 @@
+import {isAgentTab} from './layout';
 import {authoredSource,authoredOffset,editorOffset} from './SourceText';
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
 import {SourceCoverageProvider,SOURCE_COVERAGE_INSPECTION} from "./SourceCoverage";
@@ -44,7 +45,7 @@ import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
-import { Agent, AgentHistory, AgentHistoryPane, AgentSession, AgentStatus } from "./Agent";
+import { Agent, AgentHistory, AgentHistoryPane, AgentSession, AgentTabTitle } from "./Agent";
 import {AgentProposalReview} from "./AgentProposalView";
 import {prepareRecordedPatch,proposalEditorContext,type ProposalSelection,type ReviewRecordedPatch} from "./AgentProposalAdapter";
 import { sourceTab, tabIdentity, activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -115,9 +116,48 @@ export function App() {
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const overlayWorkspace = () => JSON.stringify([buffers.workspace || workspaceIdentity.current, buffers.workspaceId]);
   const overlayScope = overlayWorkspace();
-  const agent = useMemo(() => new AgentSession(), [overlayScope]);
+  // Learning initial workspace authority attaches capabilities to the existing
+  // composers. Only a confirmed workspace change replaces their sessions.
+  const agentOwner = useRef<{root: string; id: string; session: AgentSession} | null>(null);
+  const agentRoot = buffers.workspace, agentWorkspace = buffers.workspaceId;
+  if (!agentOwner.current || (agentOwner.current.root && agentRoot && agentOwner.current.root !== agentRoot)
+      || (agentOwner.current.id && agentWorkspace && agentOwner.current.id !== agentWorkspace)) {
+    agentOwner.current = {root: agentRoot, id: agentWorkspace, session: new AgentSession()};
+  } else {
+    if (agentRoot) agentOwner.current.root = agentRoot;
+    if (agentWorkspace) agentOwner.current.id = agentWorkspace;
+  }
+  const owner = agentOwner.current, agent = owner.session;
+  const agentCurrent = () => agentOwner.current === owner;
   const overlayCurrent = () => overlayWorkspace() === overlayScope;
-  agent.workspaceCurrent = overlayCurrent;
+  agent.workspaceCurrent = agentCurrent;
+  const conversations = useMemo(() => {
+    const sessions = new Map<string, AgentSession>([['agent', agent]]);
+    // A retained layout address never aliases another conversation after the
+    // workspace authority changes. Reinitialize each route as a separate draft.
+    for (const group of groups(layout)) for (const address of group.tabs) {
+      if (isAgentTab(address) && !sessions.has(address)) {
+        const session = new AgentSession(); session.selection = {id: null}; sessions.set(address, session);
+      }
+    }
+    return sessions;
+  }, [agent]);
+  const [, refreshConversations] = useState(0);
+  for (const session of conversations.values()) {
+    session.workspaceCurrent = agentCurrent;
+    if (session !== agent) session.captureContext = () => agent.captureContext?.()!;
+  }
+  function openConversation(id: string | null = null, fork?: 'user' | 'assistant') {
+    const session = new AgentSession();
+    session.setTurns(agent.turns);
+    session.messageForks = agent.messageForks;
+    session.selection = {id, fork};
+    session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort;
+    const address = '\0agent:' + crypto.randomUUID();
+    conversations.set(address, session);
+    refreshConversations(value => value + 1);
+    openTab(address);
+  }
   const requested = useRef(new Map<string, {path: string}>());
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
@@ -277,7 +317,7 @@ export function App() {
     return () => { attached = false; filesGeneration.current++; acceptStartupFiles.current = null; };
   }, []);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (agent.prompt.length > 0 || agent.busy || buffers.hasUnsavedChanges) event.preventDefault(); };
+    const warn = (event: BeforeUnloadEvent) => { if ([...conversations.values()].some(session => session.prompt.length > 0 || session.running) || buffers.hasUnsavedChanges) event.preventDefault(); };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [buffers, agent, terminal]);
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
@@ -322,7 +362,7 @@ export function App() {
     const owner = panes.find(group => group.tabs.includes(tab));
     const sidebar = (group: typeof currentGroup) => group.tabs.includes("files") || group.tabs.includes("agent-history");
     const fallback = tab === "agent-history" ? panes.find(sidebar) ?? panes[0]
-      : tab === "agent" && sidebar(currentGroup) ? panes.find(group => !sidebar(group)) : undefined;
+      : isAgentTab(tab) && sidebar(currentGroup) ? panes.find(group => !sidebar(group)) : undefined;
     activateTab(owner?.id ?? fallback?.id ?? currentGroup.id, tab);
   }
   useEffect(() => onShowTerminal(({ id }) => {
@@ -476,6 +516,11 @@ export function App() {
     return true;
   }
   function close(tab: string) {
+    const session = conversations.get(tab);
+    if (session && (session.prompt.length || session.busy || session.canStop)) {
+      session.error = session.canStop ? "Stop this request or wait for it to finish before closing its tab." : "Send or clear this conversation's draft before closing its tab.";
+      session.publish(); return;
+    }
     const candidate = bufferForTab(tab);
     if(candidate?.resourceDeleted&&hasActivePlainDebugSession(candidate)){setNotice("Stop the debugger before closing its retained deleted source. Its existing controls remain available here.");return;}
     if (candidate?.saving || candidate?.dirty&&!retainedTabs.copied(candidate)) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
@@ -487,6 +532,7 @@ export function App() {
       if (sourceTab(ticket.path) === tab || activePane?.id === group) requested.current.delete(group);
     }
     setLayout(current => remove(current, tab));
+    if (tab !== 'agent') conversations.delete(tab);
   }
   function retireTabMove(tab: string, target: string) {
     requested.current.delete(target);
@@ -512,12 +558,12 @@ export function App() {
     };
     window.addEventListener("keydown", command); return () => window.removeEventListener("keydown", command);
   }, [buffer, layout, focused, requestedPath, workspaceLookup]);
-  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "agent-history" ? "Agent History" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
+  const label = (tab: string) => tab === "files" ? "Files" : isAgentTab(tab) ? "Conversation" : tab === "agent-history" ? "Agent History" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>;
-    if (tab === "agent-history") return <AgentHistoryPane session={agent} open={() => openTab("agent")} />;
+    if (tab === "agent-history") return <AgentHistoryPane session={agent} open={openConversation} />;
     if (tab === "terminal") return <Terminal session={terminal} />;
-    if (tab === "agent") return <Agent session={agent} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
+    if (isAgentTab(tab)) return <Agent key={tab} session={conversations.get(tab) ?? agent} newConversation={openConversation} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
     const document = bufferForTab(tab);
     return document ? <Document key={document.file.path} buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} /> : null;
   }
@@ -573,7 +619,7 @@ export function App() {
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
     "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
-    "view.files":()=>openTab("files"),"view.toggleFiles":toggleFilesPane,"view.agent":()=>openTab("agent"),"view.agentHistory":()=>openTab("agent-history"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
+    "view.files":()=>openTab("files"),"view.toggleFiles":toggleFilesPane,"view.agent":()=>openConversation(),"view.agentHistory":()=>openTab("agent-history"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
   for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
@@ -593,7 +639,7 @@ export function App() {
   return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={overlayScope}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
-    <AgentHistory session={agent} visible={groups(layout).some(group => group.active === "agent" || group.active === "agent-history")} />
+    {[...conversations].map(([address, session]) => <AgentHistory key={address} session={session} visible={address === 'agent' || groups(layout).some(group => group.active === address)} />)}
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
@@ -604,7 +650,7 @@ export function App() {
     </div></details><details><summary>View</summary><div className="menu">
       {commandMenu("View")}
     </div></details><span className="app-name">Hickory Simple</span></nav>
-    <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} content={content} close={close}
+    <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} title={tab => isAgentTab(tab) ? <AgentTabTitle session={conversations.get(tab) ?? agent} /> : <><span aria-hidden="true">{tabIdentity(tab).kind === "source" ? "▤ " : ""}</span>{label(tab)}</>} content={content} close={close}
       drop={(tab, target, before) => { retireTabMove(tab, target); setLayout(current => move(current, tab, target, before)); setFocused(target); }}
       activate={activateTab}
       dock={(tab, target, edge) => {
@@ -668,7 +714,7 @@ export function App() {
       opened.buffer.setGitComparison(comparison);return true;
     }} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={`git-review:${overlayScope}`} workspace={overlayScope} buffers={buffers} history={changeHistory} alive={overlayCurrent} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{active === "agent" ? <AgentStatus session={agent} /> : <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
+    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{!isAgentTab(active ?? "") && <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
@@ -725,7 +771,7 @@ function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => vo
     : <button title={node.path} onClick={() => open(node)}>{node.name}</button>}</li>)}</ul>;
 }
 interface LayoutProps {
-  node: Layout; collapsedFilesPane: string | null; focused: string; focus: (id: string) => void; label: (tab: string) => string;
+  node: Layout; collapsedFilesPane: string | null; focused: string; focus: (id: string) => void; label: (tab: string) => string; title: (tab: string) => import("react").ReactNode;
   content: (tab: string) => React.ReactNode; close: (tab: string) => void;
   drop: (tab: string, target: string, before?: string) => void; activate: (group: string, tab: string) => void;
   dock: (tab: string, target: string, edge: Edge) => void;
@@ -754,7 +800,7 @@ function LayoutView(props: LayoutProps) {
         onDragLeave={() => setDropBefore(current => current === tab ? null : current)}
         onDragOver={event => { if (event.dataTransfer.types.includes("application/x-hickory-tab")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setDropBefore(tab); } }}
         onDrop={event => { event.preventDefault(); event.stopPropagation(); setDropBefore(null); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id, tab); }}>
-        <button role="tab" aria-selected={tab === node.active} onClick={() => props.activate(node.id, tab)}>{props.label(tab)}</button>
+        <button role="tab" aria-selected={tab === node.active} onClick={() => props.activate(node.id, tab)}>{props.title(tab)}</button>
         <button aria-label={`Close ${props.label(tab)}`} onClick={() => props.close(tab)}>×</button>
       </div>)}
     </div>

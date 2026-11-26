@@ -128,7 +128,8 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 }
 .simple-build-details > span { display: block; }
 footer { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-body { height: 100%; display: flex; flex-direction: column; }
+.agent-body { height: 100%; min-width: 0; display: flex; flex-direction: column; }
+.agent-pane-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 8px; border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); font-size: 11px; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-body form { display: flex; gap: 4px; padding: 6px; border-top: 1px solid GrayText; }

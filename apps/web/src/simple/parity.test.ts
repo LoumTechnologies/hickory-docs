@@ -1519,7 +1519,8 @@ describe("simple literate subscription agent", () => {
       expect(session.historyLoaded).toBe(false);
     } finally { screen.unmount(); }
   });
-  it("reopens a nested branch from Agent History, cuts at the chosen message, then opens an empty conversation without sending", async () => {
+  it("opens independent conversation tabs from history and branches below each message", async () => {
+    // Contract: .hickory-source/frontends/contract.md
     const row = (id: string, parent_id: string | null, prompt: string, session: string, parent_is_user = false) => ({
       id, parent_id, parent_is_user, prompt, session, answer: `Answer ${id}`, error: null, status: "ok", backend: "python",
       created_at: "", provider: "codex-subscription", model: "", usage: null,
@@ -1529,29 +1530,93 @@ describe("simple literate subscription agent", () => {
       row("fork", "root", "Retained follow-up", "fork.md", true)];
     expect(agentTranscript(turns, "fork").map(({ turn, userOnly }) => [turn.id, userOnly])).toEqual([["root", true], ["fork", false]]);
     vi.mocked(api.files).mockResolvedValueOnce({ root: "workspace", tree: [] });
-    vi.mocked(api.agentTurns).mockResolvedValue({ turns, message_forks: true, provider: "", model: "", totals: { usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns, message_forks: true, provider: "", model: "", totals: { usd: null, input: 153000, output: 0, cache_read: 0, cache_write: 0 } });
     const before = vi.mocked(api.agent).mock.calls.length;
     const screen = render(createElement(App));
     try {
       fireEvent.click(await screen.findByRole("tab", { name: "Agent History" }));
-      const branch = await screen.findByRole("button", { name: /Branch from user · Retained follow-up/ });
-      expect(branch.closest("li")?.parentElement?.closest("li")?.textContent).toContain("Root conversation");
-      fireEvent.click(branch);
-      const log = within(await screen.findByRole("log", { name: "Conversation" }));
+      const history = within(screen.getByRole("region", { name: "Agent History" }));
+      fireEvent.click(await history.findByRole("button", { name: /Branch from user · Retained follow-up/ }));
+      let log = within(await screen.findByRole("log", { name: "Conversation" }));
       expect(log.getByText("Answer fork")).toBeTruthy();
       expect(log.queryByText("Answer root")).toBeNull();
-      expect(log.queryByText("Answer later")).toBeNull();
-      fireEvent.click(log.getByRole("button", { name: "Branch from assistant message" }));
+      const draft = screen.container.querySelector<HTMLElement>('[aria-label="conversation/draft.md"]')!;
+      const view = EditorView.findFromDOM(draft.closest('.cm-editor') ?? draft)!;
+      act(() => view.dispatch({changes: {from: 0, insert: 'Keep my draft'}}));
+      const firstTab = screen.getByRole('tab', {name: /Root conversation/});
+      fireEvent.click(history.getByRole('button', {name: 'Original continuation'}));
+      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(2);
+      expect(screen.getByText('Answer later')).toBeTruthy();
+      expect(screen.queryByText('Answer fork')).toBeNull();
+      fireEvent.click(firstTab);
+      expect(screen.getByText('Answer fork')).toBeTruthy();
+      expect(screen.container.textContent).toContain('Keep my draft');
+      log = within(screen.getByRole('log', {name: 'Conversation'}));
+      const branch = log.getByRole('button', {name: 'Branch from assistant message'});
+      expect(branch.compareDocumentPosition(log.getByText('Answer fork')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+      fireEvent.click(branch);
+      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(3);
       expect(screen.getByText(/New branch from assistant message/)).toBeTruthy();
-      fireEvent.click(log.getAllByRole("button", { name: "Branch from user message" }).at(-1)!);
-      expect(log.queryByText("Answer fork")).toBeNull();
-      fireEvent.click(within(screen.getByRole("region", { name: "Agent History" })).getByRole("button", { name: "New conversation" }));
-      expect(log.getByText("What shall we work on?")).toBeTruthy();
+      fireEvent.click(history.getByRole('button', {name: 'New conversation'}));
+      expect(screen.getByRole('tab', {name: /New conversation/})).toBeTruthy();
+      expect(screen.getByText('What shall we work on?')).toBeTruthy();
+      expect(screen.container.textContent).not.toContain('153,000');
       expect(api.agent).toHaveBeenCalledTimes(before);
     } finally {
       screen.unmount();
       vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "", model: "", totals: { usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     }
+  });
+  it("retains an early conversation draft when workspace authority first arrives", async () => {
+    let resolve!: (files: Awaited<ReturnType<typeof api.files>>) => void;
+    vi.mocked(api.files).mockResolvedValueOnce({root:'workspace',tree:[]}).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole('button', {name:'Agent',hidden:true}));
+      const draft = screen.container.querySelector<HTMLElement>('[aria-label="conversation/draft.md"]')!;
+      const view = EditorView.findFromDOM(draft.closest('.cm-editor') ?? draft)!;
+      act(() => view.dispatch({changes:{from:0,insert:'Keep my early draft'}}));
+      fireEvent.click(screen.getByRole('button', {name:'Refresh',hidden:true}));
+      await act(async () => resolve({root:'workspace',root_path:'/confirmed-workspace',workspace_id:'a'.repeat(32),tree:[]}));
+      expect(screen.container.textContent).toContain('Keep my early draft');
+      expect(screen.container.querySelector('[aria-label="conversation/draft.md"]')).toBe(draft);
+    } finally { screen.unmount(); }
+  });
+  it("keeps agent answers readable while the Hickory parser is loading", () => {
+    const status = vi.spyOn(hickParser, 'useHickLangStatus').mockReturnValue('loading');
+    const session = new AgentSession();
+    session.setTurns([{id:'readable',parent_id:null,prompt:'Question',answer:'## Readable answer\n\n- Keep this visible.',status:'ok',error:null,created_at:'',provider:'',model:'',usage:null}]);
+    const screen = render(createElement(Agent, {session}));
+    try {
+      expect(screen.getByRole('heading', {name:'Readable answer'})).toBeTruthy();
+      expect(screen.getByText('Keep this visible.')).toBeTruthy();
+      expect(screen.container.querySelector('.agent-composer .cm-editor')).toBeTruthy();
+    } finally { screen.unmount(); status.mockRestore(); }
+  });
+  it("sends with Shift Enter, leaves Enter as a newline and reports only conversation usage", async () => {
+    const session = new AgentSession();
+    const usage = {input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: 0};
+    session.setTurns([
+      {id:'selected', parent_id:null, prompt:'This conversation', answer:'Answer', status:'ok', error:null, created_at:'', provider:'', model:'', usage},
+      {id:'other', parent_id:null, prompt:'Other conversation', answer:'Elsewhere', status:'ok', error:null, created_at:'', provider:'', model:'', usage:{...usage,input_tokens:153000}},
+    ]);
+    session.selection = {id: 'selected'};
+    session.totals = {input:153007, output:6, cache_read:0, cache_write:0, usd:null};
+    session.prompt = 'Send this';
+    const send = vi.spyOn(session, 'send').mockResolvedValue();
+    const screen = render(createElement(Agent, {session}));
+    try {
+      expect(screen.getByText(/10 tokens/)).toBeTruthy();
+      expect(screen.queryByText(/153/)).toBeNull();
+      const composer = screen.container.querySelector('.agent-composer')!;
+      fireEvent.keyDown(composer, {key:'Enter'});
+      expect(send).not.toHaveBeenCalled();
+      fireEvent.keyDown(composer, {key:'Enter', shiftKey:true, isComposing:true});
+      expect(send).not.toHaveBeenCalled();
+      fireEvent.keyDown(composer, {key:'Enter', shiftKey:true});
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(session.prompt).toBe('Send this');
+    } finally { screen.unmount(); }
   });
   it("sends a message fork exactly once and retains the branch point after a refused send", async () => {
     const session = new AgentSession();

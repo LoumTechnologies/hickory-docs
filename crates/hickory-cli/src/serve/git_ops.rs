@@ -236,6 +236,7 @@ pub async fn changes(State(state): State<LocalState>) -> ApiResult<Json<Value>> 
         let output = git(
             &root,
             &[
+                "--no-optional-locks",
                 "status",
                 "--porcelain=v1",
                 "-z",

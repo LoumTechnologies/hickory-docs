@@ -175,4 +175,35 @@ source trace, native editor friction and the security and quality work it expose
 
 <book:include file="laura-hickory-audit.md" />
 
+## Independent Agent conversations (2026-11-26)
+
+History and branch gestures now open separate conversation tabs in the Simple
+browser, Apple and Android sources. Each tab owns its draft, selected ancestry,
+settings and recorded message buffers; usage and settings sit beneath that
+pane's composer. Source tabs carry file icons and conversation tabs carry agent
+icons. Message branch actions follow their own message. The Apple jump action
+is labelled Latest message and anchored to the conversation scroll view.
+
+Executed focused witnesses on Linux:
+
+- `npm --prefix apps/web run typecheck` passed.
+- `cd apps/web && npx vitest run src/simple/parity.test.ts -t 'independent conversation tabs|Shift Enter|parser is loading|early conversation draft|message fork exactly once'`: five selected tests passed. These include independent drafts/branches, conversation-only usage, IME-safe Shift+Enter readable answers before the parser is ready, and retaining an early draft when workspace authority arrives.
+- `python3 scripts/test-simple-browser.py --conversation-tabs-only` passed against the real host. It opens recorded conversations, retains a multiline draft, places the branch action after its message, docks two conversations into separate panes and checks their distinct reported usage without modifying session files.
+- `HICKORY_AGENT_TEST_PYTHON="$PWD/apps/agent/.venv/bin/python" cargo test --locked -p hickory-cli --test serve_python_agent python_git_status_is_read_only_and_answers_with_bare_markdown` passed. The confined worker rejects repository-selection arguments, reads actual Git branch and literal paths, and leaves source/index bytes unchanged. Only the model transport is scripted.
+- The same real-worker test target with `python_turn_requires_review_streams_receipts_and_rehydrates_its_branch` passed, including its edit-review, continuation and rehydration checks with bare accepted response sources.
+- `cargo test --locked -p hick-lang --test project final_response_uses_dirty_start_and_incorporation_rechecks_destinations` passed. Bare answers and patches reconstruct against dirty starting bytes; a literal-tag collision remains prose; duplicate inventories and stale destinations still refuse.
+- `cargo test --locked -p hickory-cli --lib changeset::tests::` passed all four selected boundary, inventory, fingerprint and executable-mode safety checks.
+
+The browser's `--agent-only` witness passed using a real Shift+Enter keystroke and covers read-only recorded messages,
+provider settings, a retained draft after a refused HTTP send, and delayed or
+failed inline rendering. This run uses an unavailable model rather than a paid
+provider. Native test sources extend the existing
+`testAgentHistoryKeepsTheBranchBoundaryAndSidebar` (Apple) and
+`agentHistoryKeepsTheBranchBoundaryAndSidebar` (Android) witnesses with separate
+sessions, draft retention, route identity and guarded close assertions. They
+were not executed here: Swift and an Android SDK/Gradle installation are absent.
+Native keyboard, jump-to-latest, geometry and device acceptance remain unverified.
+No paid model, native build, broad regression or post-commit monitor was run.
+The maintainer can inspect later asynchronous checks with `just checks-status`.
+
 </book:doc>

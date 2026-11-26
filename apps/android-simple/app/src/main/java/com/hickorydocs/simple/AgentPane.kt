@@ -12,6 +12,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,7 +54,7 @@ class AgentSession {
     val activity = mutableStateMapOf<String, AgentActivity>()
     private val earlyEvents = mutableListOf<JSONObject>()
     var stopPending by mutableStateOf(false)
-    val canStop get() = turns.any { it.status == "running" }
+    val canStop get() = transcript.any { !it.second && it.first.status == "running" }
 
     fun receive(message: JSONObject) {
         val id = message.optString("run_id")
@@ -364,11 +373,11 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     }
     return RecordedConstructionReceipt(document, operation, changes)
 }
-@Composable internal fun AgentHistoryPane(session: AgentSession, open: () -> Unit) {
+@Composable internal fun AgentHistoryPane(session: AgentSession, open: (String?) -> Unit) {
     val byId = session.turns.associateBy { it.id }
     val children = session.turns.groupBy { turn -> turn.parentID?.takeIf(byId::containsKey) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
-        TextButton(onClick = { session.select(null); open() }, enabled = !session.running) { Text("New conversation") }
+        TextButton(onClick = { open(null) }) { Text("New conversation") }
         if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
         if (session.turns.isEmpty() && session.historyError.isEmpty())
             Text(if (session.historyLoaded) "No conversations yet." else "Loading conversations…")
@@ -378,7 +387,7 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
 
 @Composable private fun AgentHistoryRows(
     turns: List<AgentTurn>, children: Map<String?, List<AgentTurn>>, byId: Map<String, AgentTurn>,
-    seen: Set<String>, session: AgentSession, open: () -> Unit
+    seen: Set<String>, session: AgentSession, open: (String?) -> Unit
 ) {
     turns.filterNot { it.id in seen }.forEach { turn ->
         key(turn.id) {
@@ -392,7 +401,7 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                     Modifier.clickable { expanded = !expanded }.padding(4.dp)
                         .semantics { contentDescription = if (expanded) "Hide replies" else "Show replies" })
                 Text(if (fork) "Branch from ${if (turn.parentIsUser) "user" else "agent"} · $title" else title,
-                    Modifier.weight(1f).clickable { session.select(turn.id); open() }.padding(4.dp), maxLines = 2)
+                    Modifier.weight(1f).clickable { open(turn.id) }.padding(4.dp), maxLines = 2)
             }
             if (expanded) Column(Modifier.padding(start = 8.dp)) {
                 AgentHistoryRows(descendants, children, byId, seen + turn.id, session, open)
@@ -402,10 +411,11 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
 }
 @Composable internal fun ObserveSimpleAgent(workspace: Workspace) {
     val engine = workspace.engine
-    val session = workspace.agent
-    val observing = session.running || workspace.layout.groups().any { it.active == "agent" || it.active == "agent-history" }
-    LaunchedEffect(engine, observing) {
-        if (!observing) return@LaunchedEffect
+    workspace.allAgentSessions.forEach { session -> key(session) { ObserveConversation(workspace, engine, session) } }
+}
+
+@Composable private fun ObserveConversation(workspace: Workspace, engine: Engine?, session: AgentSession) {
+    LaunchedEffect(engine, session) {
         if (engine == null) { session.historyError = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
         launch {
             while (isActive && workspace.engine === engine) {
@@ -449,8 +459,6 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     val scope = workspace.viewModelScope
     val running = session.running
     Column(Modifier.fillMaxSize()) {
-        Text("Workspace agent · Hickory Python only", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(12.dp))
-        TextButton(onClick = { session.select(null) }, enabled = !running) { Text("New conversation") }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (session.transcript.isEmpty()) item {
                 Text("What shall we work on?", style = MaterialTheme.typography.titleLarge)
@@ -458,18 +466,16 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
             }
             items(session.transcript, key = { it.first.id }) { (turn, userOnly) -> Column {
                 Text("You", style = MaterialTheme.typography.labelMedium)
-                if (session.messageForks && (turn.backend == null || turn.backend == "python"))
-                    TextButton(onClick = { session.select(turn.id, true) }, enabled = !running) { Text("Branch from user message") }
                 Box(Modifier.fillMaxWidth().padding(start = 24.dp)) {
                     Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                         AgentDocument(session, session.document("${turn.id}-user", turn.prompt), session.fenceReading(turn, false), workspace)
                     }
                 }
+                if (session.messageForks && (turn.backend == null || turn.backend == "python"))
+                    TextButton(onClick = { workspace.openConversation(turn.id, true) }) { Text("Branch from user message") }
                 if (!userOnly) {
                 val activity = session.activity[turn.id]
                 Text(turn.model?.let { "Agent · $it" } ?: "Agent", style = MaterialTheme.typography.labelMedium)
-                if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
-                    TextButton(onClick = { session.select(turn.id, false) }, enabled = !running) { Text("Branch from assistant message") }
                 if (activity != null && activity.tools.isNotEmpty()) {
                     var expanded by remember { mutableStateOf(false) }
                     TextButton(onClick = { expanded = !expanded }) { Text("Tool calls (${activity.tools.size})") }
@@ -491,10 +497,12 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                 }
                 val answer = turn.answer ?: turn.error ?: activity?.answer
                 if (answer != null) {
-                    if (turn.status != "running" && listOf("```", "~~~", "xmlns:").any(answer::contains)) {
+                    if (turn.status != "running" && listOf("```", "~~~", "xmlns:", "<hick").any(answer::contains)) {
                         AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
                     } else AgentProse(answer)
                 }
+                if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
+                    TextButton(onClick = { workspace.openConversation(turn.id, false) }) { Text("Branch from assistant message") }
                 }
             } }
         }
@@ -507,7 +515,14 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text("Your message · Paste any source excerpts you want the model to read.", style = MaterialTheme.typography.labelMedium)
-                LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
+                LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp).onPreviewKeyEvent { event ->
+                    if (event.key == Key.Enter && event.isShiftPressed && !event.isCtrlPressed && !event.isAltPressed && !event.isMetaPressed && session.draft.state.composition == null) {
+                        if (event.type == KeyEventType.KeyDown && engine != null && session.draft.state.composition == null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            session.send(engine, current = { workspace.engine === engine }) { simpleAgentContext(workspace) }
+                        }
+                        true
+                    } else false
+                })
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (session.canStop) {
@@ -522,6 +537,10 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                     }) { Text("↑", Modifier.semantics { contentDescription = "Send" }, fontSize = 22.sp) } }
                 }
             }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            AgentStatus(session, engine, Modifier.weight(1f))
+            TextButton(onClick = { workspace.openConversation() }) { Text("New conversation") }
         }
     }
 }
@@ -619,12 +638,10 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                 }
             }
         }
-        val totals = session.totals
-        val tokens = (totals?.tokens ?: 0L) + session.turns.filter { it.status == "running" }.sumOf { session.activity[it.id]?.tokens ?: 0L }
-        Text(if (tokens == 0L) "Tokens unavailable" else "${java.text.NumberFormat.getIntegerInstance().format(tokens)} tokens", fontSize = 11.sp, maxLines = 1)
-        if (tokens > 0) Text(
-            totals?.usd?.takeUnless { session.running }?.let { java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US).apply { minimumFractionDigits = 4; maximumFractionDigits = 4 }.format(it) } ?: "Cost unavailable",
-            fontSize = 11.sp, maxLines = 1)
+        val known = session.transcript.filterNot { it.second }.mapNotNull { (turn, _) ->
+            if (turn.status == "running") session.activity[turn.id]?.tokens else turn.tokens
+        }
+        Text(if (known.isEmpty()) "Tokens unavailable" else "${java.text.NumberFormat.getIntegerInstance().format(known.sum())} tokens", fontSize = 11.sp, maxLines = 1)
     }
 }
 

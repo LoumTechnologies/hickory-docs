@@ -33,6 +33,12 @@ Related contracts: [Check the agent's transition separately from maintained-sour
 <a id="f-bf6f560e06c6-transition_response"></a>
 ### `transition_response`
 
+A final answer is readable Markdown, even when no files changed. Build the
+same exact transition without a document wrapper or an empty project element.
+When the explanation contains literal Hickory tags, select a different prefix
+through frontmatter so those examples remain text. Keep the real patch and the
+full reconstruction comparison: removing display clutter grants no write authority.
+
 <storycode:copy id="f-bf6f560e06c6-transition_response">
 use super::{EntryKind, ProjectDifference, ProjectTree, evaluate_project};
 use std::collections::{BTreeMap, BTreeSet};
@@ -60,9 +66,12 @@ pub fn transition_response(
     } else {
         format!("\n<{prefix}:patch id=\"completed\">\n{diff}</{prefix}:patch>\n")
     };
-    let response = format!(
-        "<{prefix}:doc xmlns:{prefix}=\"http://www.hickorydocs.com/1.0\">\n{explanation}\n\n<{prefix}:project/>\n{patch}</{prefix}:doc>\n"
-    );
+    // Bare Markdown is a complete document. A collision-safe prefix needs only
+    // frontmatter; neither a root wrapper nor an empty project adds behavior.
+    let declaration = if prefix == "hick" { String::new() } else {
+        format!("---\nprefix: {prefix}\n---\n")
+    };
+    let response = format!("{declaration}{explanation}\n{patch}");
     let mut entry = "response.md".to_owned();
     while before.get(&entry).is_some() || after.get(&entry).is_some() {
         entry.insert(0, '_');
@@ -309,6 +318,12 @@ This is the maintained test fragment from `crates/hick-lang/tests/project.rs`; i
 <a id="f-005c1e9344c7-final_response_uses_dirty_start_and_incorporation_rechecks_destinations"></a>
 ### `final_response_uses_dirty_start_and_incorporation_rechecks_destinations`
 
+The focused witness replays a bare final response against the dirty starting
+tree, including empty and unchanged binary files. A read-only answer contains
+only its Markdown; a literal Hickory example selects a collision-safe prefix.
+Duplicate inventories still refuse. Destination rechecks remain independent of
+this presentation choice and reject stale destination documents and code.
+
 <storycode:copy id="f-005c1e9344c7-final_response_uses_dirty_start_and_incorporation_rechecks_destinations">
 // Guarantee: docs/guarantees/literate-projects/finalization-and-incorporation-check-distinct-equalities.md
 #[test]
@@ -334,6 +349,16 @@ fn final_response_uses_dirty_start_and_incorporation_rechecks_destinations() {
     let response = capture
         .finalize(&completed, "The successful result.")
         .unwrap();
+    assert!(!response.contains(":doc"));
+    assert!(!response.contains(":project"));
+    let unchanged = capture.finalize(&before, "## Repository status\n\n- No files changed.").unwrap();
+    assert!(unchanged.starts_with("## Repository status"));
+    assert!(!unchanged.contains("<hick:"));
+    // Prefix collisions remain literal prose, while the patch still replays.
+    let collision = capture.finalize(&completed, "Example: <hick:file path=\"example\">literal</hick:file>").unwrap();
+    assert!(collision.starts_with("---\nprefix: hick1\n---"));
+    assert!(evaluate_project("response.md", &BTreeMap::from([("response.md".into(), collision)]), &before).unwrap().new.compare(&completed).is_empty());
+    assert!(evaluate_project("response.md", &BTreeMap::from([("response.md".into(), "<hick:project/><hick:project/>".into())]), &before).is_err());
     let replay = evaluate_project(
         "response.md",
         &BTreeMap::from([("response.md".into(), response)]),

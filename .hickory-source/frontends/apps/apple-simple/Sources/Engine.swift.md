@@ -50,6 +50,7 @@ struct AgentTurn: Decodable, Identifiable {
     var parent_is_user: Bool? = nil
     var session: String? = nil
     var backend: String? = nil
+    var usage: NativeAgentEvent.Usage? = nil
 }
 struct AgentTotals: Decodable {
     let subscription: Bool?

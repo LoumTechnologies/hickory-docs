@@ -67,10 +67,12 @@ enum NativeUtilityTab:String,Hashable,Sendable {case files,agent,terminal; case 
 enum NativeTabIdentity:Hashable,Sendable {
     case source(NativeSourceKey)
     case utility(NativeUtilityTab)
+    case conversation(UUID)
     case retained(UUID)
     case unavailable(NativeSourceKey)
     init(address:String){
         if let utility=NativeUtilityTab(rawValue:address){self = .utility(utility)}
+        else if address.hasPrefix("\0agent:"),let id=UUID(uuidString:String(address.dropFirst("\0agent:".count))){self = .conversation(id)}
         else if address.hasPrefix("\0source:") {
             let raw=String(address.dropFirst("\0source:".count))
             if let bytes=Data(base64Encoded:raw),let path=String(data:bytes,encoding:.utf8){self = .source(NativeSourceKey(path))}else{self = .unavailable(NativeSourceKey(address))}
@@ -81,6 +83,7 @@ enum NativeTabIdentity:Hashable,Sendable {
     var address:String {switch self {
         case .source(let key):let path=key.string;return NativeUtilityTab(rawValue:path) != nil || path.hasPrefix("\0") ? "\0source:"+key.bytes.base64EncodedString():path
         case .utility(let utility):return utility.rawValue
+        case .conversation(let id):return "\0agent:"+id.uuidString
         case .retained(let id):return "\0resource:"+id.uuidString
         case .unavailable(let key):return key.string
     }}

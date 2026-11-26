@@ -1581,6 +1581,24 @@ class ParityTest {
         session.select(null)
         assertTrue(session.transcript.isEmpty())
         assertEquals(listOf("files", "agent-history"), PaneLayout.workspaceDefault().nodes["files-group"]?.tabs)
+        val workspace = Workspace()
+        workspace.agent.turns = session.turns
+        workspace.agent.messageForks = true
+        workspace.openConversation("fork")
+        val first = workspace.active!!
+        val firstSession = workspace.agentSession(first)!!
+        firstSession.prompt = "Keep this draft"
+        workspace.openConversation("sibling")
+        val second = workspace.active!!
+        assertTrue(first != second)
+        assertTrue(firstSession !== workspace.agentSession(second))
+        assertEquals("fork", firstSession.tip)
+        assertEquals("Keep this draft", firstSession.prompt)
+        assertEquals("sibling", workspace.agentSession(second)?.tip)
+        assertEquals(SourceTabIdentity.Utility("agent"), tabIdentity(first))
+        assertEquals(SourceTabIdentity.Source("agent"), tabIdentity(sourceTab("agent")))
+        workspace.close(first)
+        assertTrue(workspace.layout.groups().any { first in it.tabs })
     }
 
     @Test fun sharedLayoutScenarios() {

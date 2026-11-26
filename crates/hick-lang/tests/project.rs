@@ -355,6 +355,16 @@ fn final_response_uses_dirty_start_and_incorporation_rechecks_destinations() {
     let response = capture
         .finalize(&completed, "The successful result.")
         .unwrap();
+    assert!(!response.contains(":doc"));
+    assert!(!response.contains(":project"));
+    let unchanged = capture.finalize(&before, "## Repository status\n\n- No files changed.").unwrap();
+    assert!(unchanged.starts_with("## Repository status"));
+    assert!(!unchanged.contains("<hick:"));
+    // Prefix collisions remain literal prose, while the patch still replays.
+    let collision = capture.finalize(&completed, "Example: <hick:file path=\"example\">literal</hick:file>").unwrap();
+    assert!(collision.starts_with("---\nprefix: hick1\n---"));
+    assert!(evaluate_project("response.md", &BTreeMap::from([("response.md".into(), collision)]), &before).unwrap().new.compare(&completed).is_empty());
+    assert!(evaluate_project("response.md", &BTreeMap::from([("response.md".into(), "<hick:project/><hick:project/>".into())]), &before).is_err());
     let replay = evaluate_project(
         "response.md",
         &BTreeMap::from([("response.md".into(), response)]),

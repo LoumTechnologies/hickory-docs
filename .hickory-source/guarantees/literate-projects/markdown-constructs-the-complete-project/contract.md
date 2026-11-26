@@ -14,7 +14,7 @@ witness checks the resulting coupon program rather than accepting a partial tree
 
 ## What must happen
 
-Given an entry document and its explicitly declared Markdown closure, pure generation starts from an empty tree and constructs the current project using only those inputs. Missing sources, missing or cyclic predecessors, conflicting unordered writes, and unresolved runtime inputs fail explicitly. Declared fragments and valid retained recordings may supply bytes; ambient caches and earlier Git revisions may not. Completed New combines the independent contributions; a patch sees only its declared predecessors.
+A bare Markdown entry uses the default project inventory; an explicit project statement can declare sources, exclusions or an entry route. Duplicate declarations still fail. Given an entry document and its explicitly declared Markdown closure, pure generation starts from an empty tree and constructs the current project using only those inputs. Missing sources, missing or cyclic predecessors, conflicting unordered writes, and unresolved runtime inputs fail explicitly. Declared fragments and valid retained recordings may supply bytes; ambient caches and earlier Git revisions may not. Completed New combines the independent contributions; a patch sees only its declared predecessors.
 
 
 ## Limits of the evidence

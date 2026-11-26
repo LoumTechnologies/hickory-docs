@@ -151,6 +151,12 @@ mode affects open editors; the platform retains its own undo transaction.
 
 Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
 
+Only the message composer supplies a submit callback to the native editor.
+AppKit intercepts Shift+Return before ordinary newline handling; UIKit registers
+the same hardware chord. Both defer to marked-text composition and leave Enter
+and editors without a callback on their normal native path. Refresh the callback
+when reattaching a cached editor so a key cannot send through an obsolete pane.
+
 <ui:copy id="simple-native-search-model">
 struct NativeSourceEdit: Equatable, Sendable { var range: NSRange; var text: String }
 struct NativeSearchRequest: Equatable, Sendable {
@@ -757,12 +763,16 @@ struct SimpleWordSelection {
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    var submitMessage: (() -> Void)?
     private let sourceUndoManager=UndoManager()
     override var undoManager:UndoManager? {sourceUndoManager}
     // Intercept only explicitly configured arrow chords. All other editing stays in AppKit.
     private var wordSelection = SimpleWordSelection()
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+        if event.charactersIgnoringModifiers == "\r", modifiers == [.shift], !hasMarkedText(), let submitMessage {
+            submitMessage(); return
+        }
         if event.charactersIgnoringModifiers == "\r", modifiers == [.command, .shift],
            !hasMarkedText(), let link = linkAtCaret?(), openLink?(link) == true { return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function, .shift])
@@ -857,6 +867,7 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    var submitMessage: (() -> Void)?
     private let sourceUndoManager=UndoManager()
     override var undoManager:UndoManager? {sourceUndoManager}
     var snippetActive:(()->Bool)?
@@ -868,6 +879,12 @@ private final class SimpleTextView: UITextView {
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return super.keyCommands }
         var commands = super.keyCommands ?? []
+        if submitMessage != nil {
+            let command = UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(sendMessage))
+            command.discoverabilityTitle = "Send message"
+            command.wantsPriorityOverSystemBehavior = true
+            commands.append(command)
+        }
         if linkAtCaret?() != nil {
             let command = UIKeyCommand(input: "\r", modifierFlags: [.command, .shift], action: #selector(openCaretLink))
             command.discoverabilityTitle = "Open Link"
@@ -889,6 +906,7 @@ private final class SimpleTextView: UITextView {
         }
         return commands
     }
+    @objc private func sendMessage() { guard markedTextRange == nil else { return }; submitMessage?() }
     @objc private func openCaretLink() {
         guard markedTextRange == nil, let link = linkAtCaret?() else { return }
         _ = openLink?(link)
@@ -1865,16 +1883,19 @@ private final class MacEditorHost: NSView {
 struct NativeEditor: NSViewRepresentable {
     let buffer: DocumentBuffer
     var readOnly: Bool? = nil
+    var submitMessage: (() -> Void)? = nil
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
     func makeNSView(context: Context) -> NSView {
         let editor = EditorCache.views[buffer.id] ?? MacEditor(buffer)
         EditorCache.views[buffer.id] = editor
+        editor.text.submitMessage = submitMessage
         return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
         if let editor = EditorCache.views[buffer.id] {
+            editor.text.submitMessage = submitMessage
             if !exactUTF8(editor.text.string,buffer.text) {
                 let viewport = editor.scroll.contentView.bounds.origin
                 let length = buffer.text.utf16.count
@@ -2683,16 +2704,19 @@ private final class MobileEditorHost: UIView {
 struct NativeEditor: UIViewRepresentable {
     let buffer: DocumentBuffer
     var readOnly: Bool? = nil
+    var submitMessage: (() -> Void)? = nil
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
     func makeUIView(context: Context) -> UIView {
         let editor = EditorCache.views[buffer.id] ?? MobileEditor(buffer)
         EditorCache.views[buffer.id] = editor
+        editor.text.submitMessage = submitMessage
         return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
         if let editor = EditorCache.views[buffer.id] {
+            editor.text.submitMessage = submitMessage
             if !exactUTF8(editor.text.accessibilityLabel, buffer.file.path) {
                 editor.text.accessibilityLabel = buffer.file.path
             }

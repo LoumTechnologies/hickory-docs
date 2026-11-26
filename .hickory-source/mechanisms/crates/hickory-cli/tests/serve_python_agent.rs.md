@@ -274,6 +274,13 @@ impl App {
 <a id="f-08f0cd3133cc-python"></a>
 ### `python`
 
+The runtime helper makes an unavailable confined worker explicit. The Git
+witness uses that real worker and HTTP transport with a scripted model. It
+rejects repository-selection arguments, then observes branch and literal paths
+without an originating UI window. Compare source and index bytes afterward;
+the final answer must retain its Markdown without document/project boilerplate.
+This witness does not exercise a paid provider or a native frontend.
+
 <storycode:copy id="f-08f0cd3133cc-python">
 fn python() -> Option<String> {
     let value = std::env::var("HICKORY_AGENT_TEST_PYTHON").ok();
@@ -281,6 +288,40 @@ fn python() -> Option<String> {
         eprintln!("SKIP real Python UI integration: run scripts/check-python-agent.sh");
     }
     value
+}
+
+// Contract: .hickory-source/frontends/contract.md
+#[tokio::test(flavor = "multi_thread")]
+async fn python_git_status_is_read_only_and_answers_with_bare_markdown() {
+    let Some(python) = python() else { return };
+    let app = App::start().await;
+    app.configure(&python).await;
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git").current_dir(&app.root).args(args).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    };
+    git(&["init", "--initial-branch=agent-status"]);
+    git(&["add", "note.md"]);
+    let index = std::fs::read(app.root.join(".git/index")).unwrap();
+    std::fs::write(app.root.join("untracked space.md"), "Untouched source\n").unwrap();
+    let model = Model::new([
+        json!({"tool":"git_status", "arguments":{"path":"../outside"}}),
+        json!({"tool":"git_status", "arguments":{}}),
+        json!({"done":"## Repository status\n\n- Staged note.md.\n- Untracked source remains on disk."}),
+    ]);
+    app.state.agent.set_llm_override(model.clone());
+    let id = app.send("Read Git status without changing files", None).await;
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    let requests = model.requests.lock().unwrap();
+    let observed: String = requests.iter().flatten().map(|message| message.content.as_str()).collect();
+    assert!(observed.contains("git_status accepts an empty argument object"), "Repository-selection arguments must be refused");
+    assert!(observed.contains("agent-status") && observed.contains("untracked space.md"), "The actual Git receipt must reach the model");
+    assert!(!turn["answer"].as_str().unwrap().contains("<hick:doc"));
+    assert!(!turn["answer"].as_str().unwrap().contains("<hick:project"));
+    assert_eq!(std::fs::read(app.root.join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read_to_string(app.root.join("untracked space.md")).unwrap(), "Untouched source\n");
+    assert_eq!(std::fs::read_to_string(app.root.join("note.md")).unwrap(), "Original human input\n");
 }
 
 </storycode:copy>
@@ -571,7 +612,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         assert_eq!(turn["status"], "ok");
         assert_eq!(turn["backend"], "python");
         assert_eq!(turn["provider"], "scripted");
-        assert!(turn["answer"].as_str().unwrap().starts_with("<hick:doc"));
+        assert!(!turn["answer"].as_str().unwrap().contains("<hick:doc"));
         assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
@@ -645,7 +686,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .unwrap()
                 .iter()
                 .any(|m| matches!(&m.role, hickory_agent::Role::Assistant)
-                    && m.content.starts_with("<hick:doc"))
+                    && m.content == turn["answer"].as_str().unwrap())
         );
         assert!(
             requests
@@ -749,7 +790,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         assert!(
             recovered
                 .iter()
-                .all(|t| { t["answer"].as_str().unwrap().starts_with("<hick:doc") })
+                .all(|t| { !t["answer"].as_str().unwrap().contains("<hick:doc") })
         );
     }
 }

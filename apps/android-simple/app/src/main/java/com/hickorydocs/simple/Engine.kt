@@ -28,7 +28,7 @@ data class FileNode(val name: String, val path: String, val dir: Boolean, val ch
 data class StartupSource(val path: String, val content: String, val rootPath: String, val workspaceID: String?)
 data class FileText(val content: String, val hash: String, val saveGuard:String?=null, val saveGuardReason:String?=null)
 data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String, val model: String? = null,
-    val parentID: String? = null, val parentIsUser: Boolean = false, val session: String? = null, val backend: String? = null)
+    val parentID: String? = null, val parentIsUser: Boolean = false, val session: String? = null, val backend: String? = null, val tokens: Long? = null)
 data class AgentTotals(val tokens: Long, val usd: Double?)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
@@ -106,7 +106,7 @@ class Engine(address: String) {
         val result = request("GET", "/api/docs/workspace/agent/turns")
         val turns = result.getJSONArray("turns").objects().map {
             AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"), it.optional("model"),
-                it.optional("parent_id"), it.optBoolean("parent_is_user"), it.optional("session"), it.optional("backend"))
+                it.optional("parent_id"), it.optBoolean("parent_is_user"), it.optional("session"), it.optional("backend"), it.optJSONObject("usage")?.let { usage -> listOf("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens").sumOf { key -> usage.optLong(key) } })
         }
         val totals = result.optJSONObject("totals")?.let {
             AgentTotals(listOf("input", "output", "cache_read", "cache_write").sumOf { key -> it.optLong(key) },

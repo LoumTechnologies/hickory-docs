@@ -328,10 +328,17 @@ struct Review {
 impl crate::python_agent::Review for Review {
     fn ui_tools(&self) -> Vec<Value> {
         let mut tools=super::agent_proposals::catalogue();
+        tools.push(json!({"name":"git_status","description":"Read the saved workspace's Git branch, upstream, ahead/behind and staged, unstaged, untracked or conflicted paths. This is a disk observation, not Hickory source/output verification or unsaved editor content. Use changeset_status for reconstruction. No mutation.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}));
         if self.ui_window.is_some(){tools.extend(super::ui_actions::catalogue());}
         tools
     }
     async fn ui_call(&mut self, name: &str, arguments: Value) -> anyhow::Result<Value> {
+        if name == "git_status" {
+            anyhow::ensure!(arguments.as_object().is_some_and(|args| args.is_empty()), "git_status accepts an empty argument object; it reads only this workspace.");
+            let value = super::git_ops::changes(State(self.state.clone())).await
+                .map_err(|error| anyhow::anyhow!("{}", error.message()))?.0;
+            return Ok(json!({"content":[{"type":"text","text":serde_json::to_string(&value)?}],"structuredContent":value,"isError":false}));
+        }
         if name=="propose_workspace_changes"{
             let review=super::agent_proposals::from_agent(self.state.clone(),&self.queue.edits,format!("python-agent-turn:{}",self.turn),&arguments).await.map_err(|error|anyhow::anyhow!("{}",error.message()))?.0;
             let summary=super::agent_proposals::summary(&review);

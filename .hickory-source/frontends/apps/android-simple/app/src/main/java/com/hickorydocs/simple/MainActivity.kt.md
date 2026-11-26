@@ -151,8 +151,8 @@ class MainActivity : ComponentActivity() {
             if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
                 DevBuildStatus(BuildConfig.DEV_BUILD_STAMP, workspace.engine)
             }
-            if (workspace.active == "agent") AgentStatus(workspace.agent, workspace.engine, Modifier.weight(1f))
-            else Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            if (workspace.agentSession(workspace.active) == null) Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            else Spacer(Modifier.weight(1f))
             Box {
                 Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.widthIn(max = 112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
                 DropdownMenu(expanded=workspace.showAnalysis,onDismissRequest={workspace.showAnalysis=false}) {WorkspaceAnalysisView(workspace)}

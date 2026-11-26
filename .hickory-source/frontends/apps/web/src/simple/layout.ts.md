@@ -12,11 +12,13 @@ A layout contains only identities and proportions. Text, selection and undo do n
 <ui:copy id="simple-f98ffc6999-0">
 // Utility names are legacy layout addresses, never file identities. NUL cannot
 // occur in a workspace path; encode only collisions to preserve ordinary routes.
+export const isAgentTab = (tab: string) => tab === 'agent' || tab.startsWith('\0agent:');
 export type SourceTabIdentity = {kind:'utility';name:'files'|'agent'|'agent-history'|'terminal'} | {kind:'source';key:string};
 const SOURCE_TAB_PREFIX='\0source:';
-export function sourceTab(key:string):string {return ['files','agent','agent-history','terminal'].includes(key)||key.startsWith(SOURCE_TAB_PREFIX)?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
+export function sourceTab(key:string):string {return ['files','agent','agent-history','terminal'].includes(key)||key.startsWith('\0')?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
 export function tabIdentity(address:string):SourceTabIdentity {
  if(address.startsWith(SOURCE_TAB_PREFIX)){try{const key:unknown=JSON.parse(address.slice(SOURCE_TAB_PREFIX.length));if(typeof key==='string'&&sourceTab(key)===address)return {kind:'source',key};}catch{} }
+ if(isAgentTab(address))return {kind:'utility',name:'agent'};
  return address==='files'||address==='agent'||address==='agent-history'||address==='terminal'?{kind:'utility',name:address}:{kind:'source',key:address};
 }
 export type Edge = "left" | "right" | "top" | "bottom";

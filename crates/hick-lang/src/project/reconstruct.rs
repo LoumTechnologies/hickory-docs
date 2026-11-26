@@ -24,9 +24,12 @@ pub fn transition_response(
     } else {
         format!("\n<{prefix}:patch id=\"completed\">\n{diff}</{prefix}:patch>\n")
     };
-    let response = format!(
-        "<{prefix}:doc xmlns:{prefix}=\"http://www.hickorydocs.com/1.0\">\n{explanation}\n\n<{prefix}:project/>\n{patch}</{prefix}:doc>\n"
-    );
+    // Bare Markdown is a complete document. A collision-safe prefix needs only
+    // frontmatter; neither a root wrapper nor an empty project adds behavior.
+    let declaration = if prefix == "hick" { String::new() } else {
+        format!("---\nprefix: {prefix}\n---\n")
+    };
+    let response = format!("{declaration}{explanation}\n{patch}");
     let mut entry = "response.md".to_owned();
     while before.get(&entry).is_some() || after.get(&entry).is_some() {
         entry.insert(0, '_');

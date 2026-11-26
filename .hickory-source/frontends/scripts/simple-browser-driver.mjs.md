@@ -151,7 +151,7 @@ try {
         }
         case "capability-held": value = !!capabilityGates.get(request.name)?.route; break;
         case "workspace-status": value = await page.locator("footer[role=status]").innerText(); break;
-        case "agent-render-status": value = await page.locator(".agent-heading [role=status]").innerText(); break;
+        case "agent-render-status": value = await page.locator(".agent-pane-status span[role=status]").innerText(); break;
         case "capability-release": {
           const gate = capabilityGates.get(request.name);
           if (!gate?.route) throw Error(`No held ${request.name} request`);
@@ -367,7 +367,7 @@ try {
           const target = page.getByRole("tab", { name: request.before, exact: true }).locator("..");
           await source.dragTo(target); break;
         }
-        case "tab-order": value = await page.getByRole("tab", { name: request.path, exact: true }).locator("../..").getByRole("tab").allTextContents(); break;
+        case "tab-order": value = await page.getByRole("tab", { name: request.path, exact: true }).locator("../..").getByRole("tab").evaluateAll(nodes => nodes.map(node => { const copy=node.cloneNode(true); copy.querySelectorAll('[aria-hidden=true]').forEach(icon=>icon.remove()); return copy.textContent; })); break;
         case "append":
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
@@ -1072,7 +1072,7 @@ try {
         case "undo": await editor(request.path).press(process.platform === "darwin" ? "Meta+z" : "Control+z"); break;
         case "close-tab": await menu("File", "Close tab"); break;
         case "alerts": value = await page.getByRole("alert").allTextContents(); break;
-        case "tabs": value = await page.getByRole("tab").allTextContents(); break;
+        case "tabs": value = await page.getByRole("tab").evaluateAll(nodes => nodes.map(node => { const copy = node.cloneNode(true); copy.querySelectorAll('[aria-hidden=true]').forEach(icon => icon.remove()); return copy.textContent; })); break;
         case "terminal": await menu("View", "Terminal"); break;
         case "terminal-draft": await page.locator(".terminal-screen .xterm-helper-textarea").focus(); await page.keyboard.insertText(request.text); break;
         case "terminal-key": await page.locator(".terminal-screen .xterm-helper-textarea").focus(); await page.keyboard.press(request.key); break;
@@ -1135,12 +1135,45 @@ try {
           }) : null;
           break;
         }
+        case "conversation-tabs": {
+          await menu('View', 'Agent History');
+          const history = page.getByRole('region', {name:'Agent History'});
+          await history.getByRole('button', {name:'First conversation',exact:true}).click();
+          const first = page.getByRole('tab', {name:'First conversation',exact:true});
+          const draft = editor('conversation/draft.md');
+          await draft.fill('Keep first'); await draft.press('End'); await draft.press('Enter'); await page.keyboard.insertText('next line');
+          const firstDraft = await draft.locator('.cm-line').allTextContents().then(lines=>lines.join('\n'));
+          const firstUsage = await page.locator('.agent-pane-status').innerText();
+          await history.getByRole('button', {name:'Second conversation',exact:true}).click();
+          await editor('conversation/draft.md').fill('Keep second');
+          const secondUsage = await page.locator('.agent-pane-status').innerText();
+          await first.click();
+          const restored = await editor('conversation/draft.md').locator('.cm-line').allTextContents().then(lines=>lines.join('\n'));
+          const answer = page.getByText('First answer', {exact:true});
+          const branch = page.getByRole('button', {name:'Branch from assistant message',exact:true});
+          const below = await branch.evaluate((node, answer) => !!(node.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_PRECEDING), await answer.elementHandle());
+          await branch.click();
+          const branches = await page.getByRole('tab', {name:'First conversation',exact:true}).count();
+          const reading = await page.getByRole('log', {name:'Conversation'}).innerText();
+          await history.getByRole('button', {name:'New conversation',exact:true}).click();
+          const empty = await page.getByText('What shall we work on?', {exact:true}).isVisible();
+          const footerSettings = await page.locator('footer').getByRole('button', {name:'Agent settings',exact:true}).count();
+          await first.first().click();
+          const target = first.first().locator('../..').locator('..').getByRole('tabpanel');
+          const bounds = await target.boundingBox();
+          await page.getByRole('tab', {name:'Second conversation',exact:true}).locator('..').dragTo(target, {targetPosition:{x:bounds.width - 5,y:bounds.height / 2}});
+          const splitUsage = await page.locator('.agent-pane-status').allTextContents();
+          value = {firstDraft, restored, firstUsage, secondUsage, branches, below, reading, empty, footerSettings, splitUsage,
+            titles: await page.getByRole('tab').allTextContents(), redundantHeading: await page.getByText('Workspace agent', {exact:true}).count()};
+          break;
+        }
         case "agent-documents": {
           const source = editor("source.md");
           await source.press("Home");
           await source.press("ArrowRight");
           const sourcePosition = await page.getByLabel("Editor position", {exact: true}).innerText();
-          await menu("View", "Agent");
+          await menu("View", "Agent History");
+          await page.getByRole('region', {name:'Agent History'}).getByRole('button', {name:'# Previous question',exact:true}).click();
           const draft = editor("conversation/draft.md");
           await draft.fill(request.text);
           const history = editor("conversation/agent-history-user.md");
@@ -1155,7 +1188,7 @@ try {
           const quiet = await page.getByLabel("Editor position", {exact: true}).count() === 0
             && await page.getByLabel("Provider", {exact: true}).count() === 0
             && await page.getByRole("button", {name: "Stop", exact: true}).count() === 0
-            && await page.locator("footer").getByRole("button", {name: "Agent settings", exact: true}).count() === 1;
+            && await page.locator(".agent-pane-status").getByRole("button", {name: "Agent settings", exact: true}).count() === 1;
           await settings.click();
           await dialog.getByLabel("Provider", { exact: true }).selectOption("claude-subscription");
           const model = dialog.getByLabel("Model", { exact: true });
@@ -1168,16 +1201,16 @@ try {
           const closed = await dialog.count() === 0;
           const stable = await draft.evaluate(node => { window.agentDraft = node; return node.isConnected; });
           const sent = page.waitForRequest(req => req.method() === "POST" && req.url().endsWith("/api/docs/workspace/agent"));
-          await page.getByRole("button", { name: "Send", exact: true }).click();
+          await draft.press("Shift+Enter");
           const payload = (await sent).postDataJSON();
           await page.getByRole("alert").filter({ hasText: "not retried" }).waitFor();
           const retained = await draft.locator(".cm-line").allTextContents().then(lines => lines.join("\n"));
-          await menu("View", "Files"); await menu("View", "Agent");
+          await menu("View", "Files"); await page.getByRole('tab', {name:'# Previous question',exact:true}).click();
           value = { readonly, payload, retained, quiet, closed, pickedModel, sourcePosition, stable: stable && await draft.evaluate(node => node === window.agentDraft), history: before };
           break;
         }
-        case "draft": await page.getByRole("textbox", { name: "Message", exact: true }).fill(request.text); break;
-        case "read-draft": value = await page.getByRole("textbox", { name: "Message", exact: true }).inputValue(); break;
+        case "draft": await editor("conversation/draft.md").fill(request.text); break;
+        case "read-draft": value = await editor("conversation/draft.md").locator('.cm-line').allTextContents().then(lines => lines.join('\n')); break;
         case "screenshot": await page.screenshot({ path: request.path }); break;
         case "quit": await browser?.close(); browser = undefined; break;
         default: throw new Error(`Unknown acceptance action: ${request.action}`);

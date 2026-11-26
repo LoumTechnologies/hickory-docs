@@ -382,7 +382,7 @@ struct StartupSourceObservation {
     var retainedResourceEditors:[String:DocumentBuffer]=[:]
     func retainedResourceTab(_ buffer:DocumentBuffer)->String {NativeTabIdentity.retained(buffer.id).address}
     func bufferForTab(_ tab:String)->DocumentBuffer? {
-        switch NativeTabIdentity(address:tab){case .source(let key):return buffers[key.string];case .retained(let id):return retainedResourceEditors.values.first{$0.id==id};case .utility,.unavailable:return nil}
+        switch NativeTabIdentity(address:tab){case .source(let key):return buffers[key.string];case .retained(let id):return retainedResourceEditors.values.first{$0.id==id};case .utility,.conversation,.unavailable:return nil}
     }
     func captureResourceEditors(_ patches:[ResourceEditorPatch],restoring:[String:DocumentBuffer]=[:])->()->Bool {
         let session=generation
@@ -469,6 +469,25 @@ struct StartupSourceObservation {
     private var languageConnection: NativeLanguageConnection?
     private var newestOpen: [String: UUID] = [:]
     let agent = AgentSession()
+    var conversations: [String: AgentSession] = [:]
+    var allAgentSessions: [AgentSession] { [agent] + Array(conversations.values) }
+    func agentSession(_ tab: String?) -> AgentSession? {
+        guard let tab else { return nil }
+        return tab == "agent" ? agent : conversations[tab]
+    }
+    func openConversation(_ tip: String? = nil, fork: Bool? = nil) {
+        let session = AgentSession()
+        session.turns = agent.turns; session.messageForks = agent.messageForks
+        session.selection = .init(id: tip, userFork: fork)
+        session.provider = agent.provider; session.model = agent.model; session.effort = agent.effort
+        session.captureContext = { [weak self] in
+            guard let self else { throw EngineError(message: "Original agent workspace closed.") }
+            return try nativeAgentContext(self)
+        }
+        let address = NativeTabIdentity.conversation(UUID()).address
+        conversations[address] = session
+        show(address)
+    }
     func configureAgentContext(){agent.captureContext={ [weak self] in guard let self else{throw EngineError(message:"Original agent workspace closed.")};return try nativeAgentContext(self)}}
     let terminal = TerminalSession()
     private var generation = UUID()
@@ -476,7 +495,7 @@ struct StartupSourceObservation {
     var activeTab:String? {layout.nodes[focused]?.active}
     var active: String? {activeTab.map{NativeTabIdentity(address:$0).sourcePath ?? $0}}
     var currentBuffer: DocumentBuffer? {activeTab.flatMap{bufferForTab($0)}}
-    var hasUnsavedChanges: Bool { gitResolution.hasPending || gitResolution.hasDraft || resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
+    var hasUnsavedChanges: Bool { gitResolution.hasPending || gitResolution.hasDraft || resourceRestoration.busy || resourceRestoration.hasPending || allAgentSessions.contains { !$0.prompt.isEmpty || $0.running } || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
     private func startRequestedReading(_ path: String?, engine next: Engine,
                                        isCurrent: @escaping () -> Bool) -> Task<Void, Never>? {
         guard let path, !path.isEmpty, engine == nil, buffers.isEmpty else { return nil }
@@ -575,6 +594,7 @@ struct StartupSourceObservation {
             let requestedTabIsCurrent = startupIsCurrent()
             let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.
+            for session in conversations.values { session.resetHistory() }; conversations.removeAll()
             agent.resetHistory(); agent.totals = nil; agent.activity = [:]; agent.stopPending = false; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
@@ -914,7 +934,7 @@ struct StartupSourceObservation {
         showUtility(.terminal); await terminal.open(using: engine)
     }
     func showSource(_ path:String){show(nativeSourceTab(path))}
-    func showUtility(_ utility:NativeUtilityTab){show(utility.rawValue)}
+    func showUtility(_ utility:NativeUtilityTab){if utility == .agent {openConversation()} else {show(utility.rawValue)}}
     func show(_ tab: String, in group: String? = nil) {
         let history = tab == NativeUtilityTab.agentHistory.rawValue
         if tab == NativeUtilityTab.files.rawValue || history { hiddenFilesPane = nil }
@@ -967,6 +987,11 @@ struct StartupSourceObservation {
     }
 
     func close(_ tab: String) {
+        if let session = agentSession(tab), !session.prompt.isEmpty || session.sending || session.canStop {
+            status = session.canStop ? "Stop this request or wait for it to finish before closing its tab." : "Send or clear this conversation's draft before closing its tab."
+            session.error = status
+            return
+        }
         if let buffer = bufferForTab(tab), buffer.saving || buffer.dirty || hasPendingNativeText(buffer) {
             tabClosePrompt = TabClosePrompt(tab: tab, bufferID: buffer.id, revision: buffer.sourceEditIdentity,
                                             name: buffer.file.name, saving: buffer.saving,
@@ -974,6 +999,7 @@ struct StartupSourceObservation {
             return
         }
         removeTab(tab)
+        conversations.removeValue(forKey: tab)
     }
 
     private func closeTarget(_ prompt: TabClosePrompt) -> DocumentBuffer? {
@@ -1043,7 +1069,17 @@ struct StartupSourceObservation {
         let target = groups[(index + 1) % groups.count].id
         moveTab(active, to: target)
     }
+    func tabIcon(_ tab: String) -> String {
+        if agentSession(tab) != nil { return "sparkles" }
+        switch NativeTabIdentity(address: tab).utility {
+        case .files: return "folder"
+        case .agentHistory: return "clock.arrow.circlepath"
+        case .terminal: return "terminal"
+        default: return "doc.text"
+        }
+    }
     func label(_ tab: String) -> String {
+        if let session = agentSession(tab) { return session.title }
         switch NativeTabIdentity(address:tab).utility{case .files:return "Files";case .agent:return "Agent";case .agentHistory:return "Agent History";case .terminal:return "Terminal";case nil:break}
         return (bufferForTab(tab)?.file.name ?? (tab as NSString).lastPathComponent) + (bufferForTab(tab)?.resourceDeleted == true ? " (retained)" : "") + (bufferForTab(tab)?.dirty == true ? " •" : "")
     }

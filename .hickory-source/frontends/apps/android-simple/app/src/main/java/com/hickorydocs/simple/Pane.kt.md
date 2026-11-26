@@ -1497,12 +1497,14 @@ composes both children, so the neighboring editor keeps its native state.
 
 <ui:copy id="simple-0d1e071614-1">
 @Composable private fun PaneContent(workspace: Workspace, tab: String?, group: String) {
+    val conversation = workspace.agentSession(tab)
+    if (conversation != null) { key(conversation) { AgentPane(workspace.engine, conversation, workspace) }; return }
     when (tab) {
         "files" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
             FileRows(workspace.files, workspace)
         }
         "terminal" -> TerminalPane(workspace)
-        "agent-history" -> AgentHistoryPane(workspace.agent) { workspace.show("agent") }
+        "agent-history" -> AgentHistoryPane(workspace.agent) { workspace.openConversation(it) }
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.bufferForTab(tab)?.let { buffer ->

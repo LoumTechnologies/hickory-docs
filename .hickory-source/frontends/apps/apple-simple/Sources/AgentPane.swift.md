@@ -30,6 +30,15 @@ secondary actions until asked for. A branch change or explicit jump scrolls
 to the latest message; activity updates don't take the reader's scroll position.
 Keep Hickory's native recorded editors and their revision-bound action tools.
 
+Each conversation tab retains its own selected ancestry, composer, settings and
+message editors. History and branch actions create another tab rather than
+mutating an existing reading. Background observers continue for retained tabs;
+the workspace server still owns run exclusion. Stop and token counts use only
+the selected ancestry, and recorded usage replaces provisional usage once.
+Keep settings and usage at this pane's bottom, where two split conversations
+can report independently. Branch actions follow their particular message.
+The jump control floats over the scroll view it moves, without a second title.
+
 <ui:copy id="simple-42e0887630-0">
 import SwiftUI
 import Observation
@@ -65,6 +74,7 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     struct Selection { let id: String?; var userFork: Bool? = nil }
     var selection: Selection?
     var tip: String? { if let selection { return selection.id }; return turns.last?.id }
+    var title: String { transcript.first?.turn.prompt.split(whereSeparator: \.isNewline).first.map { String($0.prefix(80)) } ?? "New conversation" }
     var historyLoaded = false
     var messageForks = false
     var historyError = ""
@@ -96,7 +106,7 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     var activity: [String: NativeAgentActivity] = [:]
     @ObservationIgnored private var earlyEvents: [NativeAgentEvent] = []
     var stopPending = false
-    var canStop: Bool { turns.contains { $0.status == "running" } }
+    var canStop: Bool { transcript.contains { !$0.userOnly && $0.turn.status == "running" } }
 
     func receive(_ message: NativeAgentEvent) {
         guard message.exec_id == "agent" else { return }
@@ -297,6 +307,24 @@ state from a second task. Child rows disclose their descendants; choosing a row
 only loads its ancestry and never starts an agent.
 
 <ui:copy id="simple-apple-agent-history">
+struct NativeConversationObserver: View {
+    let session: AgentSession
+    let engine: Engine?
+    let epoch: UUID
+    let current: () -> Bool
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .task(id: epoch) {
+                guard let engine else { session.historyError = "Connect to a workspace server to use the agent."; return }
+                await session.observe(engine, current: current)
+            }
+            .task(id: epoch) {
+                guard let engine else { return }
+                await session.observeActivity(engine, current: current)
+            }
+    }
+}
+
 struct NativeAgentMessagePair: Identifiable {
     let turn: AgentTurn
     let userOnly: Bool
@@ -305,7 +333,7 @@ struct NativeAgentMessagePair: Identifiable {
 
 struct NativeAgentHistoryPane: View {
     var session: AgentSession
-    var open: () -> Void
+    var open: (String?) -> Void
     var body: some View {
         let ids = Set(session.turns.map(\.id))
         let children = Dictionary(grouping: session.turns) { turn in
@@ -313,7 +341,7 @@ struct NativeAgentHistoryPane: View {
         }
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Button("New conversation") { session.select(nil); open() }.disabled(session.running)
+                Button("New conversation") { open(nil) }
                 if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
                 if session.turns.isEmpty && session.historyError.isEmpty {
                     Text(session.historyLoaded ? "No conversations yet." : "Loading conversations…").foregroundStyle(.secondary)
@@ -330,12 +358,12 @@ struct NativeAgentHistoryPane: View {
             let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title
             let descendants = children[turn.id] ?? []
             if descendants.isEmpty {
-                Button(label) { session.select(turn.id); open() }.buttonStyle(.plain)
+                Button(label) { open(turn.id) }.buttonStyle(.plain)
             } else {
                 DisclosureGroup {
                     AnyView(rows(descendants, children: children, seen: seen.union([turn.id]))).padding(.leading, 8)
                 } label: {
-                    Button(label) { session.select(turn.id); open() }.buttonStyle(.plain)
+                    Button(label) { open(turn.id) }.buttonStyle(.plain)
                 }
             }
         }
@@ -607,9 +635,11 @@ struct NativeAgentStatus: View {
     @State private var apiProviders: [APIProvider] = []
     @State private var open = false
     @State private var custom = false
-    private var tokens: Int {
-        let live = session.turns.filter { $0.status == "running" }.reduce(0) { $0 + (session.activity[$1.id]?.tokens ?? 0) }
-        return (session.totals?.tokens ?? 0) + live
+    private var tokens: Int? {
+        let known = session.transcript.filter { !$0.userOnly }.compactMap { row in
+            row.turn.status == "running" ? session.activity[row.turn.id]?.tokens : row.turn.usage?.tokens
+        }
+        return known.isEmpty ? nil : known.reduce(0, +)
     }
     private var models: [String] {
         switch session.provider {
@@ -705,13 +735,8 @@ struct NativeAgentStatus: View {
                      apiProviders = listing.providers
                  }
              }
-        if tokens > 0 {
-            Text("\(tokens.formatted()) tokens").lineLimit(1)
-            if !session.running, let totals = session.totals, totals.subscription != true, let usd = totals.usd {
-                Text(usd.formatted(.currency(code: "USD").precision(.fractionLength(4))))
-            } else {
-                Text("Cost unavailable").lineLimit(1)
-            }
+        if let tokens {
+            Text("\(tokens.formatted()) tokens").lineLimit(1).help("Reported usage for this conversation; unavailable turn usage is excluded")
         } else {
             Text("Tokens unavailable").lineLimit(1)
         }
@@ -741,6 +766,7 @@ private struct NativeAgentProse: View {
 struct AgentPane: View {
     let engine: Engine?
     @Bindable var session: AgentSession
+    var newConversation: ((String?, Bool?) -> Void)? = nil
     var debugger: NativeDebugger? = nil
     var workspaceAddress: String? = nil
     var workspaceID: String? = nil
@@ -760,19 +786,6 @@ struct AgentPane: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { scroll in
-            HStack {
-                Text("Agent").font(.headline)
-                Spacer()
-                if session.tip != nil {
-                    Button { scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom) } label: {
-                        Image(systemName: "arrow.down.to.line")
-                    }.accessibilityLabel("Jump to latest message").help("Jump to latest message")
-                }
-                Button { session.select(nil) } label: {
-                    Image(systemName: "square.and.pencil")
-                }.disabled(session.running).accessibilityLabel("New conversation").help("New conversation")
-            }.buttonStyle(.borderless).padding(.horizontal, 12).padding(.vertical, 8)
-            Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if session.transcript.isEmpty {
@@ -785,19 +798,10 @@ struct AgentPane: View {
                             HStack {
                                 Text("You").font(.caption).foregroundStyle(.secondary)
                                 Spacer()
-                                if session.messageForks && (turn.backend == nil || turn.backend == "python") {
-                                    Menu {
-                                        Button("Branch from user message") { session.select(turn.id, fork: true) }
-                                        if !row.userOnly && turn.answer != nil {
-                                            Button("Branch from assistant message") { session.select(turn.id, fork: false) }
-                                        }
-                                    } label: {
-                                        Image(systemName: "ellipsis.circle")
-                                    }.buttonStyle(.plain).fixedSize().disabled(session.running)
-                                        .accessibilityLabel("Message actions")
-                                }
+
                             }
                             message(session.document("\(turn.id)-user", turn.prompt), turn: turn.id, side: .user).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 12)).padding(.leading, 24)
+                            branchAction(turn, user: true)
                             if !row.userOnly {
                             let activity = session.activity[turn.id]
                             Text(turn.model.map { "Agent · \($0)" } ?? "Agent").font(.caption).foregroundStyle(.secondary)
@@ -827,11 +831,12 @@ struct AgentPane: View {
                                 }.font(.caption).foregroundStyle(.secondary)
                             }
                             if let answer = turn.answer ?? turn.error ?? activity?.answer {
-                                if turn.status != "running" && (answer.contains("```") || answer.contains("~~~") || answer.contains("xmlns:")) {
+                                if turn.status != "running" && (answer.contains("```") || answer.contains("~~~") || answer.contains("xmlns:") || answer.contains("<hick")) {
                                     message(session.document("\(turn.id)-agent", answer), turn: turn.id, side: .assistant)
                                 } else {
                                     NativeAgentProse(text: answer)
                                 }
+                                if turn.answer != nil { branchAction(turn, user: false) }
                             }
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -839,6 +844,13 @@ struct AgentPane: View {
                     Color.clear.frame(height: 1).id(ConversationAnchor.latest).accessibilityHidden(true)
                 }.padding(10)
             }.accessibilityLabel("Conversation")
+             .overlay(alignment: .bottomTrailing) {
+                 if !session.transcript.isEmpty {
+                     Button { scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom) } label: {
+                         Label("Latest message", systemImage: "arrow.down.to.line")
+                     }.accessibilityLabel("Jump to latest message").help("Jump to latest message").padding(8)
+                 }
+             }
              .onChange(of: session.tip, initial: true) { _, _ in
                  scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom)
              }
@@ -858,7 +870,7 @@ struct AgentPane: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: 4) {
-                NativeEditor(buffer: session.draft).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
+                NativeEditor(buffer: session.draft, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
                 HStack {
                     Spacer()
                     if session.canStop {
@@ -869,12 +881,19 @@ struct AgentPane: View {
                         Button { Task { await send() } } label: {
                             Image(systemName: "arrow.up").frame(width: 24, height: 24)
                         }.accessibilityLabel("Send")
-                            .keyboardShortcut(.return, modifiers: .command)
-                            .help("Send (⌘↩)")
+                            .keyboardShortcut(.return, modifiers: .shift)
+                            .help("Send (⇧↩)")
                             .disabled(reason: sendDisabled)
                     }
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+            HStack {
+                NativeAgentStatus(session: session, engine: engine)
+                Spacer()
+                Button { if let newConversation { newConversation(nil, nil) } else { session.select(nil) } } label: {
+                    Image(systemName: "square.and.pencil")
+                }.accessibilityLabel("New conversation").help("New conversation")
+            }.font(.caption).buttonStyle(.borderless).padding(.horizontal, 8).padding(.vertical, 4)
         }
         .sheet(item: $openReview) { proposal in
             VStack(alignment: .leading, spacing: 12) {
@@ -922,6 +941,19 @@ struct AgentPane: View {
         Task {
             if await session.decide(review.change, turn: review.turn, accepted: accepted, engine: engine, current: workspaceCurrent),
                openReview?.id == review.id { openReview = nil }
+        }
+    }
+    @ViewBuilder private func branchAction(_ turn: AgentTurn, user: Bool) -> some View {
+        if session.messageForks && (turn.backend == nil || turn.backend == "python") {
+            HStack {
+                Spacer()
+                Menu {
+                    Button(user ? "Branch from user message" : "Branch from assistant message") {
+                        if let newConversation { newConversation(turn.id, user) } else { session.select(turn.id, fork: user) }
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .buttonStyle(.plain).fixedSize().accessibilityLabel(user ? "User message actions" : "Assistant message actions")
+            }
         }
     }
     private var sendDisabled: String? {

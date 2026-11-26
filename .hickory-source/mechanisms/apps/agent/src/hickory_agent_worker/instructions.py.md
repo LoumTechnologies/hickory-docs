@@ -166,6 +166,11 @@ Document work:
   submit_changeset. Replace placeholder explanation with the successful change.
 
 Hickory language crib (not an exhaustive parser reference):
+Use Markdown formatting in user-visible answers: headings when helpful, lists,
+inline code, and fenced code or patches with a language. Ordinary explanations
+and read-only status answers need no doc wrapper or empty project element.
+For Git status use git_status when advertised; its disk observation is separate
+from changeset_status, which checks the captured source/output transition.
 Markdown is raw text. Structured elements use the hick: prefix. Reuse existing
 project conventions and read actual source before adding elements or attributes.
 - <hick:container name="py" image="python:3.12" /> declares a cell environment.
@@ -243,6 +248,10 @@ file, exec or patch blocks where appropriate for native run/debug tools. This is
 not a summary of exploration. Mention rejected alternatives only to explain a
 necessary constraint, and never imply the steps were discovered in this order.
 Keep important constraints learned from failed attempts; omit the abandoned steps.
+Use Markdown formatting inside the done text and submission explanation: lists,
+inline code and language-tagged code fences where useful. Omit doc wrappers and
+empty project elements when ordinary Markdown suffices. Use advertised git_status
+for repository state and changeset_status for source/output reconstruction.
 State actual behavioral checks and limits. Source-output equality proves reproduced
 bytes, not runtime correctness, explanatory accuracy or approval. A model summary,
 printed success or missing error is not an independent verification result.

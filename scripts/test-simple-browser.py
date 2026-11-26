@@ -941,6 +941,22 @@ def acceptance(driver, folder):
     terminal_acceptance(driver)
     driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
 
+def conversation_tabs_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real host history and browser gestures.
+    before = {path.name: path.read_bytes() for path in (folder / "sessions").glob("*.md")}
+    state = driver.act("conversation-tabs")
+    assert state["firstDraft"] == state["restored"] == "Keep first\nnext line", state
+    assert "10 tokens" in state["firstUsage"] and "25 tokens" not in state["firstUsage"], state
+    assert "25 tokens" in state["secondUsage"] and "10 tokens" not in state["secondUsage"], state
+    assert state["branches"] == 2 and state["below"] and state["empty"], state
+    assert "First answer" in state["reading"] and "Second answer" not in state["reading"], state
+    assert state["footerSettings"] == state["redundantHeading"] == 0, state
+    assert len(state["splitUsage"]) == 2, state
+    assert any("10 tokens" in usage for usage in state["splitUsage"]), state
+    assert any("25 tokens" in usage for usage in state["splitUsage"]), state
+    assert any("✦" in title for title in state["titles"]), state
+    assert {path.name: path.read_bytes() for path in (folder / "sessions").glob("*.md")} == before
+
 def agent_acceptance(driver, folder):
     # Hydrate a Python conversation before continuing through the real send route.
     # The unavailable model keeps this check independent of provider access.
@@ -972,7 +988,7 @@ def agent_acceptance(driver, folder):
     assert draft["source"] == text
     geometry = driver.act("editor-size", path=path)
     driver.act("capability-release", name="stylesheet", fail=True)
-    eventually(lambda: driver.act("agent-render-status"), "Inline rendering unavailable")
+    eventually(lambda: driver.act("agent-render-status").startswith("Inline rendering unavailable"), True)
     assert driver.act("editor-is-retained", path=path)
     assert driver.act("editor-size", path=path) == geometry
     assert driver.act("source-text-state", path=path) == draft
@@ -1328,6 +1344,17 @@ if __name__ == "__main__":
 <hick:context kind="acp-turn-status">{"turn":"recorded-patch","status":"ok"}</hick:context>
 </hick:session>
 ''')
+        if "--conversation-tabs-only" in sys.argv:
+            (folder / "sessions").mkdir()
+            for name, number, amount in [("First", 1, 10), ("Second", 2, 25)]:
+                (folder / f"sessions/{number}.md").write_text(
+                    '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">\n'
+                    + f'<hick:user id="u{number}" turn="conversation-{number}" provider="codex-subscription" model="test">{name} conversation</hick:user>\n'
+                    + f'<hick:context kind="python-runtime">{{"backend":"python","turn":"conversation-{number}","context":null,"prior_turns":[]}}</hick:context>\n'
+                    + f'<hick:assistant>{name} answer</hick:assistant>\n'
+                    + f'<hick:usage turn="conversation-{number}" input="{amount}" output="0" cache-read="0" cache-write="0"/>\n'
+                    + f'<hick:context kind="acp-turn-status">{{"turn":"conversation-{number}","status":"ok"}}</hick:context>\n'
+                    + '</hick:session>\n')
         if "--agent-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
@@ -1394,6 +1421,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--recorded-patch-only" in sys.argv:
                 recorded_patch_acceptance(driver, folder)
                 print("Browser: recorded user and assistant patches reached guarded review, draft Apply and Undo")
+            elif "--conversation-tabs-only" in sys.argv:
+                conversation_tabs_acceptance(driver, folder)
+                print("Browser: independent conversation tabs, retained multiline drafts, message-bound branches, pane usage and immutable history passed")
             elif "--agent-only" in sys.argv:
                 agent_acceptance(driver, folder)
                 print("Browser: literate history, read-only messages, retained draft, subscription controls and Python-only HTTP request passed")
