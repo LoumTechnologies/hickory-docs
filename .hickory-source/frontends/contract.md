@@ -63,7 +63,7 @@ runs independently of opening and editing files.
 
 The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
-### Start, branch and reopen agent conversations
+### Start, branch, reopen and organize agent conversations
 
 Use **New conversation** in Agent or Agent History to open an empty composer
 without losing the current conversation. Branch from a recorded user or assistant
@@ -80,6 +80,12 @@ launches. Show where a branch came from. Selecting an entry opens it in the
 Agent pane without moving the editor. Switching folders must not show entries
 or accept late list results from the previous folder. A failed history lookup
 must not appear to be an empty history or prevent reading an open transcript.
+Use a row's **More actions** menu to favorite or archive its conversation.
+**Favorites** shows starred conversations from active history. **Archived**
+lets you reopen or restore an archived conversation and retains its favorite
+status. These choices persist for the folder across launches. A conversation's
+follow-up turns share its choices, while a fork can be organized independently.
+Organizing history leaves open tabs and their drafts in place.
 The Simple composer runs Hickory Python; other recorded backends are readable
 but their messages do not offer a fork in Simple. Require the server to
 advertise message forks before offering one, so an older server cannot
@@ -92,6 +98,9 @@ The [server replay](../mechanisms/crates/hickory-cli/src/serve/agent.rs.md) test
 rebuild the cross-file edge from disk and assert what the next prompt can see.
 The [browser sidebar witness](apps/web/src/simple/parity.test.ts.md) checks
 what opening, branching and starting a conversation show before Send.
+The [browser history organization witness](scripts/test-simple-browser.py.md)
+drives Favorite, Archive and Restore through the real engine and compares the
+recorded session files before and after.
 
 The complete outcome includes:
 

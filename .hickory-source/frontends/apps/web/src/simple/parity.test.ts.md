@@ -41,7 +41,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
-import { Agent, AgentHistory, AgentSession, MarkdownMessage, agentTranscript, formattedToolJSON } from "./Agent";
+import { Agent, AgentHistory, AgentHistoryPane, AgentSession, MarkdownMessage, agentTranscript, formattedToolJSON } from "./Agent";
 import { WorkspaceApp as App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
 import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
@@ -1406,6 +1406,10 @@ The new-tab shortcut witness checks both platform modifiers, default prevention,
 
 A stale save retains text and baseline. A successful save acknowledges only the submitted snapshot, including when more text arrived while the request was pending. Generated files do not dispatch whole-file writes.
 
+The sidebar witness loses a save confirmation after reading a favorite. The
+favorite and open action remain available while a fresh read establishes the
+saved flags.
+
 <ui:copy id="simple-c6aff51ad5-1">
 describe("simple file commands", () => {
   it.each(["ctrlKey", "metaKey"])("creates and focuses a new tab with %s+N while retaining edits", async modifier => {
@@ -1605,6 +1609,44 @@ describe("simple literate subscription agent", () => {
     expect(source.answer).toBe('Original'); expect(session.prompt).toBe('Revised while saving');
     expect(session.branchEdit).toMatchObject({turn:'edited',side:'assistant',source:'Revised'});
     expect(session.tip).toBe('edited'); expect(api.agent).toHaveBeenCalledTimes(before);
+  });
+  it("keeps confirmed history available when a conversation archive cannot be confirmed", async () => {
+    const session = new AgentSession();
+    const flags = { "sessions/first.md": { favorite: true, archived: false } };
+    session.setTurns([{ id: "first", parent_id: null, prompt: "First conversation", answer: "Answer",
+      error: null, status: "ok", created_at: "", provider: "", model: "", usage: null, session: "sessions/first.md" }]);
+    const client = vi.mocked(request);
+    client.mockResolvedValueOnce(flags).mockRejectedValueOnce(new Error("Connection lost"))
+      .mockResolvedValueOnce(flags)
+      .mockResolvedValueOnce({ "sessions/first.md": { favorite: true, archived: true } })
+      .mockResolvedValueOnce(flags);
+    const open = vi.fn();
+    const screen = render(createElement(AgentHistoryPane, { session, open }));
+    try {
+      const more = await screen.findByLabelText("More actions for First conversation");
+      fireEvent.click(more);
+      fireEvent.click(screen.getByText("Archive", { selector: "button" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Cannot confirm the change");
+      expect(screen.getByRole("img", { name: "Favorite" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "First conversation" }));
+      expect(open).toHaveBeenCalledWith("first");
+      fireEvent.click(screen.getByRole("button", { name: "Refresh conversation organization" }));
+      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+      const picker = screen.getByRole("combobox");
+      fireEvent.change(picker, { target: { value: "Favorites" } });
+      expect(screen.getByRole("button", { name: "First conversation" })).toBeTruthy();
+      fireEvent.click(screen.getByLabelText("More actions for First conversation"));
+      fireEvent.click(screen.getByText("Archive", { selector: "button" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "First conversation" })).toBeNull());
+      expect(client).toHaveBeenCalledWith("POST", "/api/docs/workspace/agent/history", { turn: "first", archived: true });
+      fireEvent.change(picker, { target: { value: "Archived" } });
+      expect(screen.getByRole("img", { name: "Favorite" })).toBeTruthy();
+      fireEvent.click(screen.getByLabelText("More actions for First conversation"));
+      fireEvent.click(screen.getByText("Restore", { selector: "button" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "First conversation" })).toBeNull());
+      fireEvent.change(picker, { target: { value: "Favorites" } });
+      expect(screen.getByRole("button", { name: "First conversation" })).toBeTruthy();
+    } finally { screen.unmount(); }
   });
   it("opens independent conversation tabs from history and branches below each message", async () => {
     // Contract: .hickory-source/frontends/contract.md

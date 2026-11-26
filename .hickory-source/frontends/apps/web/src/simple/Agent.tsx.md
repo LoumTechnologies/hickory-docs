@@ -428,6 +428,11 @@ Render only the selected ancestry in the composer. The incoming edge of each
 turn decides whether its parent answer belongs to that ancestry. The sidebar
 uses the same IDs but retains siblings so a fork never hides its origin.
 
+Load organization alongside the turn tree. When a filter hides a parent,
+keep its visible branch at the top level and use the full tree for the
+branch's origin label. A failed write leaves the last confirmed flags visible
+and asks the reader to reload them before making another change.
+
 <ui:copy id="simple-agent-ancestry">
 export function agentTranscript(turns: AgentTurn[], tip: string | null, userOnly = false) {
   const byId = new Map(turns.map(turn => [turn.id, turn]));
@@ -444,19 +449,63 @@ export function agentTranscript(turns: AgentTurn[], tip: string | null, userOnly
   return result.reverse();
 }
 
+type ConversationFlags = { favorite: boolean; archived: boolean };
+type ConversationHistoryView = "History" | "Favorites" | "Archived";
+const conversationHistoryPath = "/api/docs/workspace/agent/history";
+
 export function AgentHistoryPane({ session, open }: { session: AgentSession; open: (id: string | null) => void }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [view, setView] = useState<ConversationHistoryView>("History");
+  const [flags, setFlags] = useState<Record<string, ConversationFlags>>();
+  const [organizationError, setOrganizationError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setOrganizationError("");
+    setBusy(true);
+    const readFlags = async () => {
+      try {
+        const saved = await request<Record<string, ConversationFlags>>("GET", conversationHistoryPath);
+        if (active && session.workspaceCurrent()) setFlags(saved);
+      } catch (error) {
+        if (active && session.workspaceCurrent()) setOrganizationError(`Cannot read conversation organization: ${String(error)}`);
+      } finally {
+        if (active) setBusy(false);
+      }
+    };
+    void readFlags();
+    return () => { active = false; };
+  }, [session, reload]);
+
+  const update = async (turn: AgentTurn, change: Partial<ConversationFlags>) => {
+    if (busy || organizationError || !session.workspaceCurrent()) return;
+    setBusy(true);
+    try {
+      const saved = await request<Record<string, ConversationFlags>>("POST", conversationHistoryPath, { turn: turn.id, ...change });
+      if (session.workspaceCurrent()) setFlags(saved);
+    } catch (error) {
+      if (session.workspaceCurrent()) setOrganizationError(`Cannot confirm the change: ${String(error)}`);
+    } finally { setBusy(false); }
+  };
+
   const { turns } = session;
   const byId = new Map(turns.map(turn => [turn.id, turn]));
+  const stateOf = (turn: AgentTurn) => turn.session ? flags?.[turn.session] : undefined;
+  const visible = turns.filter(turn => {
+    const state = stateOf(turn);
+    if (view === "Archived") return state?.archived === true;
+    return !state?.archived && (view === "History" || state?.favorite);
+  });
+  const visibleIDs = new Set(visible.map(turn => turn.id));
   const children = new Map<string | null, AgentTurn[]>();
-  for (const turn of turns) {
-    const parent = turn.parent_id && byId.has(turn.parent_id) ? turn.parent_id : null;
+  for (const turn of visible) {
+    const parent = turn.parent_id && visibleIDs.has(turn.parent_id) ? turn.parent_id : null;
     const siblings = children.get(parent) ?? [];
     siblings.push(turn);
     children.set(parent, siblings);
   }
-  const select = (id: string | null) => open(id);
   const rows = (parent: string | null, seen: Set<string>): ReactNode => {
     const group = (children.get(parent) ?? []).filter(turn => !seen.has(turn.id));
     return group.length ? <ul>{group.map(turn => {
@@ -465,21 +514,46 @@ export function AgentHistoryPane({ session, open }: { session: AgentSession; ope
       const fork = !!(source && turn.session && source.session && turn.session !== source.session);
       const hasChildren = children.has(turn.id);
       const expanded = hasChildren && !collapsed.has(turn.id);
-      const item = <button title={title} aria-current={session.tip === turn.id ? "true" : undefined}
-        onClick={() => select(turn.id)}><AgentActivityIcon working={session.turns.some(row => row.status === 'running' && (row.id === turn.id || !!turn.session && row.session === turn.session)) && !session.pendingReviews?.changes.length} /> {fork ? `Branch from ${turn.parent_is_user ? "user" : "agent"} · ` : ""}{title}</button>;
+      const state = stateOf(turn);
       return <li key={turn.id}>
-        {hasChildren && <button type="button" aria-label={`Replies to ${title}`} aria-expanded={expanded} onClick={() =>
-          setCollapsed(current => { const next = new Set(current); if (next.has(turn.id)) next.delete(turn.id); else next.add(turn.id); return next; })
-        }>{expanded ? "▾" : "▸"}</button>}
-        {item}{expanded && rows(turn.id, new Set([...seen, turn.id]))}
+        <div className="conversation-history-row">
+          {hasChildren && <button type="button" aria-label={`Replies to ${title}`} aria-expanded={expanded} onClick={() =>
+            setCollapsed(current => { const next = new Set(current); if (next.has(turn.id)) next.delete(turn.id); else next.add(turn.id); return next; })
+          }>{expanded ? "▾" : "▸"}</button>}
+          <button className="conversation-history-title" title={title} aria-current={session.tip === turn.id ? "true" : undefined}
+            onClick={() => open(turn.id)}><AgentActivityIcon working={turns.some(row => row.status === 'running' && (row.id === turn.id || !!turn.session && row.session === turn.session)) && !session.pendingReviews?.changes.length} /> {fork ? `Branch from ${turn.parent_is_user ? "user" : "agent"} · ` : ""}{title}</button>
+          {state?.favorite && <span role="img" aria-label="Favorite">★</span>}
+          {flags && turn.session && <details className="conversation-history-actions" onKeyDown={event => {
+            if (event.key === "Escape") {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+              event.stopPropagation();
+            }
+          }}>
+            <summary aria-label={`More actions for ${title}`}>⋯</summary>
+            <div onClick={event => {
+              const menu = event.currentTarget.closest("details");
+              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+            }}>
+              <button type="button" disabled={busy || !!organizationError} onClick={() => void update(turn, { favorite: !state?.favorite })}>{state?.favorite ? "Remove favorite" : "Favorite"}</button>
+              <button type="button" disabled={busy || !!organizationError} onClick={() => void update(turn, { archived: !state?.archived })}>{state?.archived ? "Restore" : "Archive"}</button>
+            </div>
+          </details>}
+        </div>
+        {expanded && rows(turn.id, new Set([...seen, turn.id]))}
       </li>;
     })}</ul> : null;
   };
   return <section className="file-tree" aria-label="Agent History">
-    <button className="new-conversation-button" aria-label="New conversation" title="New conversation" onClick={() => select(null)}>✎</button>
+    <button className="new-conversation-button" aria-label="New conversation" title="New conversation" onClick={() => open(null)}>✎</button>
+    {flags && <select aria-label="Conversation history view" value={view} onChange={event => setView(event.target.value as ConversationHistoryView)}>
+      <option>History</option><option>Favorites</option><option>Archived</option>
+    </select>}
     {session.historyError && <p role="alert">{session.historyError}</p>}
+    {organizationError && <p role="alert">{organizationError} <button type="button" onClick={() => setReload(value => value + 1)}>Refresh conversation organization</button></p>}
     {rows(null, new Set())}
-    {!turns.length && !session.historyError && <p role="status">{session.historyLoaded ? "No conversations yet." : "Loading conversations…"}</p>}
+    {!visible.length && !session.historyError && <p role="status">{!session.historyLoaded ? "Loading conversations…" :
+      view === "Favorites" ? "No favorite conversations." : view === "Archived" ? "No archived conversations." : "No conversations yet."}</p>}
   </section>;
 }
 </ui:copy>

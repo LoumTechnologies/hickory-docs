@@ -1261,6 +1261,10 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/agent", post(agent::start_turn))
         .route("/docs/{id}/agent/branch", post(agent::save_assistant_branch))
         .route("/docs/{id}/agent/stop", post(agent::stop_turn))
+        .route(
+            "/docs/workspace/agent/history",
+            get(agent::conversation_history).post(agent::update_conversation_history),
+        )
         .route("/docs/{id}/agent/turns", get(agent::list_turns))
         .route("/docs/{id}/agent/turns/{turn}/fence-debug", post(agent::prepare_fence_debug))
         .route("/docs/{id}/agent/turns/{turn}/fence-run", post(agent::run_fence))

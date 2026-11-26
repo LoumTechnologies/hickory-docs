@@ -275,41 +275,143 @@ struct NativeAgentMessagePair: Identifiable {
     var id: String { turn.id }
 }
 
+private struct NativeConversationFlags: Decodable {
+    let favorite: Bool
+    let archived: Bool
+}
+
+private enum NativeConversationHistoryView: String, CaseIterable {
+    case history = "History"
+    case favorites = "Favorites"
+    case archived = "Archived"
+}
+
 struct NativeAgentHistoryPane: View {
+    private static let historyPath = "/api/docs/workspace/agent/history"
     var session: AgentSession
+    var engine: Engine? = nil
+    var current: () -> Bool = { true }
     var open: (String?) -> Void
+    @State private var view = NativeConversationHistoryView.history
+    @State private var flags: [String: NativeConversationFlags]?
+    @State private var organizationError = ""
+    @State private var busy = false
+    @State private var reload = 0
+
     var body: some View {
-        let ids = Set(session.turns.map(\.id))
-        let children = Dictionary(grouping: session.turns) { turn in
+        let visible = session.turns.filter { turn in
+            let state = flagsFor(turn)
+            if view == .archived { return state?.archived == true }
+            return state?.archived != true && (view == .history || state?.favorite == true)
+        }
+        let ids = Set(visible.map(\.id))
+        let children = Dictionary(grouping: visible) { turn in
             turn.parent_id.flatMap { ids.contains($0) ? $0 : nil }
         }
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Button { open(nil) } label: { Image(systemName: "square.and.pencil").frame(width: 26, height: 22) }
-                    .buttonStyle(.bordered).accessibilityLabel("New conversation").help("New conversation")
+                HStack {
+                    Button { open(nil) } label: { Image(systemName: "square.and.pencil").frame(width: 26, height: 22) }
+                        .buttonStyle(.bordered).accessibilityLabel("New conversation").help("New conversation")
+                    if flags != nil {
+                        Picker("Conversation history view", selection: $view) {
+                            ForEach(NativeConversationHistoryView.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }.pickerStyle(.menu).labelsHidden()
+                    }
+                }
                 if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
-                if session.turns.isEmpty && session.historyError.isEmpty {
-                    Text(session.historyLoaded ? "No conversations yet." : "Loading conversations…").foregroundStyle(.secondary)
+                if !organizationError.isEmpty {
+                    Text(organizationError).foregroundStyle(.red)
+                    Button("Refresh conversation organization") { reload += 1 }
+                }
+                if visible.isEmpty && session.historyError.isEmpty {
+                    Text(emptyMessage).foregroundStyle(.secondary)
                 }
                 rows(children[nil] ?? [], children: children, seen: [])
             }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
         }.accessibilityLabel("Agent History")
+            .task(id: reload) { await readFlags() }
     }
+
+    private var emptyMessage: String {
+        guard session.historyLoaded else { return "Loading conversations…" }
+        switch view {
+        case .history: return "No conversations yet."
+        case .favorites: return "No favorite conversations."
+        case .archived: return "No archived conversations."
+        }
+    }
+
+    private func flagsFor(_ turn: AgentTurn) -> NativeConversationFlags? {
+        turn.session.flatMap { flags?[$0] }
+    }
+
+    @MainActor private func readFlags() async {
+        guard let engine, current() else { return }
+        busy = true
+        organizationError = ""
+        defer { if current() && !Task.isCancelled { busy = false } }
+        do {
+            let saved: [String: NativeConversationFlags] = try await engine.request("GET", Self.historyPath)
+            if current() && !Task.isCancelled { flags = saved }
+        } catch {
+            if current() && !Task.isCancelled { organizationError = "Cannot read conversation organization: \(error.localizedDescription)" }
+        }
+    }
+
+    @MainActor private func update(_ turn: AgentTurn, field: String, enabled: Bool) {
+        guard let engine, current(), !busy, organizationError.isEmpty else { return }
+        busy = true
+        Task {
+            defer { if current() { busy = false } }
+            do {
+                let saved: [String: NativeConversationFlags] = try await engine.request("POST", Self.historyPath, body: [
+                    "turn": turn.id, field: enabled,
+                ])
+                if current() { flags = saved }
+            } catch {
+                if current() { organizationError = "Cannot confirm the change: \(error.localizedDescription)" }
+            }
+        }
+    }
+
     @ViewBuilder private func rows(_ turns: [AgentTurn], children: [String?: [AgentTurn]], seen: Set<String>) -> some View {
         ForEach(turns.filter { !seen.contains($0.id) }) { turn in
-            let title = turn.prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Conversation"
-            let source = session.turns.first { $0.id == turn.parent_id }
-            let fork = source?.session != nil && turn.session != nil && source?.session != turn.session
-            let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title
             let descendants = children[turn.id] ?? []
             if descendants.isEmpty {
-                Button { open(turn.id) } label: { Label(label, systemImage: session.working(turn.id) ? "arrow.triangle.2.circlepath" : "bubble.left") }.buttonStyle(.plain)
+                row(turn)
             } else {
                 DisclosureGroup {
                     AnyView(rows(descendants, children: children, seen: seen.union([turn.id]))).padding(.leading, 8)
                 } label: {
-                    Button { open(turn.id) } label: { Label(label, systemImage: session.working(turn.id) ? "arrow.triangle.2.circlepath" : "bubble.left") }.buttonStyle(.plain)
+                    row(turn)
                 }
+            }
+        }
+    }
+
+    private func row(_ turn: AgentTurn) -> some View {
+        let title = turn.prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Conversation"
+        let source = session.turns.first { $0.id == turn.parent_id }
+        let fork = source?.session != nil && turn.session != nil && source?.session != turn.session
+        let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title
+        let state = flagsFor(turn)
+        let favorite = state?.favorite == true, archived = state?.archived == true
+        return HStack {
+            Button { open(turn.id) } label: {
+                Label(label, systemImage: session.working(turn.id) ? "arrow.triangle.2.circlepath" : "bubble.left")
+            }.buttonStyle(.plain)
+            Spacer(minLength: 0)
+            if favorite { Image(systemName: "star.fill").accessibilityLabel("Favorite") }
+            if flags != nil && turn.session?.isEmpty == false {
+                Menu {
+                    Button(favorite ? "Remove favorite" : "Favorite") { update(turn, field: "favorite", enabled: !favorite) }
+                    Button(archived ? "Restore" : "Archive") { update(turn, field: "archived", enabled: !archived) }
+                } label: { Image(systemName: "ellipsis") }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("More actions for \(title)")
+                    .disabled(busy || !organizationError.isEmpty)
             }
         }
     }

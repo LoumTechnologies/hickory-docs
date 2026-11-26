@@ -555,7 +555,12 @@ struct PaneView: View {
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agentHistory {
-            NativeAgentHistoryPane(session: workspace.agent) { workspace.openConversation($0) }
+            let epoch = workspace.sourceNavigationEpoch
+            let root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
+            NativeAgentHistoryPane(session: workspace.agent, engine: workspace.engine, current: {
+                workspace.sourceNavigationEpoch == epoch && exactUTF8(workspace.sourceRootAddress, root)
+                    && exactUTF8(workspace.sourceWorkspaceID, id)
+            }) { workspace.openConversation($0) }.id([epoch.uuidString, root ?? "", id ?? ""])
         } else if let session = workspace.agentSession(tab) {
             let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
             AgentPane(engine: workspace.engine, session: session, newConversation: { workspace.openConversation($0, fork: $1, origin: session) }, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in

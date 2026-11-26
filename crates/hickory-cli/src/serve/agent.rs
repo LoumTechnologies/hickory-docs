@@ -1321,6 +1321,87 @@ mod recorded_fence_debug_tests {
     }
 }
 
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+pub struct ConversationFlags {
+    favorite: bool,
+    archived: bool,
+}
+
+type ConversationHistory = HashMap<String, ConversationFlags>;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationHistoryUpdate {
+    turn: String,
+    favorite: Option<bool>,
+    archived: Option<bool>,
+}
+
+fn conversation_history_path(state: &LocalState) -> ApiResult<std::path::PathBuf> {
+    if state.private_prediction.is_some()
+        || crate::engine::private_policy::active()
+            .map_err(|error| ApiError::conflict(error.to_string()))?
+    {
+        return Err(ApiError::conflict("Conversation organization is unavailable in private prediction."));
+    }
+    Ok(hickory_workspace::WorkspaceStore::for_project(state.index.root())?
+        .dir()
+        .join("agent-history.json"))
+}
+
+fn read_conversation_history(path: &std::path::Path) -> anyhow::Result<ConversationHistory> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|error| anyhow::anyhow!("Saved conversation organization could not be read: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn conversation_history(
+    State(state): State<LocalState>,
+) -> ApiResult<Json<ConversationHistory>> {
+    let path = conversation_history_path(&state)?;
+    Ok(Json(read_conversation_history(&path)?))
+}
+
+pub async fn update_conversation_history(
+    State(state): State<LocalState>,
+    Json(update): Json<ConversationHistoryUpdate>,
+) -> ApiResult<Json<ConversationHistory>> {
+    if update.favorite.is_none() && update.archived.is_none() {
+        return Err(ApiError::bad_request("Choose a favorite or archive change."));
+    }
+    let path = conversation_history_path(&state)?;
+    let turn = recorded_turn(&state, super::agent_context::WORKSPACE_AGENT, &update.turn)?;
+    if turn.session.is_empty() {
+        return Err(ApiError::conflict("This conversation has no recorded session. Refresh Agent History and try again."));
+    }
+
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path.with_extension("lock"))
+        .map_err(anyhow::Error::from)?;
+    fs2::FileExt::try_lock_exclusive(&lock)
+        .map_err(|_| ApiError::conflict("Another window is organizing Agent History. Refresh and try again."))?;
+    let mut history = read_conversation_history(&path)?;
+    let flags = history.entry(turn.session.clone()).or_default();
+    if let Some(favorite) = update.favorite {
+        flags.favorite = favorite;
+    }
+    if let Some(archived) = update.archived {
+        flags.archived = archived;
+    }
+    if !flags.favorite && !flags.archived {
+        history.remove(&turn.session);
+    }
+    store::write_atomic(&path, &serde_json::to_vec(&history).map_err(anyhow::Error::from)?)?;
+    Ok(Json(history))
+}
+
 /// `GET /api/docs/:id/agent/turns` — the document's turn tree, in creation
 /// order, plus what the next turn would run on and the session's spend:
 ///

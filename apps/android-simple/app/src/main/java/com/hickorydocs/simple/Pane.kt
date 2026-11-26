@@ -1367,7 +1367,18 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
             FileRows(workspace.files, workspace)
         }
         "terminal" -> TerminalPane(workspace)
-        "agent-history" -> AgentHistoryPane(workspace.agent) { workspace.openConversation(it) }
+        "agent-history" -> {
+            val epoch = workspace.sourceNavigationEpoch
+            val engine = workspace.engine
+            val root = engine?.sourceRootAddress
+            val id = engine?.sourceWorkspaceID
+            key(epoch, root, id) {
+                AgentHistoryPane(workspace.agent, engine, {
+                    workspace.sourceNavigationEpoch == epoch && workspace.engine === engine &&
+                        engine?.sourceRootAddress == root && engine?.sourceWorkspaceID == id
+                }) { workspace.openConversation(it) }
+            }
+        }
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.bufferForTab(tab)?.let { buffer ->

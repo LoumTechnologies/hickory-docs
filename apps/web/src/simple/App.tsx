@@ -653,7 +653,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const label = (tab: string) => tab === "files" ? "Files" : isAgentTab(tab) ? "Conversation" : tab === "agent-history" ? "Agent History" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>;
-    if (tab === "agent-history") return <AgentHistoryPane session={agent} open={openConversation} />;
+    if (tab === "agent-history") return <AgentHistoryPane key={overlayScope} session={agent} open={openConversation} />;
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (isAgentTab(tab)) {
       const session = conversations.get(tab) ?? agent;

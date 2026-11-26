@@ -436,29 +436,116 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     }
     return RecordedConstructionReceipt(document, operation, changes)
 }
-@Composable internal fun AgentHistoryPane(session: AgentSession, open: (String?) -> Unit) {
+private const val conversationHistoryPath = "/api/docs/workspace/agent/history"
+private data class ConversationFlags(val favorite: Boolean, val archived: Boolean)
+private enum class ConversationHistoryView { History, Favorites, Archived }
+
+private fun decodeConversationFlags(result: JSONObject): Map<String, ConversationFlags> =
+    result.keys().asSequence().associateWith {
+        val flags = result.getJSONObject(it)
+        ConversationFlags(flags.getBoolean("favorite"), flags.getBoolean("archived"))
+    }
+
+@Composable internal fun AgentHistoryPane(session: AgentSession, engine: Engine?, current: () -> Boolean, open: (String?) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var view by remember { mutableStateOf(ConversationHistoryView.History) }
+    var flags by remember { mutableStateOf<Map<String, ConversationFlags>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var reload by remember { mutableIntStateOf(0) }
+    var showViews by remember { mutableStateOf(false) }
+
+    LaunchedEffect(engine, reload) {
+        if (engine == null || !current()) return@LaunchedEffect
+        busy = true
+        error = ""
+        try {
+            val saved = decodeConversationFlags(engine.request("GET", conversationHistoryPath))
+            if (current()) flags = saved
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            if (current()) error = "Cannot read conversation organization: ${failure.message}"
+        } finally {
+            if (current()) busy = false
+        }
+    }
+
+    fun update(turn: AgentTurn, field: String, enabled: Boolean) {
+        if (engine == null || !current() || busy || error.isNotEmpty()) return
+        busy = true
+        scope.launch {
+            try {
+                val saved = decodeConversationFlags(engine.request("POST", conversationHistoryPath,
+                    JSONObject().put("turn", turn.id).put(field, enabled)))
+                if (current()) flags = saved
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                if (current()) error = "Cannot confirm the change: ${failure.message}"
+            } finally {
+                if (current()) busy = false
+            }
+        }
+    }
+
     val byId = session.turns.associateBy { it.id }
-    val children = session.turns.groupBy { turn -> turn.parentID?.takeIf(byId::containsKey) }
+    val visible = session.turns.filter { turn ->
+        val state = turn.session?.let { flags?.get(it) }
+        when (view) {
+            ConversationHistoryView.History -> state?.archived != true
+            ConversationHistoryView.Favorites -> state?.favorite == true && !state.archived
+            ConversationHistoryView.Archived -> state?.archived == true
+        }
+    }
+    val visibleIDs = visible.mapTo(mutableSetOf()) { it.id }
+    val children = visible.groupBy { turn -> turn.parentID?.takeIf(visibleIDs::contains) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
-        OutlinedButton(onClick = { open(null) }, modifier = Modifier.semantics { contentDescription = "New conversation" }) { Text("✎") }
+        Row {
+            OutlinedButton(onClick = { open(null) }, modifier = Modifier.semantics { contentDescription = "New conversation" }) { Text("✎") }
+            if (flags != null) Box {
+                TextButton(onClick = { showViews = true }, modifier = Modifier.semantics { contentDescription = "Conversation history view" }) {
+                    Text(view.name)
+                }
+                DropdownMenu(expanded = showViews, onDismissRequest = { showViews = false }) {
+                    ConversationHistoryView.entries.forEach { choice ->
+                        DropdownMenuItem(text = { Text(choice.name) }, onClick = { view = choice; showViews = false })
+                    }
+                }
+            }
+        }
         if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
-        if (session.turns.isEmpty() && session.historyError.isEmpty())
-            Text(if (session.historyLoaded) "No conversations yet." else "Loading conversations…")
-        AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, open)
+        if (error.isNotEmpty()) {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { reload += 1 }) { Text("Refresh conversation organization") }
+        }
+        if (visible.isEmpty() && session.historyError.isEmpty()) Text(
+            if (!session.historyLoaded) "Loading conversations…" else when (view) {
+                ConversationHistoryView.History -> "No conversations yet."
+                ConversationHistoryView.Favorites -> "No favorite conversations."
+                ConversationHistoryView.Archived -> "No archived conversations."
+            }
+        )
+        AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
     }
 }
 
 @Composable private fun AgentHistoryRows(
     turns: List<AgentTurn>, children: Map<String?, List<AgentTurn>>, byId: Map<String, AgentTurn>,
-    seen: Set<String>, session: AgentSession, open: (String?) -> Unit
+    seen: Set<String>, session: AgentSession, flags: Map<String, ConversationFlags>?, editable: Boolean,
+    update: (AgentTurn, String, Boolean) -> Unit, open: (String?) -> Unit
 ) {
     turns.filterNot { it.id in seen }.forEach { turn ->
         key(turn.id) {
             var expanded by remember { mutableStateOf(false) }
+            var showActions by remember { mutableStateOf(false) }
             val descendants = children[turn.id].orEmpty()
             val source = turn.parentID?.let(byId::get)
             val fork = source?.session != null && turn.session != null && source.session != turn.session
             val title = turn.prompt.trim().lineSequence().firstOrNull()?.ifBlank { "Conversation" } ?: "Conversation"
+            val state = turn.session?.let { flags?.get(it) }
+            val favorite = state?.favorite == true
+            val archived = state?.archived == true
             Row(Modifier.fillMaxWidth()) {
                 if (descendants.isNotEmpty()) Text(if (expanded) "▾" else "▸",
                     Modifier.clickable { expanded = !expanded }.padding(4.dp)
@@ -466,9 +553,24 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
                 Text(if (session.working(turn.id)) "●" else "○", Modifier.semantics { contentDescription = if (session.working(turn.id)) "Working" else "Waiting for input" }.padding(4.dp))
                 Text(if (fork) "Branch from ${if (turn.parentIsUser) "user" else "agent"} · $title" else title,
                     Modifier.weight(1f).clickable { open(turn.id) }.padding(4.dp), maxLines = 2)
+                if (favorite) Text("★", Modifier.semantics { contentDescription = "Favorite" }.padding(4.dp))
+                if (flags != null && !turn.session.isNullOrEmpty()) Box {
+                    Text("⋯", Modifier.clickable(enabled = editable) { showActions = true }.padding(4.dp)
+                        .semantics { contentDescription = "More actions for $title" })
+                    DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
+                        DropdownMenuItem(text = { Text(if (favorite) "Remove favorite" else "Favorite") }, onClick = {
+                            showActions = false
+                            update(turn, "favorite", !favorite)
+                        })
+                        DropdownMenuItem(text = { Text(if (archived) "Restore" else "Archive") }, onClick = {
+                            showActions = false
+                            update(turn, "archived", !archived)
+                        })
+                    }
+                }
             }
             if (expanded) Column(Modifier.padding(start = 8.dp)) {
-                AgentHistoryRows(descendants, children, byId, seen + turn.id, session, open)
+                AgentHistoryRows(descendants, children, byId, seen + turn.id, session, flags, editable, update, open)
             }
         }
     }

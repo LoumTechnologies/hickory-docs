@@ -1167,6 +1167,42 @@ try {
           }) : null;
           break;
         }
+        case "conversation-history-view": {
+          const history = page.getByRole("region", { name: "Agent History" });
+          if (!(await history.isVisible())) await menu("View", "Agent History");
+          await history.getByRole("combobox", { name: "Conversation history view" }).selectOption(request.view);
+          break;
+        }
+        case "conversation-history-entry": {
+          const history = page.getByRole("region", { name: "Agent History" });
+          const row = history.getByRole("button", { name: request.title, exact: true });
+          await row.waitFor({ state: request.visible === false ? "hidden" : "visible" });
+          if (request.open) await row.click();
+          if (request.answer) {
+            value = await page.getByRole("log", { name: "Conversation" })
+              .getByText(request.answer, { exact: true }).innerText();
+          } else value = await row.isVisible();
+          break;
+        }
+        case "conversation-history-action": {
+          const history = page.getByRole("region", { name: "Agent History" });
+          await history.getByLabel(`More actions for ${request.title}`, { exact: true }).click();
+          const reply = page.waitForResponse(response =>
+            new URL(response.url()).pathname === "/api/docs/workspace/agent/history" &&
+            response.request().method() === "POST");
+          await history.getByRole("button", { name: request.label, exact: true }).click();
+          const saved = await reply;
+          if (!saved.ok()) throw Error(await saved.text());
+          await saved.json();
+          break;
+        }
+        case "conversation-history-is-favorite": {
+          const row = page.getByRole("region", { name: "Agent History" })
+            .getByRole("button", { name: request.title, exact: true }).locator("..");
+          value = await row.getByRole("img", { name: "Favorite" }).isVisible();
+          break;
+        }
+        case "conversation-history-reload": await page.reload(); break;
         case "conversation-tabs": {
           await menu('View', 'Agent History');
           const history = page.getByRole('region', {name:'Agent History'});

@@ -5,6 +5,12 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The acceptance flow launches an isolated real engine on an ephemeral port, then a Vite process and a browser adapter. No agent prompt is sent. Computed browser styles verify Markdown heading size, bold weight and italics on an opened literate document. Run `python3 scripts/test-simple-browser.py --markdown-only` for the focused formatting witness. Chat formatting and HTML safety have component witnesses; this real-engine flow does not claim provider-message coverage. Disk assertions cover successful plain/literate saves and conflict refusal; UI assertions cover moved document undo and moved agent drafts.
 
+The focused `--conversation-history-only` flow organizes recorded turns through
+the real engine and sidebar. Favoriting a follow-up stars its original
+conversation. Archiving that conversation keeps its independent branch visible
+and preserves the open draft. Reload, reopen, restore and remove the favorite
+through the visible controls, then compare the recorded session files byte for byte.
+
 The focused `--inline-features-only` flow opens real diagram, fenced Python and patch documents through the engine. It checks computed graph layout and syntax colors, folds a Markdown heading, loads the editable before/after patch panes and verifies that these observations leave disk unchanged. It does not claim a live provider or adapter result.
 
 The `--debug-threads-only` witness uses an explicit launch profile and the prepared `target/thread-debug-env` virtualenv, so application discovery and global Python configuration do not choose the test target. Executed against the current engine with debugpy 1.8.22: named worker/main selection, caller-frame caret placement and computed watch expressions passed, preserving editor identity, viewport size and saved bytes. This headless flow does not establish physical pointer, keyboard or native accessibility acceptance. Adapter-owned sources remain an explicit unavailable reader rather than workspace-file authority.
@@ -1048,6 +1054,58 @@ def acceptance(driver, folder):
     terminal_acceptance(driver)
     driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
 
+def conversation_history_organization_acceptance(driver, folder):
+    sessions = folder / "sessions"
+    before = {path.name: path.read_bytes() for path in sessions.glob("*.md")}
+    first, follow_up, second = "First conversation", "First follow-up", "Second conversation"
+    branch = "Branch from agent · Independent branch"
+
+    def show(view):
+        driver.act("conversation-history-view", view=view)
+
+    def observe(title, visible=True):
+        assert driver.act("conversation-history-entry", title=title, visible=visible) is visible
+
+    def change(title, label):
+        driver.act("conversation-history-action", title=title, label=label)
+
+    show("History")
+    driver.act("conversation-history-entry", title=first, open=True)
+    driver.act("draft", text="Keep my open draft")
+    change(follow_up, "Favorite")
+    show("Favorites")
+    observe(first)
+    observe(follow_up)
+    observe(second, False)
+    observe(branch, False)
+
+    change(first, "Archive")
+    observe(first, False)
+    show("History")
+    observe(branch)
+    observe(second)
+    observe(follow_up, False)
+    assert driver.act("read-draft") == "Keep my open draft"
+
+    driver.act("conversation-history-reload")
+    show("Archived")
+    observe(first)
+    observe(follow_up)
+    observe(branch, False)
+    assert driver.act("conversation-history-is-favorite", title=first)
+    assert "Follow-up answer" in driver.act(
+        "conversation-history-entry", title=follow_up, open=True, answer="Follow-up answer")
+    change(first, "Restore")
+    observe(first, False)
+    show("Favorites")
+    observe(first)
+    change(first, "Remove favorite")
+    observe(first, False)
+    show("History")
+    observe(first)
+    assert {path.name: path.read_bytes() for path in sessions.glob("*.md")} == before
+
+
 def conversation_tabs_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real host history and browser gestures.
     before = {path.name: path.read_bytes() for path in (folder / "sessions").glob("*.md")}
@@ -1456,7 +1514,7 @@ if __name__ == "__main__":
 <hick:context kind="acp-turn-status">{"turn":"recorded-patch","status":"ok"}</hick:context>
 </hick:session>
 ''')
-        if "--conversation-tabs-only" in sys.argv:
+        if {"--conversation-tabs-only", "--conversation-history-only"}.intersection(sys.argv):
             (folder / "sessions").mkdir()
             for name, number, amount in [("First", 1, 10), ("Second", 2, 25)]:
                 (folder / f"sessions/{number}.md").write_text(
@@ -1467,6 +1525,19 @@ if __name__ == "__main__":
                     + f'<hick:usage turn="conversation-{number}" input="{amount}" output="0" cache-read="0" cache-write="0"/>\n'
                     + f'<hick:context kind="acp-turn-status">{{"turn":"conversation-{number}","status":"ok"}}</hick:context>\n'
                     + '</hick:session>\n')
+        if "--conversation-history-only" in sys.argv:
+            first = folder / "sessions/1.md"
+            tail = (
+                '<hick:user id="u3" turn="conversation-3" parent="conversation-1">First follow-up</hick:user>\n'
+                '<hick:assistant>Follow-up answer</hick:assistant>\n'
+            )
+            first.write_text(first.read_text().replace('</hick:session>', tail + '</hick:session>'))
+            (folder / "sessions/branch.md").write_text(
+                '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:01:00Z" doc=".hick-workspace-agent">\n'
+                '<hick:user id="u4" turn="conversation-4" parent="conversation-1">Independent branch</hick:user>\n'
+                '<hick:assistant>Branch answer</hick:assistant>\n'
+                '</hick:session>\n'
+            )
         if "--agent-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
@@ -1536,6 +1607,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--recorded-patch-only" in sys.argv:
                 recorded_patch_acceptance(driver, folder)
                 print("Browser: recorded user and assistant patches reached guarded review, draft Apply and Undo")
+            elif "--conversation-history-only" in sys.argv:
+                conversation_history_organization_acceptance(driver, folder)
+                print("Browser: favorite, archive, reopen, restore and remove favorite through real Agent History, with independent branches and unchanged session files")
             elif "--conversation-tabs-only" in sys.argv:
                 conversation_tabs_acceptance(driver, folder)
                 print("Browser: independent conversation tabs, retained multiline drafts, message-bound branches, pane usage and immutable history passed")
