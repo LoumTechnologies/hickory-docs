@@ -1651,16 +1651,22 @@ describe("simple literate subscription agent", () => {
     await act(async () => { accept({session_id: "live"}); await pending; });
     expect(screen.getByText("Waiting for the model…")).toBeTruthy();
     expect(screen.getByRole("button", {name: "Stop"})).toBeTruthy();
+    act(() => receive({kind: "tool_started", name: "read_file", data: JSON.stringify({
+      arguments: {path: "project.md", from: 1, to: 20},
+    })}));
+    expect(screen.getByText("Read file · project.md")).toBeTruthy();
     act(() => {
       receive({kind: "token", data: "worker protocol"});
-      receive({kind: "tool_started", name: "read", data: "private invocation"});
-      receive({kind: "tool_finished", name: "read", ok: true, text: "tool receipt"});
+      receive({kind: "tool_finished", name: "read_file", ok: true, text: "tool receipt"});
+      receive({kind: "tool_started", name: "edit_doc", data: "private invocation"});
       receive({kind: "token", data: "other turn"}, "other");
       session.prompt = "Next draft";
     });
     expect(screen.queryByText("worker protocol")).toBeNull();
-    expect(screen.getByText("Tool calls (1)").closest("details")?.open).toBe(false);
-    expect(screen.getByText("read · Completed").closest("details")?.open).toBe(false);
+    expect(screen.queryByText("private invocation")).toBeNull();
+    expect(screen.getByText("Tool calls (2)").closest("details")?.open).toBe(false);
+    expect(screen.getByText("Read file · project.md · Completed").closest("details")?.open).toBe(false);
+    expect(screen.getByText("Propose source edit · Running")).toBeTruthy();
     act(() => receive({kind: "response_complete", text: "## Result\n\n**Ready.**"}));
     expect(screen.getByRole("heading", {name: "Result"})).toBeTruthy();
     expect(session.prompt).toBe("Next draft");

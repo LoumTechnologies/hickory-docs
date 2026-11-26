@@ -61,6 +61,35 @@ export function MarkdownMessage({ text }: { text: string }) {
   };
   return <div className="message markdown-message">{render(markdownLanguage.parser.parse(text).topNode)}</div>;
 }
+const toolLabels = new Map<string, [operation: string, fields?: string[]]>([
+  ["read_file", ["Read file", ["path"]]],
+  ["read_doc", ["Read source", ["upstream", "doc"]]],
+  ["read_output", ["Read output", ["path"]]],
+  ["edit_doc", ["Propose source edit", ["upstream", "doc"]]],
+  ["edit_output", ["Propose output edit", ["path"]]],
+  ["create_doc", ["Propose new document", ["path"]]],
+  ["search", ["Search workspace"]],
+  ["changeset_status", ["Inspect changes"]],
+  ["submit_changeset", ["Submit changeset"]],
+]);
+
+function toolLabel(name: string, data: unknown): string {
+  const [operation, fields] = toolLabels.get(name) ?? [name];
+  if (!fields || typeof data !== "string" || data.length > 65_536 || new TextEncoder().encode(data).length > 65_536) return operation;
+  try {
+    const args: Record<string, unknown> | undefined = JSON.parse(data)?.arguments;
+    for (const field of fields) {
+      const value = args?.[field];
+      if (typeof value !== "string") continue;
+      const target = value.replace(/[\r\n\f\u000B\u0085\u2028\u2029]+/g, " ").trim();
+      if (target) return `${operation} · ${Array.from(target).slice(0, 140).join("")}`;
+    }
+  } catch {
+    // Older or malformed event metadata still has an operation name.
+  }
+  return operation;
+}
+
 export class AgentSession {
   captureContext?:()=>AgentEditorContext;
   workspaceCurrent = () => true;
@@ -97,7 +126,7 @@ export class AgentSession {
   totals?: AgentTotals;
   // Activity is provisional and keyed to the server's run. The history
   // response owns the final answer and the recorded message revision.
-  activity = new Map<string, { phase?: string; answer?: string; usage?: AgentUsage; usd?: number | null; tools: { name: string; result?: string; ok?: boolean }[] }>();
+  activity = new Map<string, { phase?: string; answer?: string; usage?: AgentUsage; usd?: number | null; tools: { name: string; label: string; result?: string; ok?: boolean }[] }>();
   private early: RunWsMessage[] = [];
   stopPending = false;
 
@@ -116,10 +145,12 @@ export class AgentSession {
         activity.phase = "Receiving model output…"; break;
       case "response_complete": activity.answer = event.text; break;
       case "turn_usage": activity.usage = event.total_usage; activity.usd = event.total_cost_usd; break;
-      case "tool_started":
-        activity.phase = event.name;
-        activity.tools.push({ name: event.name });
+      case "tool_started": {
+        const label = toolLabel(event.name, event.data);
+        activity.phase = label;
+        activity.tools.push({ name: event.name, label });
         break;
+      }
       case "tool_finished": {
         const tool = [...activity.tools].reverse().find(tool => tool.name === event.name && tool.ok === undefined);
         if (tool) { tool.ok = event.ok; tool.result = event.text.slice(0, 4000); }
@@ -342,7 +373,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
           {!userOnly && <section className="agent-message">
             <p className="message-label">Agent{turn.model && ` · ${turn.model}`} {session.messageForks && turn.answer != null && (!turn.backend || turn.backend === "python") && <button disabled={running} onClick={() => session.select(turn.id, "assistant")}>Branch from assistant message</button>}</p>
             {!!activity?.tools.length && <details className="agent-tool-calls"><summary>Tool calls ({activity.tools.length})</summary>
-              {activity.tools.map((tool, index) => <details key={index}><summary>{tool.name} · {tool.ok === undefined ? streaming ? "Running" : "Outcome unavailable" : tool.ok ? "Completed" : "Failed"}</summary>{tool.result && <pre>{tool.result}</pre>}</details>)}
+              {activity.tools.map((tool, index) => <details key={index}><summary>{tool.label} · {tool.ok === undefined ? streaming ? "Running" : "Outcome unavailable" : tool.ok ? "Completed" : "Failed"}</summary>{tool.result && <pre>{tool.result}</pre>}</details>)}
             </details>}
             {streaming && <div className="agent-progress" role="status"><span aria-hidden="true" />{session.stopPending ? "Stopping…" : activity?.phase ?? "Starting…"}</div>}
             {answer && (streaming || !answer.includes('xmlns:') && !proseCodeFences(parseHickDoc(answer), answer).length
