@@ -13,7 +13,7 @@ import { RichOwners } from "./RichInline";
 import { api, request } from "../api/client";
 import { getWorkspaceRealtime } from "../api/realtime";
 import type { RunWsMessage } from "../api/types";
-import { acpApi } from "../api/acp";
+import { acpApi, type AgentChange } from "../api/acp";
 import { parseHickDoc, proseCodeFences } from "../editor/hickDoc";
 import { useHickLangStatus } from "../editor/hickLang";
 import { normalizeLanguage } from "../editor/languages";
@@ -211,6 +211,37 @@ export class AgentSession {
   error = "";
   mutation = 0;
   liveTurn: string | null = null;
+  pendingReviews: { turn: string; changes: AgentChange[] } | null = null;
+  reviewBusy = false;
+  reviewError = "";
+  reviewCurrent(turn: string, preview: AgentChange) {
+    return this.workspaceCurrent() && !this.stopPending && this.tip === turn
+      && this.liveTurn === turn && this.pendingReviews?.turn === turn
+      && this.turns.some(row => row.id === turn && row.status === "running")
+      && this.pendingReviews.changes.some(change => change.status === "pending" && change.id === preview.id
+        && change.path === preview.path && change.oldText === preview.oldText && change.newText === preview.newText);
+  }
+  async decideReview(turn: string, preview: AgentChange, accepted: boolean) {
+    if (this.reviewBusy || !this.reviewCurrent(turn, preview)) return false;
+    this.reviewBusy = true; this.reviewError = ""; this.mutation++; this.publish();
+    try {
+      const [before, after] = await Promise.all([sha256(preview.oldText), sha256(preview.newText)]);
+      if (!this.reviewCurrent(turn, preview)) return false;
+      const result = await request<{ received: boolean }>("POST", "/api/docs/workspace/agent/python/review-exact", {
+        turn, id: preview.id, accepted, before, after,
+      });
+      if (!this.workspaceCurrent() || !result.received) return false;
+      if (this.pendingReviews?.turn === turn) {
+        this.pendingReviews = { turn, changes: this.pendingReviews.changes.filter(change => change.id !== preview.id) };
+      }
+      return true;
+    } catch (reason) {
+      if (this.workspaceCurrent()) this.reviewError = `${String(reason)} Refresh the proposal before making another decision.`;
+      return false;
+    } finally {
+      this.reviewBusy = false; this.mutation++; this.publish();
+    }
+  }
   private version = 0;
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -325,14 +356,22 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
           session.setTurns(response.turns);
           session.publish();
           if (own && response.turns.some(turn => turn.id === own && turn.status === "running")) {
-            const state = await request<{ turn: string | null; edits: { captureRequest?: string } }>("GET", "/api/docs/workspace/agent/python");
-            const capture = state.edits?.captureRequest;
-            if (capture && state.turn === own && current() && mutation === session.mutation && own === session.liveTurn) {
-              const context = session.liveAgentContext();
-              if (context) await acpApi.edits("workspace", { capture_request: capture, context }, "python");
+            const state = await request<{ turn: string | null; edits: { captureRequest?: string; changes?: AgentChange[] } }>("GET", "/api/docs/workspace/agent/python?view=pending");
+            if (current() && mutation === session.mutation && own === session.liveTurn) {
+              session.pendingReviews = state.turn === own ? {
+                turn: own,
+                changes: (state.edits?.changes ?? []).filter(change => !change.editor && change.status === "pending"),
+              } : null;
+              session.publish();
+              const capture = state.edits?.captureRequest;
+              if (capture && state.turn === own) {
+                const context = session.liveAgentContext();
+                if (context) await acpApi.edits("workspace", { capture_request: capture, context }, "python");
+              }
             }
           } else if (own) {
             session.liveTurn = null;
+            session.pendingReviews = null;
             session.publish();
           }
         }
@@ -352,6 +391,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
   const conversation = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const { transcript, prompt, error } = session;
+  const [review, setReview] = useState<{ turn: string; preview: AgentChange; anchor: HTMLButtonElement } | null>(null);
   const tail = transcript.at(-1)?.turn;
   const liveAnswer = tail && session.activity.get(tail.id)?.answer;
   useEffect(() => {
@@ -367,6 +407,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
       {transcript.map(({ turn, userOnly }) => {
         const activity = session.activity.get(turn.id);
         const streaming = turn.status === "running";
+        const pending = session.pendingReviews?.turn === turn.id ? session.pendingReviews.changes : [];
         const answer = turn.answer ?? turn.error ?? activity?.answer;
         return <article key={turn.id}>
           <section className="agent-message user-message"><p className="message-label">You {session.messageForks && (!turn.backend || turn.backend === "python") && <button disabled={running} onClick={() => session.select(turn.id, "user")}>Branch from user message</button>}</p><RecordedMessage turn={turn.id} side="user" reviewRecordedPatch={reviewRecordedPatch} buffer={session.document(`${turn.id}-user`, turn.prompt)} /></section>
@@ -375,7 +416,11 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
             {!!activity?.tools.length && <details className="agent-tool-calls"><summary>Tool calls ({activity.tools.length})</summary>
               {activity.tools.map((tool, index) => <details key={index}><summary>{tool.label} · {tool.ok === undefined ? streaming ? "Running" : "Outcome unavailable" : tool.ok ? "Completed" : "Failed"}</summary>{tool.result && <pre>{tool.result}</pre>}</details>)}
             </details>}
-            {streaming && <div className="agent-progress" role="status"><span aria-hidden="true" />{session.stopPending ? "Stopping…" : activity?.phase ?? "Starting…"}</div>}
+            {streaming && <div className="agent-progress" role="status"><span aria-hidden="true" />{session.stopPending ? "Stopping…" : pending.length ? "Waiting for your review" : activity?.phase ?? "Starting…"}
+              {pending.map(preview => <button key={preview.id} disabled={session.stopPending} title={preview.path ?? preview.name}
+                style={{ maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                onClick={event => setReview({ turn: turn.id, preview: { ...preview }, anchor: event.currentTarget })}>Review {preview.path ?? preview.name}</button>)}
+            </div>}
             {answer && (streaming || !answer.includes('xmlns:') && !proseCodeFences(parseHickDoc(answer), answer).length
               ? <MarkdownMessage text={answer} />
               : <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />)}
@@ -383,6 +428,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
         </article>;
       })}
     </div>
+    {review && <AgentExactReview session={session} review={review} close={() => setReview(value => value === review ? null : value)} />}
     {session.selection?.fork && <p className="message-label" role="status">New branch from {session.selection.fork === "user" ? "user" : "assistant"} message. Send to start it.</p>}
     {error && <div role="alert" className="notice">{error}</div>}
     <form className="agent-composer" onSubmit={event => { event.preventDefault(); void session.send(); }}>
@@ -395,6 +441,38 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
       </div>
     </form>
   </div>;
+}
+
+function AgentExactReview({ session, review, close }: {
+  session: AgentSession;
+  review: { turn: string; preview: AgentChange; anchor: HTMLButtonElement };
+  close: () => void;
+}) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const dialog = panel.current;
+    dialog?.focus({ preventScroll: true });
+    return () => {
+      if (review.anchor.isConnected && (document.activeElement === document.body || dialog?.contains(document.activeElement))) {
+        review.anchor.focus({ preventScroll: true });
+      }
+    };
+  }, [review]);
+  const current = session.reviewCurrent(review.turn, review.preview);
+  const decide = async (accepted: boolean) => {
+    if (await session.decideReview(review.turn, review.preview, accepted)) close();
+  };
+  return createPortal(<section ref={panel} tabIndex={-1} className="simple-workspace-problems simple-source-tests" role="dialog" aria-label="Agent edit review" onKeyDown={event => {
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+  }}>
+    <header><strong>{review.preview.path ?? review.preview.name}</strong><button onClick={close}>Close</button></header>
+    {!current && <p role="status">This proposal changed or ended. Open the current proposal to make a decision.</p>}
+    {session.reviewError && <p role="alert">{session.reviewError}</p>}
+    <h3>Before</h3><pre>{review.preview.oldText}</pre>
+    <h3>After</h3><pre>{review.preview.newText}</pre>
+    <button disabled={!current || session.reviewBusy} onClick={() => void decide(false)}>Decline edit</button>
+    <button disabled={!current || session.reviewBusy} onClick={() => void decide(true)}>Approve edit</button>
+  </section>, document.body);
 }
 const subscriptionChoices = {
   "codex-subscription": { name: "Codex", icon: "⌘", models: ["gpt-6.1-sol"], efforts: ["low", "medium", "high", "xhigh", "max"], login: "codex login" },

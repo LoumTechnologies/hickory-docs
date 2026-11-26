@@ -1640,6 +1640,42 @@ describe("simple literate subscription agent", () => {
     expect(screen.queryByRole("button", {name: "Stop"})).toBeNull();
     expect(screen.getByRole("button", {name: "Send"})).toBeTruthy();
   });
+  it("reviews exact pending agent edits in a floating panel and refuses an obsolete preview", async () => {
+    const session = new AgentSession();
+    const turn = {id: "edit-turn", prompt: "Fix café", answer: null, status: "running", parent_id: null,
+      error: null, created_at: "", provider: "codex-subscription", model: "test", usage: null};
+    const preview = {id: "edit-one", name: "edit_doc", path: "notes.md", editor: false, status: "pending" as const,
+      oldText: "Before café\r\n", newText: "After 😀\r\n"};
+    session.setTurns([turn]); session.liveTurn = turn.id;
+    vi.mocked(api.agentTurns).mockResolvedValueOnce({turns: [turn], provider: turn.provider, model: turn.model,
+      totals: {usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0}});
+    vi.mocked(request).mockResolvedValueOnce({turn: turn.id, edits: {changes: [preview]}});
+    const screen = render(createElement(Fragment, null,
+      createElement(AgentHistory, {session, visible: true}), createElement(Agent, {session})));
+    const endpoint = "/api/docs/workspace/agent/python/review-exact";
+    const decisions = () => vi.mocked(request).mock.calls.filter(([method, path]) => method === "POST" && path === endpoint);
+    const prior = decisions().length;
+    fireEvent.click(await screen.findByRole("button", {name: "Review notes.md"}));
+    const dialog = screen.getByRole("dialog", {name: "Agent edit review"});
+    expect(dialog.textContent).toContain(preview.oldText);
+    expect(dialog.textContent).toContain(preview.newText);
+    const revised = {...preview, newText: "Revised 😀\n"};
+    act(() => { session.pendingReviews = {turn: turn.id, changes: [revised]}; session.publish(); });
+    const approve = within(dialog).getByRole("button", {name: "Approve edit"}) as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(decisions()).toHaveLength(prior);
+    fireEvent.click(within(dialog).getByRole("button", {name: "Close"}));
+
+    vi.mocked(request).mockResolvedValueOnce({received: true});
+    fireEvent.click(screen.getByRole("button", {name: "Review notes.md"}));
+    fireEvent.click(screen.getByRole("button", {name: "Approve edit"}));
+    const [before, after] = await Promise.all([reviews.sha256(revised.oldText), reviews.sha256(revised.newText)]);
+    await waitFor(() => expect(decisions().at(-1)).toEqual(["POST", endpoint,
+      {turn: turn.id, id: revised.id, accepted: true, before, after}]));
+    expect(decisions()).toHaveLength(prior + 1);
+    await waitFor(() => expect(screen.queryByRole("dialog", {name: "Agent edit review"})).toBeNull());
+  });
   it("opens Debug only on an explicit recorded fence click and retires a late capture", async () => {
     const prompt = "Question 😀\r\n```python\r\nvalue = 41\r\nprint(value + 1)\r\n```";
     const answer = "Answer\n\n~~~python\nprint(42)\n~~~";
