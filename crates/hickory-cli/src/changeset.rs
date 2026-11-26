@@ -3,7 +3,6 @@ use anyhow::{Context, Result, bail, ensure};
 use hick_lang::{ProjectInventory, ProjectSnapshot, ProjectTree};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -33,29 +32,35 @@ pub struct Contract {
 }
 
 pub fn fingerprint(tree: &ProjectTree) -> String {
-    // Provenance is evidence about bytes, not part of code equality.
-    let entries: BTreeMap<_, _> = tree
-        .entries()
-        .iter()
-        .map(|(p, e)| (p, (&e.bytes, e.kind, e.executable)))
-        .collect();
-    // Feed the existing wire encoding to the digest without allocating a
-    // decimal JSON byte array for the entire checkout.
-    struct DigestWriter(Sha256);
-    impl std::io::Write for DigestWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.update(bytes);
-            Ok(bytes.len())
+    const PAGE: usize = 4096;
+    let decimals: [String; 256] = std::array::from_fn(|byte| format!("{byte},"));
+    let mut encoded = Vec::with_capacity(4 * PAGE);
+    let mut digest = ring::digest::Context::new(&ring::digest::SHA256);
+    digest.update(b"{");
+    for (index, (path, entry)) in tree.entries().iter().enumerate() {
+        if index > 0 {
+            digest.update(b",");
         }
-        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        digest.update(&serde_json::to_vec(path).expect("project path serializes"));
+        digest.update(b":[[");
+        let mut pages = entry.bytes.chunks(PAGE).peekable();
+        while let Some(bytes) = pages.next() {
+            encoded.clear();
+            for &byte in bytes {
+                encoded.extend_from_slice(decimals[usize::from(byte)].as_bytes());
+            }
+            if pages.peek().is_none() {
+                encoded.pop();
+            }
+            digest.update(&encoded);
+        }
+        digest.update(b"],");
+        digest.update(&serde_json::to_vec(&entry.kind).expect("entry kind serializes"));
+        let executable: &[u8] = if entry.executable { b",true]" } else { b",false]" };
+        digest.update(executable);
     }
-    let mut hasher = DigestWriter(Sha256::new());
-    {
-        let mut writer = std::io::BufWriter::new(&mut hasher);
-        serde_json::to_writer(&mut writer, &entries).expect("project serializes");
-        std::io::Write::flush(&mut writer).expect("digest writer does not fail");
-    }
-    format!("{:x}", hasher.0.finalize())
+    digest.update(b"}");
+    hex::encode(digest.finish().as_ref())
 }
 pub fn response_entry(starting: &ProjectTree, current: &ProjectTree) -> String {
     let mut entry = "response.md".to_owned();
@@ -135,9 +140,15 @@ impl Contract {
             &current,
             "Explain the successful change here.",
         );
+        let differences = self.starting.compare(&current);
+        let starting_fingerprint = if differences.is_empty() {
+            expected.clone()
+        } else {
+            fingerprint(&self.starting)
+        };
         let mut value = json!({"version":1,"boundary":self.boundary,"expected":expected,
             "context":self.workspace.as_ref().map(|(scope,_)| json!({"kind":"workspace-editors","capture":scope,"editorNamespace":hick_lang::EDITOR_BUFFER_PREFIX,"exclusions":self.inventory.exclude})),
-            "startingFingerprint":fingerprint(&self.starting),"differences":self.starting.compare(&current),
+            "startingFingerprint":starting_fingerprint,"differences":differences,
             "accepted":self.accepted.is_some(),"entry":entry,
             "template":template.as_ref().ok(),"templateError":template.as_ref().err(),
             "evidence":"source-output-equality-only","writeControl":"not-enforced"});
@@ -180,7 +191,7 @@ impl Contract {
             );
         }
         ensure!(
-            fingerprint(&self.current()?) == expected,
+            self.current()?.compare(&current).is_empty(),
             "Project changed during verification; read status and resubmit."
         );
         self.accepted = Some(Artifact {
@@ -193,13 +204,11 @@ impl Contract {
         )
     }
     pub fn completion(&mut self) -> Result<Artifact> {
-        let expected = fingerprint(&self.current()?);
-        if self
-            .accepted
-            .as_ref()
-            .is_some_and(|a| a.expected != expected)
-        {
-            self.accepted = None;
+        if let Some(artifact) = &self.accepted {
+            let expected = fingerprint(&self.current()?);
+            if artifact.expected != expected {
+                self.accepted = None;
+            }
         }
         let Some(artifact) = &self.accepted else {
             bail!(
@@ -249,6 +258,33 @@ pub fn catalogue(begin: bool) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batched_fingerprint_matches_recorded_json_encoding() {
+        use hick_lang::{EntryKind, ProjectEntry};
+        use sha2::{Digest, Sha256};
+        let mut tree = ProjectTree::default();
+        for populated in [false, true] {
+            if populated {
+                let bytes: Vec<u8> = (0..=255).cycle().take(8193).collect();
+                let mut binary = ProjectEntry::file(bytes);
+                binary.executable = true;
+                tree.insert("bin/type", binary).unwrap();
+                tree.insert("empty", ProjectEntry::file(Vec::new())).unwrap();
+                let mut link = ProjectEntry::file(b"bin/type".to_vec());
+                link.kind = EntryKind::Symlink;
+                tree.insert("link", link).unwrap();
+            }
+            let entries: BTreeMap<_, _> = tree
+                .entries()
+                .iter()
+                .map(|(path, entry)| (path, (&entry.bytes, entry.kind, entry.executable)))
+                .collect();
+            let legacy = Sha256::digest(serde_json::to_vec(&entries).unwrap());
+            assert_eq!(fingerprint(&tree), format!("{legacy:x}"));
+        }
+    }
+
     fn setup() -> (tempfile::TempDir, Contract) {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("project.md"), "<hick:project/>").unwrap();

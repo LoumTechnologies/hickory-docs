@@ -3670,6 +3670,7 @@ dependencies = [
  "protobuf",
  "regex",
  "reqwest 0.12.28",
+ "ring",
  "roxmltree",
  "rpassword",
  "rquickjs",

@@ -71,6 +71,8 @@ notify = "7"
 base64 = "0.22"
 flate2 = "1"
 sha2 = "0.10"
+# Reuse the native SHA-256 implementation in the transport dependency graph.
+ring = "0.17"
 # Private historical proposal readings use a standard keyed integrity seal.
 hmac = "=0.12.1"
 hex = "0.4"
