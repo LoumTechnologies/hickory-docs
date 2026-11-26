@@ -95,6 +95,8 @@ path validation, insertion, collision refusal and sorted comparison in the
 Construct a binary asset, a symlink and an executable script. Then change a byte,
 add an unexpected path and clear the executable bit. The assertion must name all
 three differences. Invalid portable paths and case collisions must also refuse.
+Use shared directory components to check casing conflicts even when the
+filenames differ. A sibling whose name merely starts the same is valid.
 
 <a id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths"></a>
 <book:copy id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths">
@@ -134,6 +136,12 @@ fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
         t.insert("A/child", ProjectEntry::file(b"y".to_vec()))
             .is_err()
     );
+    let mut nested = tree(&[("src/main.rs", b"x")]);
+    let second = ProjectEntry::file(b"y".to_vec());
+    assert!(nested.insert("Src/other.rs", second.clone()).is_err());
+    assert!(nested.insert("src", second.clone()).is_err());
+    nested.insert("src/main.rs.bak", second.clone()).unwrap();
+    nested.insert("src-old/main.rs", second).unwrap();
 }
 </book:copy>
 

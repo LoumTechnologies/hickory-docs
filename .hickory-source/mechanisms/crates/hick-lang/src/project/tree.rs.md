@@ -220,26 +220,27 @@ pub(crate) fn copy_origins(
 <a id="f-a485394d6759-validate_path_collision"></a>
 ### `validate_path_collision`
 
+Whole-project evaluation compares many pairs of authored and generated paths.
+Compare components in one pass and construct an error string only on a clash.
+Distinct siblings can share a textual prefix. A shared directory still needs
+one spelling on every platform, and a file path cannot be another file's parent.
+
 <storycode:copy id="f-a485394d6759-validate_path_collision">
 pub(crate) fn validate_path_collision(existing: &str, path: &str) -> Result<(), String> {
-    for (left, right) in existing.split('/').zip(path.split('/')) {
-        if !left.eq_ignore_ascii_case(right) {
-            break;
-        }
-        if left != right {
-            return Err(format!(
-                "ambiguous project path casing: {existing} and {path}"
-            ));
+    let mut existing_components = existing.split('/');
+    let mut path_components = path.split('/');
+    loop {
+        match (existing_components.next(), path_components.next()) {
+            (Some(left), Some(right)) if left == right => {}
+            (Some(left), Some(right)) if left.eq_ignore_ascii_case(right) => {
+                return Err(format!(
+                    "ambiguous project path casing: {existing} and {path}"
+                ));
+            }
+            (Some(_), Some(_)) | (None, None) => return Ok(()),
+            _ => return Err(format!("project path collision: {existing} and {path}")),
         }
     }
-    if existing != path
-        && (existing.eq_ignore_ascii_case(path)
-            || existing.starts_with(&format!("{path}/"))
-            || path.starts_with(&format!("{existing}/")))
-    {
-        return Err(format!("project path collision: {existing} and {path}"));
-    }
-    Ok(())
 }
 </storycode:copy>
 

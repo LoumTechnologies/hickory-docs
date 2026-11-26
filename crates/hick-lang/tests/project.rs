@@ -183,6 +183,12 @@ fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
         t.insert("A/child", ProjectEntry::file(b"y".to_vec()))
             .is_err()
     );
+    let mut nested = tree(&[("src/main.rs", b"x")]);
+    let second = ProjectEntry::file(b"y".to_vec());
+    assert!(nested.insert("Src/other.rs", second.clone()).is_err());
+    assert!(nested.insert("src", second.clone()).is_err());
+    nested.insert("src/main.rs.bak", second.clone()).unwrap();
+    nested.insert("src-old/main.rs", second).unwrap();
 }
 // Guarantee: docs/guarantees/literate-projects/comparison-permissions-and-evidence-are-independent.md
 #[test]
