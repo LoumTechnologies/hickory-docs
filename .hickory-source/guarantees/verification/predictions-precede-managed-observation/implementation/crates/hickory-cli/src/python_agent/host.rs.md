@@ -97,6 +97,15 @@ impl Host<'_> {
         let name = params["name"]
             .as_str()
             .context("Tool name must be a string")?;
+        if name == "propose_workspace_changes" {
+            ensure!(
+                self.review.ui_tools().iter().any(|tool| tool["name"] == name),
+                "This client does not support sealed project proposals"
+            );
+            let arguments = params.get("arguments").cloned().context("Proposal arguments are missing")?;
+            ensure!(arguments.is_object(), "Tool arguments must be an object");
+            return self.review.ui_call(name, arguments).await;
+        }
         ensure!(
             allowed(name),
             "Tool {name} is not exposed by the Python agent"

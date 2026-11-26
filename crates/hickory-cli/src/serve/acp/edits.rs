@@ -84,6 +84,13 @@ impl Edits {
     pub fn snapshot(&self) -> Value {
         json!({"mode":*self.mode.lock().unwrap(),"changes":*self.changes.lock().unwrap(),"captureRequest":self.refresh.lock().unwrap().as_ref().map(|(id,_)|id.clone())})
     }
+    pub fn pending_disk_reviews(&self) -> Value {
+        let changes = self.changes.lock().unwrap();
+        json!({
+            "changes": changes.iter().filter(|c| !c.editor && c.status == "pending").collect::<Vec<_>>(),
+            "captureRequest": self.refresh.lock().unwrap().as_ref().map(|(id,_)|id.clone()),
+        })
+    }
     pub fn buffer(&self, args: &Value) -> Option<EditorBuffer> {
         let buffers = self.buffers.lock().unwrap();
         if let Some(id) = args["buffer"].as_str() {
@@ -171,20 +178,39 @@ impl Edits {
         Ok(id)
     }
     pub fn resolve(&self, id: &str, result: Result<(), String>) -> Result<()> {
+        self.resolve_matching(id, result, |_| true)
+    }
+    pub fn resolve_disk_review(
+        &self, id: &str, before: &str, after: &str, accepted: bool,
+    ) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        self.resolve_matching(
+            id,
+            if accepted { Ok(()) } else { Err("The user rejected the edit.".into()) },
+            |change| {
+                !change.editor && change.status == "pending"
+                    && format!("{:x}", Sha256::digest(change.old_text.as_bytes())) == before
+                    && format!("{:x}", Sha256::digest(change.new_text.as_bytes())) == after
+            },
+        )
+    }
+    fn resolve_matching(
+        &self, id: &str, result: Result<(), String>, matches: impl FnOnce(&Change) -> bool,
+    ) -> Result<()> {
+        // Hold the same lock as revise until the reply is claimed, so a revision
+        // made in another client cannot inherit an earlier preview's decision.
+        let mut changes = self.changes.lock().unwrap();
+        let change = changes.iter_mut().find(|c| c.id == id)
+            .filter(|change| matches(change))
+            .context("This edit is no longer pending or its preview changed. Read it again.")?;
         let tx = self
             .replies
             .lock()
             .unwrap()
             .remove(id)
             .context("This edit is no longer pending.")?;
-        if let Some(change) = self.changes.lock().unwrap().iter_mut().find(|c| c.id == id) {
-            change.status = if result.is_ok() {
-                "accepted"
-            } else {
-                "rejected"
-            }
-            .into();
-        }
+        change.status = if result.is_ok() { "accepted" } else { "rejected" }.into();
+        drop(changes);
         let _ = tx.send(result);
         Ok(())
     }
@@ -267,6 +293,25 @@ pub fn replacement(source: &str, args: &Value) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn disk_review_rejects_revised_bytes_without_consuming_decision() {
+        use sha2::{Digest, Sha256};
+        let digest = |text: &str| format!("{:x}", Sha256::digest(text.as_bytes()));
+        let edits = Edits::default();
+        let mut result = Box::pin(edits.submit(
+            "edit_doc".into(), Some("project.md".into()), "old\n".into(), "new\n".into(), false,
+        ));
+        assert!(futures::poll!(&mut result).is_pending());
+        let pending = edits.pending_disk_reviews();
+        let id = pending["changes"][0]["id"].as_str().unwrap();
+        edits.revise(id, "revised\n".into()).unwrap();
+        assert!(edits.resolve_disk_review(id, &digest("old\n"), &digest("new\n"), true).is_err());
+        assert!(futures::poll!(&mut result).is_pending());
+        edits.resolve_disk_review(id, &digest("old\n"), &digest("revised\n"), true).unwrap();
+        assert_eq!(result.await.unwrap(), id);
+        assert!(edits.pending_disk_reviews()["changes"].as_array().unwrap().is_empty());
+    }
     // Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
     #[tokio::test]
     async fn fresh_context_is_token_bound_and_cancellable_even_without_initial_editors() {

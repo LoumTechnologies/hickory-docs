@@ -12,6 +12,12 @@ Policy changes during a running turn are allowed only at a pending proposal.
 Mandatory private prediction and source-incorporation reviews remain independent.
 An empty queue has no permissions row or explanatory banner.
 
+On Apple Simple, a pending Python edit appears beside the composer. The
+comparison lets the author approve or reject those exact bytes without changing
+future policy. If the proposal is revised or its turn ends, the old comparison
+cannot decide it. Approval permits the host's guarded attempt; it is not a
+receipt that the edit was saved or verified.
+
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
 ## Read the detailed requirements

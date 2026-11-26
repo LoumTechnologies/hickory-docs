@@ -620,6 +620,8 @@ struct PaneView: View {
             let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
             AgentPane(engine: workspace.engine, session: workspace.agent, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
                 Task { await workspace.agentProposals.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: line) }
+            }, openProjectProposals: {
+                Task { await workspace.agentProposals.open(workspace) }
             }, workspaceCurrent: { [weak workspace] in
                 guard let workspace else { return false }
                 return workspace.sourceNavigationEpoch == epoch && exactUTF8(workspace.sourceRootAddress, root)

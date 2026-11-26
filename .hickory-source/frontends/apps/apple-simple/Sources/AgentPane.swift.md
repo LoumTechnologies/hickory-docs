@@ -3,7 +3,8 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-Agent state belongs to its pane and never drives document rendering. Poll the existing durable history independently, cancelling the loop when the pane disappears. This first slice shows completed answers rather than token streaming.
+Agent state belongs to its pane and never drives document rendering. Poll durable
+history independently, cancelling the loop when the pane disappears.
 
 The run channel provides immediate progress and usage. The history read still
 confirms the recorded answer before fence actions can use it. Frames that arrive
@@ -14,11 +15,48 @@ Send and edit refresh keep the originating editor snapshot on the host. An expli
 empty reading projection keeps that snapshot out of model input. The composer tells
 users how to supply an excerpt when they want the model to read one.
 
+The activity channel is not authority for writes. Read pending previews from the
+workspace host, and send a decision tied to the running turn and both exact byte
+hashes. If another reviewer revises the proposal while the sheet is open, neither
+its old Approve nor its old Reject button can decide the new proposal.
+
+The desktop patterns we take from OpenCode are small: keep the composer
+separate from turn state, make Stop and pending review visible, and hide
+secondary actions until asked for. A branch change or explicit jump scrolls
+to the latest message; activity updates don't take the reader's scroll position.
+Keep Hickory's native recorded editors and their revision-bound action tools.
+
 <ui:copy id="simple-42e0887630-0">
 import SwiftUI
 import Observation
 
+struct NativePendingAgentReview: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let path: String?
+    let oldText: String
+    let newText: String
+    let editor: Bool
+    let status: String
+
+    func matches(_ other: Self) -> Bool {
+        id == other.id && !editor && !other.editor && status == "pending" && other.status == "pending"
+            && exactUTF8(oldText, other.oldText) && exactUTF8(newText, other.newText)
+    }
+}
+
 @MainActor @Observable final class AgentSession {
+    private static let pythonPath = "/api/docs/workspace/agent/python"
+    private struct ReviewState: Decodable {
+        struct Edits: Decodable { let captureRequest: String?; let changes: [NativePendingAgentReview] }
+        let turn: String?
+        let edits: Edits?
+    }
+    private(set) var pendingReviews: [NativePendingAgentReview] = []
+    private(set) var reviewTurn: String?
+    private(set) var reviewBusy = false
+    private(set) var reviewError = ""
+    private(set) var reviewReadError = ""
     var turns: [AgentTurn] = []
     struct Selection { let id: String?; var userFork: Bool? = nil }
     var selection: Selection?
@@ -46,6 +84,9 @@ import Observation
     }
     func resetHistory() {
         turns = []; selection = nil; historyLoaded = false; messageForks = false; historyError = ""; liveTurn = nil; sending = false; mutation += 1; earlyEvents.removeAll()
+        pendingReviews = []; reviewTurn = nil; reviewBusy = false; reviewError = ""; reviewReadError = ""
+        activity = [:]; stopPending = false; totals = nil
+        documents.removeAll()
     }
     var totals: AgentTotals?
     var activity: [String: NativeAgentActivity] = [:]
@@ -163,7 +204,12 @@ import Observation
                     historyError = ""
                     totals = history.totals
                     if !canStop { stopPending = false }
-                    try await answerCapture(engine, mutation: mutation, current: current)
+                    do { try await observeReviews(engine, mutation: mutation, current: current) }
+                    catch {
+                        if !Task.isCancelled, current(), mutation == self.mutation {
+                                reviewReadError = "Cannot refresh agent review: \(error.localizedDescription)"
+                        }
+                    }
                 }
             } catch {
                 guard !Task.isCancelled, current() else { return }
@@ -173,22 +219,47 @@ import Observation
         }
     }
 
-    private func answerCapture(_ engine: Engine, mutation: Int, current: () -> Bool) async throws {
-        guard let turn = liveTurn else { return }
-        guard turns.contains(where: { $0.id == turn && $0.status == "running" }) else {
+    private func observeReviews(_ engine: Engine, mutation: Int, current: () -> Bool) async throws {
+        guard let running = turns.last, running.status == "running", running.backend == "python" || running.id == liveTurn else {
             liveTurn = nil
+            pendingReviews = []
+            reviewTurn = nil
+            reviewReadError = ""
             return
         }
-        struct CaptureState: Decodable {
-            struct Edits: Decodable { let captureRequest: String? }
-            let turn: String?
-            let edits: Edits?
-        }
-        let state: CaptureState = try await engine.request("GET", "/api/docs/workspace/agent/python")
-        guard !Task.isCancelled, current(), mutation == self.mutation, turn == liveTurn, state.turn == turn,
-              let capture = state.edits?.captureRequest, let context = try liveAgentContext() else { return }
-        let _: CaptureState = try await engine.request("POST", "/api/docs/workspace/agent/python/review",
+        let state: ReviewState = try await engine.request("GET", Self.pythonPath, query: [URLQueryItem(name: "view", value: "pending")])
+        guard !Task.isCancelled, current(), mutation == self.mutation else { return }
+        reviewReadError = ""
+        reviewTurn = state.turn == running.id ? state.turn : nil
+        pendingReviews = reviewTurn == nil ? [] : (state.edits?.changes ?? []).filter { !$0.editor && $0.status == "pending" }
+        guard reviewTurn == liveTurn, liveTurn != nil, let capture = state.edits?.captureRequest,
+              let context = try liveAgentContext() else { return }
+        let _: ReviewState = try await engine.request("POST", Self.pythonPath + "/review",
             body: ["capture_request": capture, "context": context])
+    }
+
+    func canDecide(_ review: NativePendingAgentReview, turn: String) -> Bool {
+        !reviewBusy && !stopPending && reviewTurn == turn && tip == turn
+            && pendingReviews.contains { $0.matches(review) }
+    }
+
+    func decide(_ review: NativePendingAgentReview, turn: String, accepted: Bool, engine: Engine?, current: () -> Bool) async -> Bool {
+        guard let engine, current(), canDecide(review, turn: turn) else { return false }
+        reviewBusy = true; reviewError = ""; mutation += 1
+        defer { if current() { reviewBusy = false; mutation += 1 } }
+        do {
+            struct Decision: Decodable { let received: Bool }
+            let result: Decision = try await engine.request("POST", Self.pythonPath + "/review-exact", body: [
+                "turn": turn, "id": review.id, "accepted": accepted,
+                "before": nativeSourceHash(review.oldText), "after": nativeSourceHash(review.newText),
+            ])
+            guard current(), result.received else { return false }
+            pendingReviews.removeAll { $0.matches(review) }
+            return true
+        } catch {
+            if current() { reviewError = error.localizedDescription }
+            return false
+        }
     }
 }
 </ui:copy>
@@ -494,6 +565,12 @@ struct NativeAgentStatus: View {
     @Bindable var session: AgentSession
     let engine: Engine?
     @State private var codexModels = [String]()
+    private struct APIProvider: Decodable, Identifiable {
+        let id: String
+        let label: String
+        let configured: Bool
+    }
+    @State private var apiProviders: [APIProvider] = []
     @State private var open = false
     @State private var custom = false
     private var tokens: Int {
@@ -504,28 +581,32 @@ struct NativeAgentStatus: View {
         switch session.provider {
         case "claude-subscription": ["sonnet", "opus", "haiku"]
         case "grok-subscription": ["grok-build"]
-        default: codexModels.isEmpty ? ["gpt-6.1-sol"] : codexModels
+        case "codex-subscription": codexModels.isEmpty ? ["gpt-6.1-sol"] : codexModels
+        default: []
         }
     }
     private var providerIcon: String {
         switch session.provider {
         case "claude-subscription": "asterisk"
         case "grok-subscription": "diamond"
-        default: "command"
+        case "codex-subscription": "command"
+        default: "key"
         }
     }
     private var efforts: [String] {
         switch session.provider {
         case "claude-subscription": ["low", "medium", "high", "xhigh", "max"]
         case "grok-subscription": []
-        default: ["low", "medium", "high", "xhigh", "max"]
+        case "codex-subscription": ["low", "medium", "high", "xhigh", "max"]
+        default: []
         }
     }
     private var login: String {
         switch session.provider {
         case "claude-subscription": "claude auth login"
         case "grok-subscription": "grok login"
-        default: "codex login"
+        case "codex-subscription": "codex login"
+        default: ""
         }
     }
 
@@ -536,23 +617,28 @@ struct NativeAgentStatus: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: providerIcon)
-                Text(session.model.isEmpty ? models[0] : session.model).lineLimit(1)
-                Image(systemName: "speedometer")
-                Text(session.effort.isEmpty ? "Default" : session.effort)
+                Text(session.model.isEmpty ? (models.first ?? apiProviders.first { $0.id == session.provider }?.label ?? session.provider) : session.model).lineLimit(1)
+                if !efforts.isEmpty {
+                    Image(systemName: "speedometer")
+                    Text(session.effort.isEmpty ? "Default" : session.effort)
+                }
             }
         }.accessibilityLabel("Agent settings")
-            .popover(isPresented: $open, arrowEdge: .bottom) {
+                .popover(isPresented: $open, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("Provider", selection: $session.provider) {
                         Text("Codex subscription").tag("codex-subscription")
                         Text("Claude subscription").tag("claude-subscription")
                         Text("Grok subscription").tag("grok-subscription")
+                        ForEach(apiProviders.filter { $0.configured || $0.id == session.provider }) { provider in
+                            Text("\(provider.label) API · billed separately").tag(provider.id)
+                        }
                     }.onChange(of: session.provider) { _, _ in session.model = ""; session.effort = ""; custom = false }
                     Picker("Model", selection: Binding(get: { custom ? "custom" : session.model }, set: { value in
                         custom = value == "custom"
                         if !custom { session.model = value }
                     })) {
-                        Text("Provider default (\(models[0]))").tag("")
+                        Text(models.first.map { "Provider default (\($0))" } ?? "Provider default").tag("")
                         ForEach(models, id: \.self) { Text($0).tag($0) }
                         Text("Custom model…").tag("custom")
                     }
@@ -561,7 +647,8 @@ struct NativeAgentStatus: View {
                         Text(efforts.isEmpty ? "Managed by provider" : "Default").tag("")
                         ForEach(efforts, id: \.self) { Text($0).tag($0) }
                     }.disabled(reason: efforts.isEmpty ? "The selected model does not expose effort settings." : nil)
-                    Text("Model presets depend on subscription access. Sign in on the workspace server with \(login).")
+                    Text(login.isEmpty ? "Uses the API key configured on the workspace host. This is not subscription billing."
+                         : "Sign in on the workspace host with \(login). Configured API providers can be selected above.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.disabled(reason: session.running ? "Wait for the current agent turn to finish." : nil).padding(12).frame(idealWidth: 320)
                  .task(id: session.provider) {
@@ -574,9 +661,16 @@ struct NativeAgentStatus: View {
                      }
                  }
                  #if os(iOS)
-                 .presentationCompactAdaptation(.popover)
-                 #endif
-            }
+                  .presentationCompactAdaptation(.popover)
+                  #endif
+             }
+             .task(id: open) {
+                 guard open, let engine else { return }
+                 struct Listing: Decodable { let providers: [APIProvider] }
+                 if let listing: Listing = try? await engine.request("GET", "/api/settings/keys"), !Task.isCancelled {
+                     apiProviders = listing.providers
+                 }
+             }
         if tokens > 0 {
             Text("\(tokens.formatted()) tokens").lineLimit(1)
             if !session.running, let totals = session.totals, totals.subscription != true, let usd = totals.usd {
@@ -617,34 +711,62 @@ struct AgentPane: View {
     var workspaceAddress: String? = nil
     var workspaceID: String? = nil
     var reviewPatch: ((DocumentBuffer, NativeRecordedMessageSource, Int) -> Void)? = nil
+    var openProjectProposals: (() -> Void)? = nil
     var workspaceCurrent: @MainActor () -> Bool = { true }
+    private struct OpenReview: Identifiable {
+        let turn: String
+        let change: NativePendingAgentReview
+        var id: String { change.id }
+    }
+    @State private var openReview: OpenReview?
+    private enum ConversationAnchor: Hashable { case latest }
     #if os(iOS)
     @State private var recordedInspection: NativeDebugInspector?
     #endif
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text("Workspace agent").bold(); Spacer(); Button("New conversation") { session.select(nil) }.disabled(session.running) }.padding(12)
+            ScrollViewReader { scroll in
+            HStack {
+                Text("Agent").font(.headline)
+                Spacer()
+                if session.tip != nil {
+                    Button { scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom) } label: {
+                        Image(systemName: "arrow.down.to.line")
+                    }.accessibilityLabel("Jump to latest message").help("Jump to latest message")
+                }
+                Button { session.select(nil) } label: {
+                    Image(systemName: "square.and.pencil")
+                }.disabled(session.running).accessibilityLabel("New conversation").help("New conversation")
+            }.buttonStyle(.borderless).padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if session.transcript.isEmpty {
                         Text("What shall we work on?").font(.title2).padding(.top, 24)
-                        Text("Write a literate document below. Code and explanations belong together.").foregroundStyle(.secondary)
+                        Text("Ask a question or describe a change. Paste any source you want the agent to see.").foregroundStyle(.secondary)
                     }
                     ForEach(session.transcript) { row in
                         let turn = row.turn
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("You").font(.caption).foregroundStyle(.secondary)
-                            if session.messageForks && (turn.backend == nil || turn.backend == "python") {
-                                Button("Branch from user message") { session.select(turn.id, fork: true) }.disabled(session.running)
+                            HStack {
+                                Text("You").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                if session.messageForks && (turn.backend == nil || turn.backend == "python") {
+                                    Menu {
+                                        Button("Branch from user message") { session.select(turn.id, fork: true) }
+                                        if !row.userOnly && turn.answer != nil {
+                                            Button("Branch from assistant message") { session.select(turn.id, fork: false) }
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                    }.buttonStyle(.plain).fixedSize().disabled(session.running)
+                                        .accessibilityLabel("Message actions")
+                                }
                             }
                             message(session.document("\(turn.id)-user", turn.prompt), turn: turn.id, side: .user).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 12)).padding(.leading, 24)
                             if !row.userOnly {
                             let activity = session.activity[turn.id]
                             Text(turn.model.map { "Agent · \($0)" } ?? "Agent").font(.caption).foregroundStyle(.secondary)
-                            if session.messageForks && turn.answer != nil && (turn.backend == nil || turn.backend == "python") {
-                                Button("Branch from assistant message") { session.select(turn.id, fork: false) }.disabled(session.running)
-                            }
                             if let tools = activity?.tools, !tools.isEmpty {
                                 DisclosureGroup("Tool calls (\(tools.count))") {
                                     ForEach(tools.indices, id: \.self) { index in
@@ -654,11 +776,15 @@ struct AgentPane: View {
                                         }
                                     }
                                 }.font(.caption)
+                                if let openProjectProposals, tools.contains(where: { $0.name == "propose_workspace_changes" && $0.ok == true }) {
+                                    Button("Review proposed project changes", action: openProjectProposals)
+                                        .font(.callout)
+                                }
                             }
                             if turn.status == "running" {
                                 HStack {
                                     ProgressView().controlSize(.small)
-                                    Text(session.stopPending ? "Stopping…" : activity?.phase ?? "Starting…")
+                                    Text(session.stopPending ? "Stopping…" : session.reviewTurn == turn.id && !session.pendingReviews.isEmpty ? "Waiting for your review" : activity?.phase ?? "Starting…")
                                 }.font(.caption).foregroundStyle(.secondary)
                             }
                             if let answer = turn.answer ?? turn.error ?? activity?.answer {
@@ -671,14 +797,29 @@ struct AgentPane: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    Color.clear.frame(height: 1).id(ConversationAnchor.latest).accessibilityHidden(true)
                 }.padding(10)
             }.accessibilityLabel("Conversation")
+             .onChange(of: session.tip, initial: true) { _, _ in
+                 scroll.scrollTo(ConversationAnchor.latest, anchor: .bottom)
+             }
+            }
             if let user = session.selection?.userFork { Text("New branch from \(user ? "user" : "assistant") message. Send to start it.").font(.caption) }
-            if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
+            if let turn = session.reviewTurn, turn == session.tip {
+                ForEach(session.pendingReviews) { change in
+                    Button {
+                        openReview = OpenReview(turn: turn, change: change)
+                    } label: {
+                        Label("Review \(change.path ?? change.name)", systemImage: "doc.badge.ellipsis").lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 4)
+                }
+            }
+            if let error = [session.error, session.reviewError, session.reviewReadError, session.historyError].first(where: { !$0.isEmpty }) {
+                Text(error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled)
+            }
             Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Your message · Paste any source excerpts you want the model to read.").font(.caption).foregroundStyle(.secondary)
-                NativeEditor(buffer: session.draft).id(session.draft.id).frame(height: 140).accessibilityLabel("Message")
+            VStack(alignment: .leading, spacing: 4) {
+                NativeEditor(buffer: session.draft).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
                 HStack {
                     Spacer()
                     if session.canStop {
@@ -689,10 +830,36 @@ struct AgentPane: View {
                         Button { Task { await send() } } label: {
                             Image(systemName: "arrow.up").frame(width: 24, height: 24)
                         }.accessibilityLabel("Send")
-                            .disabled(reason: session.running ? "Wait for the current agent turn to finish." : session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Enter a message first." : engine == nil ? "Connect to a workspace server first." : nil)
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .help("Send (⌘↩)")
+                            .disabled(reason: sendDisabled)
                     }
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .sheet(item: $openReview) { proposal in
+            VStack(alignment: .leading, spacing: 12) {
+                Text(proposal.change.path ?? proposal.change.name).font(.headline)
+                Text("Compare the saved source with the proposed replacement. Approval lets the host recheck and attempt the edit; it does not save an editor draft or verify the result.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        reviewText("Before", proposal.change.oldText)
+                        reviewText("Proposed", proposal.change.newText)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !session.reviewError.isEmpty {
+                    Text(session.reviewError).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                }
+                HStack {
+                    Button("Close") { openReview = nil }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Group {
+                        Button("Reject") { decide(proposal, accepted: false) }
+                        Button("Approve") { decide(proposal, accepted: true) }.buttonStyle(.borderedProminent)
+                    }.disabled(reason: !session.canDecide(proposal.change, turn: proposal.turn) ? "This preview is no longer actionable. Close and read the current review." : nil)
+                }
+            }.padding().frame(idealWidth: 680, minHeight: 360, idealHeight: 500)
         }
         #if os(iOS)
         .sheet(item: $recordedInspection) { inspection in
@@ -701,6 +868,29 @@ struct AgentPane: View {
             }
         }
         #endif
+    }
+    private func reviewText(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline.bold())
+            if text.isEmpty {
+                Text("Empty").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text(verbatim: text).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+            }
+        }
+    }
+    private func decide(_ review: OpenReview, accepted: Bool) {
+        Task {
+            if await session.decide(review.change, turn: review.turn, accepted: accepted, engine: engine, current: workspaceCurrent),
+               openReview?.id == review.id { openReview = nil }
+        }
+    }
+    private var sendDisabled: String? {
+        if engine == nil { return "Connect to a workspace server first." }
+        if !session.historyLoaded { return "Wait for conversation history to load." }
+        if session.running { return "Wait for the current agent turn to finish." }
+        if session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a message first." }
+        return nil
     }
 </ui:copy>
 
@@ -736,7 +926,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
             .accessibilityLabel(side == .user ? "Recorded user message" : "Recorded assistant message")
     }
     private func send() async {
-        guard let engine, !session.running, !session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let engine, workspaceCurrent(), sendDisabled == nil else { return }
         let submitted = session.prompt
         let parent = session.tip, fork = session.selection?.userFork
         if let backend = session.turns.first(where: { $0.id == parent })?.backend, backend != "python" {
@@ -747,9 +937,7 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
             session.error = "This workspace server does not support message branches. Update the server before sending."
             return
         }
-        #if os(iOS)
         let submittedDraft = session.draft.sourceEditIdentity
-        #endif
         session.sending = true; session.error = ""; session.mutation += 1
         defer { if workspaceCurrent() { session.replayEarlyEvents(for: ""); session.sending = false; session.mutation += 1 } }
         do {
@@ -760,14 +948,12 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
             session.selection = .init(id: started.session_id)
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running", parent_id: parent, parent_is_user: fork))
             session.replayEarlyEvents(for: started.session_id)
-            #if os(iOS)
             if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
                 session.prompt = ""
+                #if os(iOS)
                 session.draft.releaseSourceFocus?()
+                #endif
             }
-            #else
-            if session.prompt == submitted { session.prompt = "" }
-            #endif
         } catch { if workspaceCurrent() { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." } }
     }
 }

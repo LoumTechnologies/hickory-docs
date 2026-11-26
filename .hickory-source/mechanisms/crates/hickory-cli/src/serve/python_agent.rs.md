@@ -277,7 +277,12 @@ pub async fn snapshot(
         }
     }
     let result = runtime(&state);
-    let edits = queue(&state, &doc).edits.snapshot();
+    let queue = queue(&state, &doc);
+    let edits = if selection.get("view").is_some_and(|view| view == "pending") {
+        queue.edits.pending_disk_reviews()
+    } else {
+        queue.edits.snapshot()
+    };
     let turn = state.agent.turns.lock().unwrap().get(&doc)
         .and_then(|turns| turns.last())
         .filter(|turn| turn.status == "running")
@@ -361,6 +366,35 @@ pub async fn decide(
             .map_err(|e| ApiError::unprocessable(e.to_string()))?;
     }
     snapshot(State(state), Path(doc), Query(Default::default())).await
+}
+
+fn running_review_turn(state: &LocalState, doc: &str) -> Option<String> {
+    state.agent.turns.lock().unwrap().get(doc)
+        .and_then(|turns| turns.last()).filter(|turn| turn.status == "running")
+        .map(|turn| turn.id.clone())
+}
+
+#[derive(Deserialize)]
+struct ExactReviewDecision {
+    turn: String,
+    id: String,
+    before: String,
+    after: String,
+    accepted: bool,
+}
+
+async fn decide_exact(
+    State(state): State<LocalState>,
+    Path(doc): Path<String>,
+    Json(body): Json<ExactReviewDecision>,
+) -> ApiResult<Json<Value>> {
+    super::agent_context::subject(&state, &doc)?;
+    if running_review_turn(&state, &doc).as_deref() != Some(body.turn.as_str()) {
+        return Err(ApiError::conflict("The originating agent turn is no longer running."));
+    }
+    queue(&state, &doc).edits.resolve_disk_review(&body.id, &body.before, &body.after, body.accepted)
+        .map_err(|e| ApiError::conflict(e.to_string()))?;
+    Ok(Json(json!({"received":true})))
 }
 </storycode:copy>
 <a id="f-89d47ddc390d-session_backend"></a>
@@ -848,6 +882,7 @@ pub(super) fn routes() -> axum::Router<LocalState> {
         .route("/agents/python", get(settings).put(configure))
         .route("/docs/{id}/agent/python", get(snapshot))
         .route("/docs/{id}/agent/python/review", post(decide))
+        .route("/docs/{id}/agent/python/review-exact", post(decide_exact))
 }
 
 </storycode:copy>

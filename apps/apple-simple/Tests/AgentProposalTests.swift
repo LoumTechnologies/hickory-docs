@@ -7,6 +7,13 @@ import Darwin
 #endif
 @testable import HickorySimple
 final class AgentProposalTests:XCTestCase {
+  func testConversationPreviewDoesNotMatchByteDistinctRevision() {
+   let old = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "\u{e9}", editor: false, status: "pending")
+   let revised = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "e\u{301}", editor: false, status: "pending")
+   XCTAssertEqual(old.newText, revised.newText)
+   XCTAssertTrue(old.matches(old))
+   XCTAssertFalse(old.matches(revised))
+  }
  #if os(macOS)
  @MainActor func testLiveHistoricalProposalKeepsDirtyEditorAndHasNoApply()async throws {
   let env=ProcessInfo.processInfo.environment;guard let origin=env["HICKORY_PROPOSAL_HISTORY_ORIGIN"],let root=env["HICKORY_PROPOSAL_HISTORY_WORKSPACE"],let token=env["HICKORY_PROPOSAL_HISTORY_TOKEN"],let fingerprint=env["HICKORY_PROPOSAL_HISTORY_FINGERPRINT"] else{throw XCTSkip("Run the owned proposal-history host fixture.")};let directory=URL(fileURLWithPath:root);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent(".hickory-proposal-archive-fixture"),encoding:.utf8),"owned-proposal-archive-v1\n")

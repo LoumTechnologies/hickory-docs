@@ -429,7 +429,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         let model = Model::new([
             json!({"python":"tool('record_assumption', {'statement':'The meeting note is current', 'reason':'Summary may omit new facts', 'evidence':['User supplied context'], 'falsifier':'A newer note'})\ntool('create_doc', {'path':'proposal.md', 'input':'AI proposal'})"}),
             json!({"done":"Stopped without verification."}),
-            json!({"python":"tool('create_doc', {'path':'second.md', 'input':'Approved by conversation policy'})"}),
+            json!({"tool":"create_doc","arguments":{"path":"second.md","input":"Approved by conversation policy"}}),
             json!({"done":"Follow-up stopped."}),
         ]);
         app.state.agent.set_llm_override(model.clone());
@@ -467,27 +467,33 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             app.request("GET", &app.route("/python"), json!({})).await.1["edits"]["mode"],
             "auto-accept"
         );
-        assert_eq!(
-            app.request(
-                "POST",
-                &app.route("/python/review"),
-                json!({"id":change["id"],"accepted":accept,"error":if accept { None } else { Some("Human rejects this summary's premise") }})
-            )
-            .await
-            .0,
-            200
-        );
+        use sha2::{Digest, Sha256};
+        let digest = |text: &str| format!("{:x}", Sha256::digest(text.as_bytes()));
+        let exact_route = app.route("/python/review-exact");
+        let mut decision = json!({"turn":turn_id,"id":change["id"],"accepted":true,
+            "before":digest(""),"after":digest("obsolete preview")});
+        assert_eq!(app.request("POST", &exact_route, decision.clone()).await.0, 409);
+        assert!(!app.root.join("proposal.md").exists());
+        if accept {
+            decision["after"] = json!(digest("AI proposal\n"));
+            assert_eq!(app.request("POST", &exact_route, decision).await.0, 200);
+        } else {
+            assert_eq!(
+                app.request(
+                    "POST",
+                    &app.route("/python/review"),
+                    json!({"id":change["id"],"accepted":false,"error":"Human rejects this summary's premise"})
+                )
+                .await
+                .0,
+                200
+            );
+        }
         let turn = app.wait(&turn_id).await;
         assert_eq!(turn["status"], "ok");
         assert_eq!(turn["backend"], "python");
         assert_eq!(turn["provider"], "scripted");
         assert!(turn["answer"].as_str().unwrap().starts_with("<hick:doc"));
-        assert!(
-            turn["answer"]
-                .as_str()
-                .unwrap()
-                .contains("Source-output equality verified")
-        );
         assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
@@ -591,6 +597,12 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .map(|s| serde_json::from_str(s).unwrap())
                 .collect()
         };
+        // Verification lives in the host's evidence, not in a phrase the model
+        // must put in the authored construction.
+        let artifacts = contexts("python-verified-changeset");
+        let artifact = artifacts.first().expect("host-verified changeset");
+        let entry = artifact["entry"].as_str().unwrap();
+        assert_eq!(turn["answer"], artifact["sources"][entry]);
         let manifests = contexts("python-context-manifest");
         let deliveries = contexts("python-context-delivery");
         assert_eq!(manifests.len(), requests.len());
