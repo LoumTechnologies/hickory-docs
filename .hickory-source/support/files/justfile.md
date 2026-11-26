@@ -30,6 +30,12 @@ or APK for distribution.
 Keep Cargo's build and lock status visible for macOS launch and reload, before
 the Rust launcher can report which native startup step it is running.
 
+The Apple build and test recipes select full Xcode before invoking SwiftPM or
+Xcode build tools. SwiftUI's macro plugins come from full Xcode. When the
+Command Line Tools are selected globally, look for a full installation under
+`/Applications` and set `DEVELOPER_DIR` only for the recipe. An explicit
+`DEVELOPER_DIR` keeps the caller in control of which installation is used.
+
 <maint:entry path="justfile">
 # Hickory Docs task runner — the only entry point for project tasks.
 
@@ -416,6 +422,26 @@ test-startup:
     cd apps/web && npm run typecheck && npm test -- src/api/client.test.ts
 
 
+# Resolve full Xcode without changing the machine's toolchain selection.
+_xcode-developer-dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if xcodebuild -version >/dev/null 2>&1; then
+      exec xcode-select -p
+    fi
+    if [ -z "${DEVELOPER_DIR:-}" ]; then
+      for developer in /Applications/Xcode*.app/Contents/Developer; do
+        if [ -x "$developer/usr/bin/xcodebuild" ]; then
+          export DEVELOPER_DIR="$developer"
+        fi
+      done
+      if [ -n "${DEVELOPER_DIR:-}" ] && xcodebuild -version >/dev/null 2>&1; then
+        exec xcode-select -p
+      fi
+    fi
+    echo 'A working full Xcode installation is required. Install Xcode and set DEVELOPER_DIR to its Contents/Developer directory.' >&2
+    exit 2
+
 # Stage the native app, workspace host and shared editor assets together.
 build-desktop-app configuration="Debug":
     #!/usr/bin/env bash
@@ -427,11 +453,8 @@ build-desktop-app configuration="Debug":
       *) echo 'Choose Debug or Release.' >&2; exit 2 ;;
     esac
     if [ "$(uname -s)" != Darwin ]; then echo 'Build this app on macOS with Xcode.' >&2; exit 2; fi
-    if ! xcodebuild -version >/dev/null 2>&1 && [ -z "${DEVELOPER_DIR:-}" ]; then
-      for xcode in /Applications/Xcode*.app/Contents/Developer; do
-        if [ -x "$xcode/usr/bin/xcodebuild" ]; then export DEVELOPER_DIR="$xcode"; fi
-      done
-    fi
+    DEVELOPER_DIR="$(just _xcode-developer-dir)"
+    export DEVELOPER_DIR
     if [ ! -x apps/web/node_modules/.bin/vite ] || [ apps/web/package-lock.json -nt apps/web/node_modules ]; then
       npm --prefix apps/web ci
     fi
@@ -758,6 +781,9 @@ simple-build platform="browser":
       cmake --install "$build/cmake" --prefix "$build/app"
       exit
     fi
+    case {{quote(platform)}} in
+      apple|ios) DEVELOPER_DIR="$(just _xcode-developer-dir)"; export DEVELOPER_DIR ;;
+    esac
     python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
       browser) cd apps/web; npx vite build --config vite.simple.config.ts ;;
@@ -781,6 +807,10 @@ simple-test platform="browser":
       cargo test --locked -p hickory-cli --example simple_dev linux_host_admits_only_its_own_origin
       node scripts/test-simple-linux.mjs
       exit
+    fi
+    if [ {{quote(platform)}} = apple ]; then
+      DEVELOPER_DIR="$(just _xcode-developer-dir)"
+      export DEVELOPER_DIR
     fi
     python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
