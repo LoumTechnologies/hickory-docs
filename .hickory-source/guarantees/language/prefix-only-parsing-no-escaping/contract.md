@@ -33,6 +33,11 @@ Related contracts: [Bind the document language before quoting code](contract.md)
 
 This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
 
+In the child parser, the first possible markup token limits the search for a
+fence opening. A fence before that token can still take ownership of a raw
+region, including markup-looking text on its opening line. The fence reader
+uses the full source to find the closing line after the opening is chosen.
+
 <storycode:entry path="crates/hick-lang/src/parser.rs">
 use super::*;
 use crate::fence::{fence_at_or_after, parse_fence};
@@ -307,18 +312,16 @@ impl<'a> Parser<'a> {
         let mut text_start_col = self.col;
 
         loop {
-            // Look for the next opening marker, closing marker, or comment
             let rem = self.remaining();
-            let next_open = rem.find(self.open_marker.as_str());
-            let next_close = rem.find(self.close_marker.as_str());
-            let next_comment = rem.find("<!--");
-            let next_fence = fence_at_or_after(rem);
-
-            // Determine the nearest marker
-            let nearest = [next_open, next_close, next_comment, next_fence]
-                .into_iter()
-                .flatten()
-                .min();
+            let next_markup = rem.match_indices('<').find_map(|(offset, _)| {
+                let tail = &rem[offset..];
+                (tail.starts_with(self.open_marker.as_str())
+                    || tail.starts_with(self.close_marker.as_str())
+                    || tail.starts_with("<!--"))
+                .then_some(offset)
+            });
+            let next_fence = fence_at_or_after(&rem[..next_markup.unwrap_or(rem.len())]);
+            let nearest = next_fence.or(next_markup);
 
             let Some(offset) = nearest else {
                 // No more markers. For a bare document's body that is the

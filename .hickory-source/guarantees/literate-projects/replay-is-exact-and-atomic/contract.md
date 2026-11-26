@@ -576,6 +576,11 @@ This is the maintained test fragment from `crates/hick-lang/tests/project.rs`; i
 <a id="f-005c1e9344c7-raw_patch_grammar_and_ordinary_diff_fence"></a>
 ### `raw_patch_grammar_and_ordinary_diff_fence`
 
+The ordinary tilde example places a markup token on its opening line. The
+parser must choose the fence first, then resume normal construction after
+its closing line. The corner-shop witness uses the workspace entry with its
+workbook contributor, matching how the app opens that example.
+
 <storycode:copy id="f-005c1e9344c7-raw_patch_grammar_and_ordinary_diff_fence">
 // Guarantee: docs/guarantees/literate-projects/replay-is-exact-and-atomic.md
 #[test]
@@ -586,6 +591,15 @@ fn raw_patch_grammar_and_ordinary_diff_fence() {
     assert_eq!(doc.find_tags("patch")[0].children.len(), 1);
     let source = "<hick:project/>\n```diff\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n+y\n```";
     assert!(generate(source).unwrap().new.entries().is_empty());
+    let source = concat!(
+        "<hick:project/>\n",
+        "  ~~~text <hick:file path=\"example\">\n",
+        "</hick:file>\n~~~\n",
+        "<hick:file path=\"actual\">written</hick:file>",
+    );
+    let project = generate(source).unwrap();
+    assert_eq!(project.new.entries().len(), 1);
+    assert_eq!(&*project.new.get("actual").unwrap().bytes, b"written");
     let source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">print(1)\n</hick:file>\n```patch id=\"p\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n```\n";
     let doc = parse(source).unwrap();
     assert_eq!(doc.find_tags("patch").len(), 1);
@@ -598,8 +612,13 @@ fn raw_patch_grammar_and_ordinary_diff_fence() {
             .iter()
             .any(|origin| &source.as_bytes()[origin.source.0..origin.source.1] == b"print(2)\n")
     );
+    let entry = include_str!("../../../examples/simple-ui/project.md");
     let workbook = include_str!("../../../examples/simple-ui/workbook.md");
-    let demo = generate(workbook).unwrap();
+    let sources = BTreeMap::from([
+        ("project.md".to_owned(), entry.to_owned()),
+        ("workbook.md".to_owned(), workbook.to_owned()),
+    ]);
+    let demo = evaluate_project("project.md", &sources, &ProjectTree::default()).unwrap();
     let coupon =
         String::from_utf8(demo.new.get("generated/coupon.py").unwrap().bytes.to_vec()).unwrap();
     assert_eq!(demo.new.entries().len(), 1);
