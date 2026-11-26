@@ -132,9 +132,10 @@ fn with_lineage_is_only_sent_when_asked_for() {
 <a id="f-7ac04de70076-a_refusal_is_an_error_result_that_still_carries_its_text"></a>
 ### `a_refusal_is_an_error_result_that_still_carries_its_text`
 
-Read the second line of a workspace file with a broken document selected,
-then with no document selected. Both reads must return the same byte receipt
-without opening a weave session. An outside file must still be refused.
+Read the second line of a workspace file with a broken document selected by
+an absolute or workspace-relative path, then with no document selected.
+All three must return the same byte receipt without opening a weave session.
+An outside file must still be refused.
 
 <storycode:copy id="f-7ac04de70076-a_refusal_is_an_error_result_that_still_carries_its_text">
 #[tokio::test]
@@ -147,12 +148,10 @@ async fn read_file_works_without_a_weavable_document_and_keeps_its_receipt() {
     std::fs::write(root.join("AGENTS.md"), "first\nsecond\n").unwrap();
     std::fs::write(dir.path().join("outside.txt"), "outside").unwrap();
     let executor = ExecutorChoice::Local.build_for(Some(&root)).await.unwrap();
-    let mut server = Server::embedded(root.clone(), broken, executor, root.join("session.md"));
+    let mut server = Server::embedded(root.clone(), broken.clone(), executor, root.join("session.md"));
     let args = json!({ "path": "AGENTS.md", "from": 2, "to": 2 });
-    for selected in [true, false] {
-        if !selected {
-            server.default_doc = None;
-        }
+    for selected in [Some(broken), Some(PathBuf::from("project.md")), None] {
+        server.default_doc = selected;
         let result = server.call_tool("read_file", &args).await;
         assert_ne!(result["isError"], true, "{result}");
         assert!(

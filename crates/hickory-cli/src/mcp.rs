@@ -440,15 +440,19 @@ impl Server {
         }
     }
 
-    /// The document a call refers to.
+    /// Resolve a selected or explicit document against the client's workspace.
+    /// The shared engine may have been started from an unrelated directory.
     fn resolve_doc(&self, args: &Value) -> Result<PathBuf, String> {
         if let Some(d) = args.get("doc").and_then(Value::as_str) {
             return Ok(self.root.join(d));
         }
-        self.default_doc.clone().ok_or_else(|| {
-            "no document: pass `doc` (a path to a .md file), or start the server with one"
-                .to_string()
-        })
+        self.default_doc
+            .as_deref()
+            .map(|doc| self.root.join(doc))
+            .ok_or_else(|| {
+                "no document: pass `doc` (a path to a .md file), or start the server with one"
+                    .to_string()
+            })
     }
 
     async fn session_for(&mut self, doc: &PathBuf) -> Result<&mut EditSession, String> {

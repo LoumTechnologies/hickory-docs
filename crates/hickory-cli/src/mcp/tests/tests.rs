@@ -109,12 +109,10 @@ async fn read_file_works_without_a_weavable_document_and_keeps_its_receipt() {
     std::fs::write(root.join("AGENTS.md"), "first\nsecond\n").unwrap();
     std::fs::write(dir.path().join("outside.txt"), "outside").unwrap();
     let executor = ExecutorChoice::Local.build_for(Some(&root)).await.unwrap();
-    let mut server = Server::embedded(root.clone(), broken, executor, root.join("session.md"));
+    let mut server = Server::embedded(root.clone(), broken.clone(), executor, root.join("session.md"));
     let args = json!({ "path": "AGENTS.md", "from": 2, "to": 2 });
-    for selected in [true, false] {
-        if !selected {
-            server.default_doc = None;
-        }
+    for selected in [Some(broken), Some(PathBuf::from("project.md")), None] {
+        server.default_doc = selected;
         let result = server.call_tool("read_file", &args).await;
         assert_ne!(result["isError"], true, "{result}");
         assert!(
