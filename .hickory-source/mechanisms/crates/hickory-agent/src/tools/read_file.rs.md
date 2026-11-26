@@ -13,10 +13,15 @@ Related contracts: [Context Provenance Is Derived From The Session, Never From T
 <a id="f-7845fffcfd2e-read_file"></a>
 ### `read_file`
 
+Use the same reader in a document session and during workspace discovery.
+Confirm the resolved path stays inside the root, then cap the number of bytes
+read before hashing. For a line range, the receipt pins the entire file hash
+and records only the displayed byte interval.
+
 <storycode:copy id="f-7845fffcfd2e-read_file">
 use super::*;
 
-pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolOutcome {
+pub fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolOutcome {
     const NAME: &str = "read_file";
     const MAX_BYTES: usize = 1 << 20;
     let Some(rel) = inv.arg("path") else {
@@ -69,17 +74,24 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
             format!("'{rel}' is a directory; it holds:\n{}", names.join("\n")),
         );
     }
-    let bytes = match std::fs::read(&canonical) {
-        Ok(b) => b,
-        Err(e) => return ToolOutcome::err(NAME, format!("cannot read '{rel}': {e}")),
-    };
+    if !canonical.is_file() {
+        return ToolOutcome::err(
+            NAME,
+            format!("'{rel}' is not a regular file; choose a text file or directory"),
+        );
+    }
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    if let Err(e) = std::fs::File::open(&canonical)
+        .and_then(|file| file.take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes))
+    {
+        return ToolOutcome::err(NAME, format!("cannot read '{rel}': {e}"));
+    }
     if bytes.len() > MAX_BYTES {
         return ToolOutcome::err(
             NAME,
             format!(
-                "'{rel}' is {} bytes; read_file shows at most {MAX_BYTES}. Read a range \
-                     with from/to, or let a cell process the file",
-                bytes.len()
+                "'{rel}' exceeds {MAX_BYTES} bytes; use search to locate the relevant code or let a cell process the file"
             ),
         );
     }

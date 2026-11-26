@@ -59,15 +59,16 @@ pub(super) fn tool_catalogue() -> Value {
                 "name": "read_file",
                 "description":
                     "Read any file of the project, read-only, hashline-rendered — a data \
-                     export, a config, a source file. Relative to the document's directory; \
-                     nothing outside the project. A directory lists its entries. The read is \
+                     export, a config, a source file. Paths are relative to the selected document's \
+                     directory, or the workspace root when there is no document. They must stay \
+                     in the workspace. A directory lists its entries. The read is \
                      recorded in the session as context: which file, at which hash and commit, \
                      which lines were in front of the agent when it later wrote.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "doc": doc_arg,
-                        "path": { "type": "string", "description": "File path, relative to the document's directory." },
+                        "path": { "type": "string", "description": "File path relative to the workspace or selected document." },
                         "from": { "type": "integer", "description": "First line (1-based)." },
                         "to": { "type": "integer", "description": "Last line (1-based, inclusive)." }
                     },

@@ -93,7 +93,7 @@ pub use tools::ToolOutcome;
 pub use tools::execute_tool;
 /// Hashline rendering and anchor resolution primitives.
 pub use tools::hashline;
-pub use tools::{ContextRead, Wrote};
+pub use tools::{ContextRead, Wrote, read_file};
 /// Four-way token usage for one LLM call or an accumulated total.
 pub use usage::Usage;
 /// USD cost of a usage record on a model (cache multipliers applied).

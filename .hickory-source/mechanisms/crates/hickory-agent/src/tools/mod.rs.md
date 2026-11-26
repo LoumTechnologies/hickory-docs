@@ -191,7 +191,7 @@ use edit_resolve::resolve_edit;
 ### `use_declaration`
 
 <storycode:copy id="f-54c7fa39e3da-use_declaration-16">
-pub(crate) use read_file::read_file;
+pub use read_file::read_file;
 
 </storycode:copy>
 <a id="f-54c7fa39e3da-ToolOutcome"></a>

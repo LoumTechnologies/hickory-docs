@@ -173,7 +173,7 @@ impl Host<'_> {
             .or_else(|| self.config.doc.clone());
         if matches!(
             name,
-            "read_doc" | "read_output" | "read_file" | "edit_doc" | "edit_output"
+            "read_doc" | "read_output" | "edit_doc" | "edit_output"
         ) {
             let path = contained(
                 &self.config.root,
@@ -185,10 +185,6 @@ impl Host<'_> {
                 &std::fs::read_to_string(&path)?,
                 &mut vec![],
             )?;
-            if name == "read_file" {
-                let file = args["path"].as_str().context("Pass a file path")?;
-                contained(&self.config.root, &path.parent().unwrap().join(file))?;
-            }
         }
         let mut created = None;
         if matches!(name, "edit_doc" | "edit_output" | "create_doc") {

@@ -37,7 +37,7 @@ mod read_file;
 use hashline::LineIndex;
 mod edit_resolve;
 use edit_resolve::resolve_edit;
-pub(crate) use read_file::read_file;
+pub use read_file::read_file;
 
 /// The result of one tool invocation, returned to the model as a
 /// `<hick:tool-result>` observation and logged in the session file.

@@ -75,7 +75,7 @@ use anyhow::Result;
 ### `use_declaration`
 
 <storycode:copy id="f-5cbce5960257-use_declaration-3">
-use hickory_agent::{EditSession, ToolInvocation, execute_tool};
+use hickory_agent::{EditSession, ToolInvocation, ToolOutcome, execute_tool};
 </storycode:copy>
 <a id="f-5cbce5960257-use_declaration-4"></a>
 ### `use_declaration`
@@ -179,6 +179,12 @@ pub(crate) struct Server {
 </storycode:copy>
 <a id="f-5cbce5960257-impl-Server"></a>
 ### `impl-Server`
+
+Repository discovery starts with the text already on disk. Ordinary file reads
+use the workspace root as their access boundary and return the same hashed
+read receipts as the document tools. They can run while a document is broken
+or its project weave is expensive. Output reads, edits and verification open
+a document session for their source and lineage checks.
 
 <storycode:copy id="f-5cbce5960257-impl-Server">
 impl Server {
@@ -710,28 +716,43 @@ impl Server {
         if name == "create_doc" {
             return self.record_activity(name, call_create_doc_tool(&self.root, args));
         }
-        let doc = match self.resolve_doc(args) {
-            Ok(d) => d,
-            Err(e) => return text_result(&e, true),
-        };
         let invocation = match Self::invocation(name, args) {
             Ok(i) => i,
             Err(e) => return text_result(&e, true),
         };
+        if name == "read_file" {
+            let doc = self.resolve_doc(args).ok();
+            let base = doc
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .unwrap_or(&self.root);
+            let outcome = hickory_agent::read_file(&self.root, base, &invocation);
+            return self.finish_tool(&invocation, outcome, None);
+        }
+        let doc = match self.resolve_doc(args) {
+            Ok(d) => d,
+            Err(e) => return text_result(&e, true),
+        };
         let executor = self.executor.clone();
-        let session_log = self.session_log.clone();
         let session = match self.session_for(&doc).await {
             Ok(s) => s,
             Err(e) => return text_result(&e, true),
         };
         let outcome = execute_tool(session, executor, &invocation).await;
-        let revision = session.revision();
-        let sources = session.source_snapshots();
+        let verification = (name == "verify").then(|| (session.revision(), session.source_snapshots()));
+        self.finish_tool(&invocation, outcome, verification)
+    }
 
-        if let Some(path) = &session_log
-            && let Err(e) = crate::doc_tools::record_tool_call(path, &invocation, &outcome)
+    fn finish_tool(
+        &mut self,
+        invocation: &ToolInvocation,
+        outcome: ToolOutcome,
+        verification: Option<(String, Vec<Value>)>,
+    ) -> Value {
+        if let Some(path) = &self.session_log
+            && let Err(e) = crate::doc_tools::record_tool_call(path, invocation, &outcome)
                 .and_then(|()| {
-                    if name == "verify" {
+                    if let Some((revision, sources)) = verification {
                         crate::doc_tools::record_check(path, outcome.ok, &revision, &sources)
                     } else {
                         Ok(())

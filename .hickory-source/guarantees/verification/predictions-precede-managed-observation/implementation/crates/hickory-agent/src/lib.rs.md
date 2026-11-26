@@ -423,7 +423,7 @@ pub use tools::hashline;
 ### `use_declaration`
 
 <storycode:copy id="f-a448ddea64c9-use_declaration-33">
-pub use tools::{ContextRead, Wrote};
+pub use tools::{ContextRead, Wrote, read_file};
 </storycode:copy>
 <a id="f-a448ddea64c9-use_declaration-34"></a>
 ### `use_declaration`

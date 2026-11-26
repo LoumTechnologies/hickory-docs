@@ -132,7 +132,52 @@ fn with_lineage_is_only_sent_when_asked_for() {
 <a id="f-7ac04de70076-a_refusal_is_an_error_result_that_still_carries_its_text"></a>
 ### `a_refusal_is_an_error_result_that_still_carries_its_text`
 
+Read the second line of a workspace file with a broken document selected,
+then with no document selected. Both reads must return the same byte receipt
+without opening a weave session. An outside file must still be refused.
+
 <storycode:copy id="f-7ac04de70076-a_refusal_is_an_error_result_that_still_carries_its_text">
+#[tokio::test]
+async fn read_file_works_without_a_weavable_document_and_keeps_its_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    let broken = root.join("project.md");
+    std::fs::write(&broken, "<hick:doc><hick:file").unwrap();
+    std::fs::write(root.join("AGENTS.md"), "first\nsecond\n").unwrap();
+    std::fs::write(dir.path().join("outside.txt"), "outside").unwrap();
+    let executor = ExecutorChoice::Local.build_for(Some(&root)).await.unwrap();
+    let mut server = Server::embedded(root.clone(), broken, executor, root.join("session.md"));
+    let args = json!({ "path": "AGENTS.md", "from": 2, "to": 2 });
+    for selected in [true, false] {
+        if !selected {
+            server.default_doc = None;
+        }
+        let result = server.call_tool("read_file", &args).await;
+        assert_ne!(result["isError"], true, "{result}");
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("second")
+        );
+        let reads = server.take_context_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(
+            reads[0].source_path.as_deref(),
+            Some(root.join("AGENTS.md").as_path())
+        );
+        assert_eq!(reads[0].byte_span, (6, 13));
+        assert_eq!(reads[0].content, "second\n");
+        assert!(server.sessions.is_empty());
+    }
+    let result = server
+        .call_tool("read_file", &json!({ "path": "../outside.txt" }))
+        .await;
+    assert_eq!(result["isError"], true);
+    assert!(server.take_context_reads().is_empty());
+}
+
 #[test]
 fn a_refusal_is_an_error_result_that_still_carries_its_text() {
     let result = text_result("anchor run=\"4f20\" matches no lines", true);
