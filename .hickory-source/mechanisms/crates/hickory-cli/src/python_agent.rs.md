@@ -325,29 +325,65 @@ fn contained(root: &Path, path: &Path) -> Result<PathBuf> {
 <a id="f-609d98dd1fad-validate_source"></a>
 ### `validate_source`
 
+The workspace entry can reference as many source files as the workspace
+capture can retain. Use that capture's file and byte budgets. Other documents
+retain the smaller traversal limit and a document-sized byte budget. Resolve
+each dependency inside the workspace before reading it, and count an included
+file once even when several chapters reference it. If the host is reviewing
+an edit, inspect its proposed text at the root of the traversal.
+
 <storycode:copy id="f-609d98dd1fad-validate_source">
-fn validate_source(root: &Path, path: &Path, source: &str, seen: &mut Vec<PathBuf>) -> Result<()> {
-    ensure!(seen.len() < 100, "Document closure exceeds 100 files");
-    if seen.contains(&path.to_path_buf()) {
-        return Ok(());
-    }
-    seen.push(path.to_path_buf());
-    let doc = hick_lang::parse(source)?;
-    for tag in doc.all_tags() {
-        if !matches!(tag.name.as_str(), "include" | "upstream") {
-            continue;
+fn validate_source(root: &Path, path: &Path, replacement: Option<&str>) -> Result<()> {
+    use crate::workspace_capture::{CAPTURE_BYTES, CAPTURE_ENTRIES, WORKSPACE_BYTES};
+    use std::{collections::BTreeSet, io::Read};
+
+    let (limit, mut remaining) = if path == root.join("project.md") {
+        (CAPTURE_ENTRIES, WORKSPACE_BYTES)
+    } else {
+        (100, CAPTURE_BYTES)
+    };
+    let mut pending = vec![path.to_path_buf()];
+    let mut discovered = BTreeSet::from([path.to_path_buf()]);
+    while let Some(file) = pending.pop() {
+        let stored;
+        let source = if file == path && let Some(replacement) = replacement {
+            replacement
+        } else {
+            let metadata = std::fs::metadata(&file)?;
+            ensure!(
+                metadata.is_file(),
+                "Document source is not a regular file: {}",
+                file.display()
+            );
+            ensure!(
+                metadata.len() <= remaining,
+                "Document source budget exhausted at {}; open a smaller document and retry.",
+                file.display()
+            );
+            let mut bytes = Vec::new();
+            std::fs::File::open(&file)?
+                .take(remaining + 1)
+                .read_to_end(&mut bytes)?;
+            stored = String::from_utf8(bytes)?;
+            &stored
+        };
+        remaining = remaining.checked_sub(source.len() as u64).with_context(|| {
+            format!("Document source budget exhausted at {}; open a smaller document and retry.", file.display())
+        })?;
+        let doc = hick_lang::parse(source)?;
+        for tag in doc.all_tags().into_iter().filter(|tag| matches!(tag.name.as_str(), "include" | "upstream")) {
+            let rel = tag.get_attribute("file").context("Document dependency has no file")?;
+            let parent = file.parent().context("Document has no directory")?;
+            let next = contained(root, &parent.join(rel))?;
+            if discovered.insert(next.clone()) {
+                ensure!(
+                    discovered.len() <= limit,
+                    "Document closure exceeds {limit} files at {}; open a smaller document and retry.",
+                    next.display()
+                );
+                pending.push(next);
+            }
         }
-        let rel = tag
-            .get_attribute("file")
-            .context("Document dependency has no file")?;
-        let next = contained(
-            root,
-            &path
-                .parent()
-                .context("Document has no directory")?
-                .join(rel),
-        )?;
-        validate_source(root, &next, &std::fs::read_to_string(&next)?, seen)?;
     }
     Ok(())
 }
@@ -1055,9 +1091,48 @@ pub async fn probe(python: &Path) -> Result<()> {
 
 Focused resource witnesses reject zero or excessive timeouts, transport expansion and ambiguous policy values. They use an injected lookup rather than mutating process-global environment during parallel tests.
 
+The source witness gives the workspace entry 101 in-root dependencies. It
+also checks the ordinary document limit, escape refusal, and byte budget for
+a proposed dependency.
+
 <storycode:copy id="f-609d98dd1fad-observation_capability_tests">
 #[cfg(test)]
 mod observation_capability_tests {
+    #[test]
+    fn workspace_source_guard_uses_capture_limits_and_confines_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let project = root.join("project.md");
+        let mut source = String::from("<hick:project/>\n");
+        for index in 0..101 {
+            let path = format!("chapter-{index}.md");
+            std::fs::write(root.join(&path), "chapter\n").unwrap();
+            source.push_str(&format!("<hick:include file=\"{path}\"/>\n"));
+        }
+        std::fs::write(&project, &source).unwrap();
+        super::validate_source(&root, &project, None).unwrap();
+        let ordinary = root.join("ordinary.md");
+        assert!(
+            super::validate_source(&root, &ordinary, Some(&source))
+                .unwrap_err().to_string().contains("exceeds 100 files")
+        );
+        std::fs::write(dir.path().join("outside.md"), "outside\n").unwrap();
+        let escape = "<hick:include file=\"../outside.md\"/>";
+        assert!(
+            super::validate_source(&root, &project, Some(escape))
+                .unwrap_err().to_string().contains("outside the selected workspace")
+        );
+        let large = root.join("large.md");
+        std::fs::File::create(&large).unwrap()
+            .set_len(crate::workspace_capture::CAPTURE_BYTES + 1).unwrap();
+        let oversized = "<hick:include file=\"large.md\"/>";
+        assert!(
+            super::validate_source(&root, &ordinary, Some(oversized))
+                .unwrap_err().to_string().contains("source budget exhausted")
+        );
+    }
+
     #[test]
     fn local_limits_are_bounded_and_invalid_configuration_fails_closed() {
         let defaults = super::RuntimeLimits::from_lookup(|_| None).unwrap();

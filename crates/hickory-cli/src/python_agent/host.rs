@@ -36,14 +36,14 @@ impl Host<'_> {
                 &self.config.root,
                 path.parent().context("No document directory")?,
             )?;
-            validate_source(&self.config.root, &path, &after, &mut vec![])?;
+            validate_source(&self.config.root, &path, Some(&after))?;
         } else if name == "edit_doc" {
             let path = if args.get("upstream").is_some() {
                 self.config.root.join(&surface)
             } else {
                 doc.context("No document")?
             };
-            validate_source(&self.config.root, &path, &after, &mut vec![])?;
+            validate_source(&self.config.root, &path, Some(&after))?;
         }
         Ok(Proposal {
             tool: name.into(),
@@ -154,12 +154,7 @@ impl Host<'_> {
                 &self.config.root,
                 &doc.context("Pass doc or start with --doc")?,
             )?;
-            validate_source(
-                &self.config.root,
-                &path,
-                &std::fs::read_to_string(&path)?,
-                &mut vec![],
-            )?;
+            validate_source(&self.config.root, &path, None)?;
         }
         let mut created = None;
         if matches!(name, "edit_doc" | "edit_output" | "create_doc") {

@@ -31,7 +31,7 @@ use std::{
 pub const BUFFERS: &str = hick_lang::EDITOR_BUFFER_PREFIX;
 // Captures are also serialized into retained evidence; bound that amplification.
 pub(crate) const CAPTURE_BYTES: u64 = 16 * 1024 * 1024;
-const WORKSPACE_BYTES: u64 = 192 * 1024 * 1024;
+pub(crate) const WORKSPACE_BYTES: u64 = 192 * 1024 * 1024;
 pub(crate) const CAPTURE_ENTRIES: usize = 10_000;
 </storycode:copy>
 <a id="f-0514dd070fee-WorkspaceCapture"></a>
