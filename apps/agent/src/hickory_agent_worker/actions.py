@@ -11,7 +11,7 @@ def parse_action(raw):
         return value
     if set(value) == {"done"} and isinstance(value["done"], str):
         return value
-    if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and isinstance(value["arguments"], dict):
+    if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and value["tool"].strip() and isinstance(value["arguments"], dict):
         if len(json.dumps(value, allow_nan=False).encode()) > 65_536:
             raise ValueError("Direct tool action exceeds 64 KiB; use a bounded snippet")
         return value

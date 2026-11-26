@@ -50,6 +50,7 @@ class WorkerTests(unittest.TestCase):
                          {'tool': 'list_docs', 'arguments': {}})
         for raw in ['{"shell":"not a tool"}', '{"python":"x","done":"ok"}', '[]', '```python\nx\n```',
                     '{"tool":"list_docs","arguments":[]}', '{"tool":"read_doc","arguments":{"n":NaN}}',
+                    '{"tool":"","arguments":{}}', json.dumps({'tool': ' \t', 'arguments': {}}),
                     '{"tool":"list_docs","arguments":{},"done":"malformed"}']:
             with self.assertRaises(ValueError):
                 parse_action(raw)

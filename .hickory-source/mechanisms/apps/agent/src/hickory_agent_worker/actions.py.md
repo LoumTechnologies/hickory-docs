@@ -28,8 +28,8 @@ import json
 
 For one tool, the model sends the name and JSON arguments directly. This
 avoids asking it to escape and print a Python program just to read a file.
-Reject mixed actions, misplaced arguments and non-JSON numbers before any
-tool or snippet can run.
+Reject mixed actions, blank tool names, misplaced arguments and non-JSON
+numbers before any tool or snippet can run.
 
 <storycode:copy id="f-c95d123c0e92-parse_action">
 def parse_action(raw):
@@ -42,7 +42,7 @@ def parse_action(raw):
         return value
     if set(value) == {"done"} and isinstance(value["done"], str):
         return value
-    if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and isinstance(value["arguments"], dict):
+    if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and value["tool"].strip() and isinstance(value["arguments"], dict):
         if len(json.dumps(value, allow_nan=False).encode()) > 65_536:
             raise ValueError("Direct tool action exceeds 64 KiB; use a bounded snippet")
         return value
