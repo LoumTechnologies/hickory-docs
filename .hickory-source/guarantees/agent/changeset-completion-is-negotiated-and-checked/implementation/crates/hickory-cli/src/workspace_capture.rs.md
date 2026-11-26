@@ -31,6 +31,7 @@ use std::{
 pub const BUFFERS: &str = hick_lang::EDITOR_BUFFER_PREFIX;
 // Captures are also serialized into retained evidence; bound that amplification.
 pub(crate) const CAPTURE_BYTES: u64 = 16 * 1024 * 1024;
+const WORKSPACE_BYTES: u64 = 192 * 1024 * 1024;
 pub(crate) const CAPTURE_ENTRIES: usize = 10_000;
 </storycode:copy>
 <a id="f-0514dd070fee-WorkspaceCapture"></a>
@@ -56,7 +57,8 @@ pub struct WorkspaceCapture {
 
 A plain folder can contain gigabytes of compiler output. Read the root project's
 explicit exclusions before the first double snapshot, and bound each snapshot to
-16 MiB and 10,000 entries. Otherwise a simple chat request can allocate several
+192 MiB and 10,000 entries for a folder, with a separate 16 MiB editor budget.
+Otherwise a simple chat request can allocate several
 copies of target/ before reaching either inference or the cancellation seam.
 The same frozen scope is used for completion; oversized boundaries fail visibly
 rather than certify an incomplete capture. Editor bytes have their own bound.
@@ -66,7 +68,7 @@ fn workspace_exclusions(root: &std::path::Path) -> Result<BTreeSet<String>> {
     if !root.join("project.md").try_exists()? {
         return Ok(BTreeSet::new());
     }
-    let remaining = std::cell::Cell::new(CAPTURE_BYTES);
+    let remaining = std::cell::Cell::new(WORKSPACE_BYTES);
     let documents = std::cell::Cell::new(CAPTURE_ENTRIES);
     let sources = hick_lang::load_project_sources("project.md", &|name| {
         use std::io::Read;
@@ -85,7 +87,7 @@ fn workspace_exclusions(root: &std::path::Path) -> Result<BTreeSet<String>> {
         std::fs::File::open(path).map_err(|e| e.to_string())?
             .take(remaining.get() + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
         if bytes.len() as u64 > remaining.get() {
-            return Err("Project source exceeds the 16 MiB agent capture budget; open a smaller project and retry.".into());
+            return Err("Project source exceeds the 192 MiB agent workspace budget; open a smaller project and retry.".into());
         }
         remaining.set(remaining.get() - bytes.len() as u64);
         String::from_utf8(bytes).map_err(|e| e.to_string())
@@ -179,16 +181,16 @@ impl WorkspaceCapture {
         inventory.exclude.extend(self.exclude.iter().cloned());
         let mut tree = if let Some(root) = &self.root {
             {
-                let first = crate::project_revision::directory_bounded(
+                let first = crate::project_revision::directory_workspace_bounded(
                     root,
                     &inventory,
-                    CAPTURE_BYTES,
+                    WORKSPACE_BYTES,
                     CAPTURE_ENTRIES,
                 )?;
-                let second = crate::project_revision::directory_bounded(
+                let second = crate::project_revision::directory_workspace_bounded(
                     root,
                     &inventory,
-                    CAPTURE_BYTES,
+                    WORKSPACE_BYTES,
                     CAPTURE_ENTRIES,
                 )?;
                 ensure!(
@@ -226,7 +228,7 @@ impl WorkspaceCapture {
                     .replace('\\', "/");
                 hick_lang::validate_project_path(&path).map_err(anyhow::Error::msg)?;
                 ensure!(
-                    inventory.contains(&path),
+                    inventory.contains(&path) && !crate::project_revision::is_capture_metadata(&path),
                     "Editor {name} is excluded from this workspace boundary; close it or change the project exclusions before capturing."
                 );
                 let mut parent = root.clone();
@@ -298,6 +300,20 @@ small budgets witness aggregate bytes and empty-directory entry exhaustion.
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn workspace_accepts_larger_source_and_ignores_nested_runtime_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("chapter/.hick-journal")).unwrap();
+        std::fs::File::create(dir.path().join("chapter/.hick-journal/local"))
+            .unwrap().set_len(WORKSPACE_BYTES + 1).unwrap();
+        std::fs::File::create(dir.path().join("chapter/asset"))
+            .unwrap().set_len(CAPTURE_BYTES + 1).unwrap();
+        let (_, captured) = WorkspaceCapture::freeze(Some(dir.path().canonicalize().unwrap()), &[]).unwrap();
+        assert_eq!(captured.get("chapter/asset").unwrap().bytes.len() as u64, CAPTURE_BYTES + 1);
+        assert!(captured.get("chapter/.hick-journal/local").is_none());
+    }
+
     fn buffers(path: Option<&str>) -> Vec<EditorBuffer> {
         serde_json::from_value(json!([
             {"id":"saved","name":"Note","path":path,"content":"dirty A\n","focused":true},

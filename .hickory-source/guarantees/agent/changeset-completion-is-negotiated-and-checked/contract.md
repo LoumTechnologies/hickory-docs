@@ -15,12 +15,14 @@ Filesystem snapshots are observed reads rather than a global transaction; equali
 
 Workspace turns retain the root `project.md` closure's explicit exclusions for
 the lifetime of their capture. Markdown sources remain captured workspace bytes.
-Each agent disk snapshot is limited to 16 MiB and 10,000 entries, with a separate
-16 MiB editor budget. Exceeding a limit refuses the turn with the offending path
+Workspace disk snapshots are limited to 192 MiB and 10,000 entries; a standalone
+declared project capture and editor text each retain separate 16 MiB budgets.
+Nested Hickory journals and caches are not workspace source. Exceeding a limit refuses the turn with the offending path
 and a suggestion to declare exclusions or open a smaller folder; it never marks
 an omitted subset as complete. Startup capture runs off the async worker and
 Stop can terminate the wait before inference starts. Successfully persisted
-workspace snapshots leave RAM after completion; history reloads them on demand.
+workspace snapshots are stored alongside the conversation, not embedded in it.
+History retains a reference; project review reloads the bytes on demand.
 A failed evidence write retains its in-memory copy.
 
 The [workspace capture construction](implementation/crates/hickory-cli/src/workspace_capture.rs.md)

@@ -39,10 +39,23 @@ pub fn fingerprint(tree: &ProjectTree) -> String {
         .iter()
         .map(|(p, e)| (p, (&e.bytes, e.kind, e.executable)))
         .collect();
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&entries).expect("project serializes"))
-    )
+    // Feed the existing wire encoding to the digest without allocating a
+    // decimal JSON byte array for the entire checkout.
+    struct DigestWriter(Sha256);
+    impl std::io::Write for DigestWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut hasher = DigestWriter(Sha256::new());
+    {
+        let mut writer = std::io::BufWriter::new(&mut hasher);
+        serde_json::to_writer(&mut writer, &entries).expect("project serializes");
+        std::io::Write::flush(&mut writer).expect("digest writer does not fail");
+    }
+    format!("{:x}", hasher.0.finalize())
 }
 pub fn response_entry(starting: &ProjectTree, current: &ProjectTree) -> String {
     let mut entry = "response.md".to_owned();
@@ -104,6 +117,9 @@ impl Contract {
         crate::project_revision::directory(&self.root, Some(&self.inventory))
     }
     pub fn status(&mut self) -> Result<Value> {
+        self.status_with_snapshots(true)
+    }
+    fn status_with_snapshots(&mut self, include_snapshots: bool) -> Result<Value> {
         let current = self.current()?;
         let expected = fingerprint(&current);
         if self
@@ -119,15 +135,17 @@ impl Contract {
             &current,
             "Explain the successful change here.",
         );
-        Ok(
-            json!({"version":1,"boundary":self.boundary,"expected":expected,
+        let mut value = json!({"version":1,"boundary":self.boundary,"expected":expected,
             "context":self.workspace.as_ref().map(|(scope,_)| json!({"kind":"workspace-editors","capture":scope,"editorNamespace":hick_lang::EDITOR_BUFFER_PREFIX,"exclusions":self.inventory.exclude})),
             "startingFingerprint":fingerprint(&self.starting),"differences":self.starting.compare(&current),
-            "accepted":self.accepted.is_some(),"starting":ProjectSnapshot::capture(&self.starting),
-            "current":ProjectSnapshot::capture(&current),"entry":entry,
+            "accepted":self.accepted.is_some(),"entry":entry,
             "template":template.as_ref().ok(),"templateError":template.as_ref().err(),
-            "evidence":"source-output-equality-only","writeControl":"not-enforced"}),
-        )
+            "evidence":"source-output-equality-only","writeControl":"not-enforced"});
+        if include_snapshots {
+            value["starting"] = serde_json::to_value(ProjectSnapshot::capture(&self.starting))?;
+            value["current"] = serde_json::to_value(ProjectSnapshot::capture(&current))?;
+        }
+        Ok(value)
     }
     pub fn submit(&mut self, args: &Value) -> Result<Value> {
         ensure!(
@@ -192,15 +210,7 @@ impl Contract {
     }
     pub fn call(&mut self, name: &str, args: &Value) -> Result<Value> {
         match name {
-            "changeset_status" => {
-                let mut value = self.status()?;
-                if args["include_snapshots"] != true {
-                    let object = value.as_object_mut().expect("status object");
-                    object.remove("starting");
-                    object.remove("current");
-                }
-                Ok(value)
-            }
+            "changeset_status" => self.status_with_snapshots(args["include_snapshots"] == true),
             "submit_changeset" => self.submit(args),
             _ => bail!("Unknown changeset operation"),
         }

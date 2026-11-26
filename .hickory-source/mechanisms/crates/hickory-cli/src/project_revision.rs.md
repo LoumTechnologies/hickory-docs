@@ -31,6 +31,7 @@ pub fn directory(root: &Path, inventory: Option<&ProjectInventory>) -> Result<Pr
         inventory,
         &mut tree,
         &mut (u64::MAX, usize::MAX),
+        false,
     )?;
     Ok(tree)
 }
@@ -42,6 +43,25 @@ pub fn directory_bounded(
     bytes: u64,
     entries: usize,
 ) -> Result<ProjectTree> {
+    bounded(root, inventory, bytes, entries, false)
+}
+
+pub(crate) fn directory_workspace_bounded(
+    root: &Path,
+    inventory: &ProjectInventory,
+    bytes: u64,
+    entries: usize,
+) -> Result<ProjectTree> {
+    bounded(root, inventory, bytes, entries, true)
+}
+
+fn bounded(
+    root: &Path,
+    inventory: &ProjectInventory,
+    bytes: u64,
+    entries: usize,
+    workspace_capture: bool,
+) -> Result<ProjectTree> {
     let mut tree = ProjectTree::default();
     read_directory(
         root,
@@ -49,8 +69,14 @@ pub fn directory_bounded(
         Some(inventory),
         &mut tree,
         &mut (bytes, entries),
+        workspace_capture,
     )?;
     Ok(tree)
+}
+
+/// Nested document journals and caches are app-owned, not source writes.
+pub(crate) fn is_capture_metadata(path: &str) -> bool {
+    path.split('/').any(|part| matches!(part, ".hick-journal" | ".hick-cache"))
 }
 </storycode:copy>
 <a id="f-fb969c2bf635-read_directory"></a>
@@ -69,6 +95,7 @@ fn read_directory(
     inventory: Option<&ProjectInventory>,
     tree: &mut ProjectTree,
     remaining: &mut (u64, usize),
+    workspace_capture: bool,
 ) -> Result<()> {
     for item in std::fs::read_dir(dir).with_context(|| {
         format!(
@@ -83,7 +110,7 @@ fn read_directory(
             .to_str()
             .context("project contains a non-UTF-8 path")?
             .replace('\\', "/");
-        if inventory.is_some_and(|i| !i.contains(&path)) {
+        if (workspace_capture && is_capture_metadata(&path)) || inventory.is_some_and(|i| !i.contains(&path)) {
             continue;
         }
         anyhow::ensure!(
@@ -103,7 +130,7 @@ fn read_directory(
             if inventory.is_some_and(|i| !i.contains(&format!("{path}/"))) {
                 continue;
             }
-            read_directory(root, &full, inventory, tree, remaining)?;
+            read_directory(root, &full, inventory, tree, remaining, workspace_capture)?;
         } else {
             if inventory.is_some_and(|i| !i.contains(&path)) {
                 continue;

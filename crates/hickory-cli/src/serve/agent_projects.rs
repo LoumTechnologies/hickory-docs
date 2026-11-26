@@ -207,6 +207,31 @@ pub(super) fn cancelled(state: &LocalState, turn: &str) -> bool {
         .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+fn capture_sidecar(session: &std::path::Path, token: &str) -> anyhow::Result<PathBuf> {
+    anyhow::ensure!(token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Invalid project capture reference");
+    Ok(session.with_extension(format!("capture-{token}.json.gz")))
+}
+
+fn record_capture(turn: &str, capture: &CapturedTurn, resolution: Option<&str>) -> anyhow::Result<()> {
+    let record = super::acp::record::Record::existing(capture.session.clone());
+    record.check()?;
+    // Publish the small transcript reference only after the complete capture is durable.
+    let token = format!("{:016x}{:016x}", super::rand_id(), super::rand_id());
+    let path = capture_sidecar(&capture.session, &token)?;
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(std::path::Path::new(".")))?;
+    let writer = std::io::BufWriter::new(file.as_file_mut());
+    let mut compressed = flate2::write::GzEncoder::new(writer, flate2::Compression::fast());
+    serde_json::to_writer(&mut compressed, capture)?;
+    compressed.finish()?.into_inner().map_err(|error| error.into_error())?.sync_all()?;
+    file.persist_noclobber(&path)?;
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    record.context("literate-project-capture", &json!({"turn":turn,"capture_ref":token,"resolution":resolution}))
+}
+
 pub async fn finish(
     state: &LocalState,
     turn: &str,
@@ -228,7 +253,9 @@ pub async fn finish(
                     }
                 }
             }
-            scope.current(&editors.buffers.lock().unwrap())?
+            let scope = scope.clone();
+            let buffers = editors.buffers.lock().unwrap().clone();
+            tokio::task::spawn_blocking(move || scope.current(&buffers)).await??
         } else {
             crate::project_revision::directory_bounded(
                 &capture.root, &capture.inventory, CAPTURE_BYTES, CAPTURE_ENTRIES,
@@ -266,14 +293,14 @@ pub async fn finish(
     }
     .await;
     capture.error = result.err().map(|e| format!("{e:#}"));
-    let record = super::acp::record::Record::existing(capture.session.clone());
-    match record.context(
-        "literate-project-capture",
-        &json!({"turn":turn,"capture":capture}),
-    ) {
-        Ok(()) => capture.persisted = true,
-        Err(e) => capture.error = Some(format!("Project capture could not be recorded: {e:#}")),
-    }
+    let turn_id = turn.to_owned();
+    let Ok(capture) = tokio::task::spawn_blocking(move || {
+        match record_capture(&turn_id, &capture, None) {
+            Ok(()) => capture.persisted = true,
+            Err(e) => capture.error = Some(format!("Project capture could not be recorded: {e:#}")),
+        }
+        capture
+    }).await else { return };
     state
         .agent
         .projects
@@ -329,8 +356,27 @@ pub(super) fn captured(state: &LocalState, doc: &str, turn: &str) -> ApiResult<C
             "Incomplete project capture: {error}"
         )));
     }
-    let capture = serde_json::from_value(value["capture"].clone())
-        .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+    let capture = if let Some(reference) = value["capture_ref"].as_str() {
+        read_capture(&session, reference).map_err(|e| ApiError::unprocessable(format!("Project capture unavailable: {e:#}")))?
+    } else {
+        // Inline evidence from older releases remains readable.
+        serde_json::from_value(value["capture"].clone())
+            .map_err(|e| ApiError::unprocessable(e.to_string()))?
+    };
+    Ok(capture)
+}
+
+fn read_capture(session: &std::path::Path, reference: &str) -> anyhow::Result<CapturedTurn> {
+    use std::io::{BufReader, Read};
+    let path = capture_sidecar(session, reference)?;
+    anyhow::ensure!(std::fs::symlink_metadata(&path)?.is_file(), "Capture is not a regular file");
+    let file = std::fs::File::open(path)?;
+    let reader = flate2::read::GzDecoder::new(file);
+    // Covers both maximum folder snapshots serialized as byte arrays, plus metadata.
+    const MAX_CAPTURE_JSON: u64 = 2 * 1024 * 1024 * 1024;
+    let mut reader = BufReader::new(reader.take(MAX_CAPTURE_JSON + 1));
+    let capture = serde_json::from_reader(&mut reader)?;
+    anyhow::ensure!(reader.get_ref().limit() > 0, "Capture exceeds its decoding budget");
     Ok(capture)
 }
 
@@ -437,11 +483,7 @@ pub async fn finalize(
         });
     }
     capture.response = Some(response.clone());
-    super::acp::record::Record::existing(capture.session.clone())
-        .context(
-            "literate-project-capture",
-            &json!({"turn":turn,"capture":capture,"resolution":"user-declared"}),
-        )
+    record_capture(&turn, &capture, Some("user-declared"))
         .map_err(|e| ApiError::unprocessable(e.to_string()))?;
     state.agent.projects.lock().unwrap().remove(&turn);
     Ok(Json(json!({"response":response,"verified":true})))
@@ -510,11 +552,16 @@ mod capture_lifetime_tests {
         assert!(state.agent.projects.lock().unwrap()["turn"].persisted);
         release(&state, "turn");
         assert!(!state.agent.projects.lock().unwrap().contains_key("turn"));
-        assert!(
-            std::fs::read_to_string(session)
-                .unwrap()
-                .contains("literate-project-capture")
-        );
+        let source = std::fs::read_to_string(&session).unwrap();
+        let parsed = hick_lang::parse(&source).unwrap();
+        let row = parsed.all_tags().into_iter().find(|tag| {
+            tag.get_attribute("kind") == Some("literate-project-capture")
+        }).unwrap();
+        let row: Value = serde_json::from_str(&row.text_content()).unwrap();
+        assert!(row.get("capture").is_none(), "history should not embed snapshot bytes");
+        let loaded = read_capture(&session, row["capture_ref"].as_str().unwrap()).unwrap();
+        assert_eq!(&*loaded.starting.restore().unwrap().get("note.md").unwrap().bytes, b"note");
+        assert!(read_capture(&session, "../foreign.json.gz").is_err());
     }
 }
 pub(super) struct RecordedPatchInspection {

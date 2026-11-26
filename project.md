@@ -92,6 +92,23 @@ Some inherited modules still lack adequate rationale. The
 this construction order does not claim to resolve them. Literal assets and
 historical records retain their exact payloads in the supporting catalogs.
 
-<book:project sources=".hickory-source/mechanisms/index.md .hickory-source/maintenance/catalog.md .hickory-source/guarantees/agent/index.md .hickory-source/guarantees/analytics/index.md .hickory-source/guarantees/authoring/index.md .hickory-source/guarantees/collaboration/index.md .hickory-source/guarantees/debugging/index.md .hickory-source/guarantees/editing/index.md .hickory-source/guarantees/editor-intelligence/index.md .hickory-source/guarantees/embedding/index.md .hickory-source/guarantees/execution/index.md .hickory-source/guarantees/git/index.md .hickory-source/guarantees/integrations/index.md .hickory-source/guarantees/landing/index.md .hickory-source/guarantees/language/index.md .hickory-source/guarantees/languages/index.md .hickory-source/guarantees/lenses/index.md .hickory-source/guarantees/lineage/index.md .hickory-source/guarantees/literate-projects/index.md .hickory-source/guarantees/release/index.md .hickory-source/guarantees/search/index.md .hickory-source/guarantees/shell/index.md .hickory-source/guarantees/terminal/index.md .hickory-source/guarantees/verification/index.md .hickory-source/shared/catalog.md .hickory-source/support/catalog.md .hickory-source/evidence/focused-checks.md" exclude="apps/apple-simple/Sources/Resources/katex/ hickory-dogfood/integrated/ hickory-dogfood/workspace/ hickory-dogfood/build/ target/ node_modules/ apps/web/node_modules/ apps/web/dist/ apps/web/dist-site/ apps/web/public/install.sh scripts/__pycache__/ apps/web/public/source/ apps/web/public/publications/ apps/web/tsconfig.tsbuildinfo hickory-dogfood/tools/__pycache__/ apps/agent/.venv/" />
+The project excludes local build and dependency directories from captured
+workspace changes. Hickory can then work on its own checkout without mistaking
+its build artifacts for agent edits.
+
+<book:project sources=".hickory-source/mechanisms/index.md .hickory-source/maintenance/catalog.md .hickory-source/guarantees/agent/index.md .hickory-source/guarantees/analytics/index.md .hickory-source/guarantees/authoring/index.md .hickory-source/guarantees/collaboration/index.md .hickory-source/guarantees/debugging/index.md .hickory-source/guarantees/editing/index.md .hickory-source/guarantees/editor-intelligence/index.md .hickory-source/guarantees/embedding/index.md .hickory-source/guarantees/execution/index.md .hickory-source/guarantees/git/index.md .hickory-source/guarantees/integrations/index.md .hickory-source/guarantees/landing/index.md .hickory-source/guarantees/language/index.md .hickory-source/guarantees/languages/index.md .hickory-source/guarantees/lenses/index.md .hickory-source/guarantees/lineage/index.md .hickory-source/guarantees/literate-projects/index.md .hickory-source/guarantees/release/index.md .hickory-source/guarantees/search/index.md .hickory-source/guarantees/shell/index.md .hickory-source/guarantees/terminal/index.md .hickory-source/guarantees/verification/index.md .hickory-source/shared/catalog.md .hickory-source/support/catalog.md .hickory-source/evidence/focused-checks.md" exclude="
+  apps/apple-simple/Sources/Resources/katex/ hickory-dogfood/integrated/ hickory-dogfood/workspace/ hickory-dogfood/build/
+  target/ node_modules/ .dev/ scripts/__pycache__/ hickory-dogfood/tools/__pycache__/
+  apps/web/node_modules/ apps/web/dist/ apps/web/dist-simple/ apps/web/dist-site/ apps/web/test-results/ apps/web/tsconfig.tsbuildinfo
+  apps/web/public/install.sh apps/web/public/source/ apps/web/public/publications/
+  apps/agent/.venv/ apps/agent/src/hickory_agent_worker/__pycache__/ apps/agent/tests/__pycache__/
+  apps/android-simple/.gradle/ apps/android-simple/.kotlin/ apps/android-simple/app/build/
+  apps/apple-simple/.build/ apps/apple-simple/HickorySimple.xcodeproj/ apps/windows-simple/bin/ apps/windows-simple/obj/
+  examples/simple-lsp/dist/ examples/simple-lsp/node_modules/ code-models/typescript/node_modules/
+  experiments/explicit-web/.dev/ experiments/explicit-web/Baseline/bin/ experiments/explicit-web/Baseline/obj/
+  experiments/explicit-web/Checks/bin/ experiments/explicit-web/Checks/obj/ experiments/explicit-web/Core/bin/ experiments/explicit-web/Core/obj/
+  experiments/explicit-web/Data/bin/ experiments/explicit-web/Data/obj/ experiments/explicit-web/Hosting/bin/ experiments/explicit-web/Hosting/obj/
+  experiments/explicit-web/Security/bin/ experiments/explicit-web/Security/obj/ experiments/explicit-web/Server/bin/ experiments/explicit-web/Server/obj/
+" />
 
 </book:doc>

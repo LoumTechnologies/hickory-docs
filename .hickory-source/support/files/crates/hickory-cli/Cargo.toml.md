@@ -69,6 +69,7 @@ notify = "7"
 # Content identity for ingest: the same transcript dropped twice is one note.
 # Images dropped into a note arrive base64 in a JSON body (serve/asset.rs).
 base64 = "0.22"
+flate2 = "1"
 sha2 = "0.10"
 # Private historical proposal readings use a standard keyed integrity seal.
 hmac = "=0.12.1"

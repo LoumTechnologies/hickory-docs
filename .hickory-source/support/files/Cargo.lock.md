@@ -3624,6 +3624,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "env_logger",
+ "flate2",
  "fs2",
  "futures",
  "getrandom 0.3.4",
