@@ -10,6 +10,10 @@ The run channel provides immediate progress and usage. The history read still
 confirms the recorded answer before fence actions can use it. Frames that arrive
 before Send returns stay provisional until the server identifies the turn.
 
+Put the operation and its target in the live status and in the collapsed tool
+rows. Read only the path fields of known tools. For example, a pending edit
+can identify the source page without showing the replacement or moving the
+reader out of the conversation.
 
 Send and edit refresh keep the originating editor snapshot on the host. An explicit
 empty reading projection keeps that snapshot out of model input. The composer tells
@@ -110,8 +114,9 @@ struct NativePendingAgentReview: Decodable, Identifiable {
         case "turn_usage": value.tokens = message.event.total_usage?.tokens ?? 0
         case "tool_started":
             guard let name = message.event.name else { return }
-            value.phase = name
-            value.tools.append(.init(name: name))
+            let tool = NativeAgentActivity.Tool(name: name, data: message.event.data)
+            value.phase = tool.label
+            value.tools.append(tool)
         case "tool_finished":
             if let index = value.tools.lastIndex(where: { $0.name == message.event.name && $0.ok == nil }) {
                 value.tools[index].ok = message.event.ok
@@ -552,8 +557,37 @@ private func nativeConstructionDigest(_ text: String) -> Bool {
 struct NativeAgentActivity {
     struct Tool {
         let name: String
+        let label: String
         var ok: Bool?
         var result: String?
+
+        init(name: String, data: String?) {
+            self.name = name
+            let operation: String
+            let fields: [String]
+            switch name {
+            case "read_file": (operation, fields) = ("Read file", ["path"])
+            case "read_doc": (operation, fields) = ("Read source", ["upstream", "doc"])
+            case "read_output": (operation, fields) = ("Read output", ["path"])
+            case "edit_doc": (operation, fields) = ("Propose source edit", ["upstream", "doc"])
+            case "edit_output": (operation, fields) = ("Propose output edit", ["path"])
+            case "create_doc": (operation, fields) = ("Propose new document", ["path"])
+            case "search": (operation, fields) = ("Search workspace", [])
+            case "changeset_status": (operation, fields) = ("Inspect changes", [])
+            case "submit_changeset": (operation, fields) = ("Submit changeset", [])
+            default: (operation, fields) = (name, [])
+            }
+            guard !fields.isEmpty, let data, data.utf8.count <= 65_536,
+                  let call = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
+                  let arguments = call["arguments"] as? [String: Any],
+                  let target = fields.compactMap({ arguments[$0] as? String }).first(where: { !$0.isEmpty })
+            else {
+                label = operation
+                return
+            }
+            let line = target.split(whereSeparator: \.isNewline).joined(separator: " ")
+            label = line.isEmpty ? operation : operation + " · " + String(line.prefix(140))
+        }
     }
     var phase = "Starting…"
     var answer: String?
@@ -771,8 +805,12 @@ struct AgentPane: View {
                                 DisclosureGroup("Tool calls (\(tools.count))") {
                                     ForEach(tools.indices, id: \.self) { index in
                                         let tool = tools[index]
-                                        DisclosureGroup(tool.name + " · " + (tool.ok.map { $0 ? "Completed" : "Failed" } ?? (turn.status == "running" ? "Running" : "Outcome unavailable"))) {
+                                        let status = tool.ok.map { $0 ? "Completed" : "Failed" }
+                                            ?? (turn.status == "running" ? "Running" : "Outcome unavailable")
+                                        DisclosureGroup {
                                             if let result = tool.result { Text(result).font(.caption.monospaced()).textSelection(.enabled) }
+                                        } label: {
+                                            Text(tool.label + " · " + status).lineLimit(1).truncationMode(.middle)
                                         }
                                     }
                                 }.font(.caption)
@@ -785,6 +823,7 @@ struct AgentPane: View {
                                 HStack {
                                     ProgressView().controlSize(.small)
                                     Text(session.stopPending ? "Stopping…" : session.reviewTurn == turn.id && !session.pendingReviews.isEmpty ? "Waiting for your review" : activity?.phase ?? "Starting…")
+                                        .lineLimit(1).truncationMode(.middle)
                                 }.font(.caption).foregroundStyle(.secondary)
                             }
                             if let answer = turn.answer ?? turn.error ?? activity?.answer {

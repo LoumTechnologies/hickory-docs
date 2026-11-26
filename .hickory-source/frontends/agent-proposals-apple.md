@@ -17,6 +17,9 @@ The conversation's single-edit review uses the same exact-byte principle. In
 particular, Unicode strings that Swift considers equivalent can still name
 different review material; the stale sheet must not decide the replacement.
 
+The status-row witness sends an edit argument that contains replacement text.
+The compact label shows the source target and leaves the payload to review.
+
 <ui:copy id="agent-proposals-apple-seal">
 import Foundation
 import Observation
@@ -260,6 +263,19 @@ import Darwin
 #endif
 @testable import HickorySimple
 final class AgentProposalTests:XCTestCase {
+  func testConversationActivityLabelsShowTheTargetWithoutEditPayload() throws {
+   let data = #"{"arguments":{"doc":"project.md","upstream":"chapters/code.md","input":"proposed replacement"}}"#
+   let bytes = try JSONSerialization.data(withJSONObject: [
+       "run_id": "turn", "exec_id": "agent",
+       "event": ["kind": "tool_started", "name": "edit_doc", "data": data]
+   ])
+   let frame = try JSONDecoder().decode(NativeAgentEvent.self, from: bytes)
+   let tool = NativeAgentActivity.Tool(name: try XCTUnwrap(frame.event.name), data: frame.event.data)
+   XCTAssertEqual(tool.name, "edit_doc")
+   XCTAssertEqual(tool.label, "Propose source edit · chapters/code.md")
+   XCTAssertEqual(NativeAgentActivity.Tool(name: "read_doc", data: nil).label, "Read source")
+   XCTAssertEqual(NativeAgentActivity.Tool(name: "custom", data: data).label, "custom")
+  }
   func testConversationPreviewDoesNotMatchByteDistinctRevision() {
    let old = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "\u{e9}", editor: false, status: "pending")
    let revised = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "e\u{301}", editor: false, status: "pending")

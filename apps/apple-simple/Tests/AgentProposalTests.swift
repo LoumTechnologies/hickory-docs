@@ -7,6 +7,19 @@ import Darwin
 #endif
 @testable import HickorySimple
 final class AgentProposalTests:XCTestCase {
+  func testConversationActivityLabelsShowTheTargetWithoutEditPayload() throws {
+   let data = #"{"arguments":{"doc":"project.md","upstream":"chapters/code.md","input":"proposed replacement"}}"#
+   let bytes = try JSONSerialization.data(withJSONObject: [
+       "run_id": "turn", "exec_id": "agent",
+       "event": ["kind": "tool_started", "name": "edit_doc", "data": data]
+   ])
+   let frame = try JSONDecoder().decode(NativeAgentEvent.self, from: bytes)
+   let tool = NativeAgentActivity.Tool(name: try XCTUnwrap(frame.event.name), data: frame.event.data)
+   XCTAssertEqual(tool.name, "edit_doc")
+   XCTAssertEqual(tool.label, "Propose source edit · chapters/code.md")
+   XCTAssertEqual(NativeAgentActivity.Tool(name: "read_doc", data: nil).label, "Read source")
+   XCTAssertEqual(NativeAgentActivity.Tool(name: "custom", data: data).label, "custom")
+  }
   func testConversationPreviewDoesNotMatchByteDistinctRevision() {
    let old = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "\u{e9}", editor: false, status: "pending")
    let revised = NativePendingAgentReview(id: "preview", name: "edit_doc", path: "project.md", oldText: "old", newText: "e\u{301}", editor: false, status: "pending")

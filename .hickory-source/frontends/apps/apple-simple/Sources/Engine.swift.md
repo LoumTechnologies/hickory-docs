@@ -65,6 +65,7 @@ struct NativeAgentEvent: Decodable {
     struct Event: Decodable {
         let kind: String
         let name: String?
+        let data: String?
         let text: String?
         let ok: Bool?
         let total_usage: Usage?
