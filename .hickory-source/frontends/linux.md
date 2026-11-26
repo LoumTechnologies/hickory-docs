@@ -66,9 +66,9 @@ StartupNotify=true
 ## Constrain the browser surface to its workspace
 
 A top-level view stays on the chosen workspace page and origin. Follow explicit
-external HTTP links through the system browser. A second workspace window shares
-the existing connection and profile, and a close request passes through the
-editor's before-unload guard. Keep the native window free of toolbars so the
+external HTTP links through the system browser. The new-window address launches
+the native workspace chooser in a separate process, so the chooser can outlive
+the original workspace. A close request passes through the editor's before-unload guard. Keep the native window free of toolbars so the
 shared editor can use its usual file tree, menus and anchored controls.
 
 <ui:copy id="linux-simple-workspace-window">
@@ -96,6 +96,7 @@ shared editor can use its usual file tree, menus and anchored controls.
 #include <QVBoxLayout>
 #include <QWebEngineDownloadRequest>
 #include <QWebEngineNewWindowRequest>
+#include <QUrlQuery>
 #include <QWebEnginePage>
 #include <QWebEnginePermission>
 #include <QWebEngineProfile>
@@ -169,7 +170,11 @@ public:
             if (!request.isUserInitiated())
                 return;
             const auto url = request.requestedUrl();
-            if (workspacePage(url, this->workspace)) {
+            if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
+                if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--blank-window")})) {
+                    QMessageBox::warning(this, tr("Could not open another window"), tr("Try File → New Window again."));
+                }
+            } else if (workspacePage(url, this->workspace)) {
                 auto *window = new WorkspaceWindow(this->profile, this->workspace);
                 request.openIn(window->view->page());
                 window->show();
@@ -387,7 +392,9 @@ int main(int argc, char **argv)
 
     const bool existing = parser.isSet(connectOption);
     bool validPort = false;
-    const int requestedPort = parser.value(existing ? connectOption : portOption).toInt(&validPort);
+    const auto defaultToFreePort = parser.isSet(blankOption) && !existing && !parser.isSet(portOption);
+    const int requestedPort = (defaultToFreePort ? QStringLiteral("0")
+        : parser.value(existing ? connectOption : portOption)).toInt(&validPort);
     if (!validPort || requestedPort < (existing ? 1 : 0) || requestedPort > 65535) {
         return showError(existing ? QObject::tr("Use a loopback port between 1 and 65535.")
                                   : QObject::tr("Use a local host port between 0 and 65535."));
@@ -656,8 +663,8 @@ mod tests {
 
 The focused Linux test launches the built application with a private Qt profile,
 workspace and engine directory. It opens a file whose name exercises URL
-encoding, saves through the on-screen File menu, opens a second native window,
-checks generated output stays read-only, and exercises a real PTY round trip. A
+encoding, saves through the on-screen File menu, checks generated output stays
+read-only, and exercises a real PTY round trip. A
 loopback-only DevTools port is enabled for
 this test process so Playwright can drive the mounted editor. Host-only mode
 uses the same compiled assets and engine with Chromium on another host OS.
@@ -788,15 +795,6 @@ try {
   await menu(page, "File", "Save");
   await until(async () => await readFile(source, "utf8") === "first line from the Linux workspace\n",
     "the guarded save");
-
-  if (!hostOnly) {
-    const popup = page.context().waitForEvent("page", { timeout: 10000 });
-    await menu(page, "File", "New Window");
-    const newWindow = await popup;
-    await expect(newWindow.locator(".cm-content").and(
-      newWindow.locator(`[aria-label=${JSON.stringify(file)}]`))).toHaveText("first line from the Linux workspace");
-    await page.bringToFront();
-  }
 
   await tree.locator('[title="generated.txt"]').click();
   const generated = page.locator('.cm-content[aria-label="generated.txt"]');

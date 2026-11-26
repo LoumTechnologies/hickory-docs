@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from select import select
 ROOT=Path(__file__).resolve().parents[1]
 def prepare(root):
  root.mkdir(parents=True,exist_ok=True);root=root.resolve()
@@ -64,7 +65,33 @@ def trace_appkit_send(origin, evidence, *, observe=None):
             output.write(json.dumps(row) + "\n")
 
     class Relay(BaseHTTPRequestHandler):
+        def forward_window_claim(self):
+            self.close_connection = True
+            try:
+                with socket.create_connection((upstream.hostname, upstream.port), timeout=5) as peer:
+                    headers = {name: self.headers[name] for name in
+                               ("Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version")
+                               if name in self.headers}
+                    headers["Host"] = upstream.netloc
+                    request = "GET /api/simple-window HTTP/1.1\r\n"
+                    request += "".join(f"{name}: {value}\r\n" for name, value in headers.items())
+                    peer.sendall((request + "\r\n").encode("ascii"))
+                    while True:
+                        readers, _, _ = select((self.connection, peer), (), ())
+                        for reader in readers:
+                            data = reader.recv(8192)
+                            if not data:
+                                return
+                            (peer if reader is self.connection else self.connection).sendall(data)
+            except (ConnectionError, TimeoutError):
+                return
+
         def forward(self):
+            # Native UI witnesses must reserve the same engine workspace.
+            # The fixture's HTTP body recorder cannot represent a socket lifetime.
+            if self.path == "/api/simple-window" and self.headers.get("Upgrade", "").lower() == "websocket":
+                self.forward_window_claim()
+                return
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 <= size <= 256 * 1024:
                 self.send_error(413, "Request exceeds the owned fixture limit")

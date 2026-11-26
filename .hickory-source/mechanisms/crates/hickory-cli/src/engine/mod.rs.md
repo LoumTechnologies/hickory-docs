@@ -109,9 +109,9 @@ A protocol version, not a release version: compatible releases may attach.
 
 <storycode:copy id="f-e55203129482-PROTOCOL">
 // A protocol version, not a release version: compatible releases may attach.
-// Version 4 separates read-only observation from explicit generation. Do not
-// attach a new editor to an older daemon that still weaves every discovered page.
-const PROTOCOL: u32 = 4;
+// Version 5 adds Simple UI window admission. A new editor needs an engine
+// that can reserve the workspace before opening any files.
+const PROTOCOL: u32 = 5;
 </storycode:copy>
 <a id="f-e55203129482-PREDICTION_PROTOCOL"></a>
 ### `PREDICTION_PROTOCOL`

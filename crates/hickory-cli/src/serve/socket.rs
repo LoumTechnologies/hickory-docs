@@ -39,6 +39,27 @@ pub struct WsParams {
     doc: String,
 }
 
+/// Only one Simple UI window can attach to this workspace. All host shells
+/// forwarding to this engine share the same semaphore. The socket owns its
+/// permit, so closing a tab, shell or connection releases it.
+pub async fn simple_window(State(state): State<LocalState>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade.max_message_size(1024).on_upgrade(move |mut socket| async move {
+        let Ok(permit) = state.simple_window.try_acquire_owned() else {
+            let _ = socket.send(WsMessage::Text("already-open".into())).await;
+            return;
+        };
+        let admission = format!("opened:{}", state.simple_window_epoch);
+        if socket.send(WsMessage::Text(admission.into())).await.is_ok() {
+            while let Some(Ok(message)) = socket.recv().await {
+                if matches!(message, WsMessage::Close(_)) {
+                    break;
+                }
+            }
+        }
+        drop(permit);
+    })
+}
+
 /// `WS /api/ws?doc=doc:<id>`, or `?doc=workspace` for the language channel
 /// alone.
 pub async fn ws_handler(

@@ -119,15 +119,6 @@ try {
   await until(async () => await readFile(source, "utf8") === "first line from the Linux workspace\n",
     "the guarded save");
 
-  if (!hostOnly) {
-    const popup = page.context().waitForEvent("page", { timeout: 10000 });
-    await menu(page, "File", "New Window");
-    const newWindow = await popup;
-    await expect(newWindow.locator(".cm-content").and(
-      newWindow.locator(`[aria-label=${JSON.stringify(file)}]`))).toHaveText("first line from the Linux workspace");
-    await page.bringToFront();
-  }
-
   await tree.locator('[title="generated.txt"]').click();
   const generated = page.locator('.cm-content[aria-label="generated.txt"]');
   await expect(generated).toHaveText("Generated source");

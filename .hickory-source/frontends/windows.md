@@ -69,6 +69,7 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
             switch (args[index])
             {
                 case "--blank-window" when args.Length == 1:
+                    port = 0;
                     break;
                 case "--port" when !hasPort && index + 1 < args.Length &&
                     ushort.TryParse(args[index + 1], out port):
@@ -325,7 +326,7 @@ internal sealed class WorkspaceHost : IDisposable
 
 <ui:file path="apps/windows-simple/WorkspaceHost.cs"><ui:paste select="#windows-workspace-process"/></ui:file>
 
-The application owns the workspace process and its windows. Windows for the same workspace share an environment, and close independently. A fixed port and per-workspace profile allow editor sessions to be recovered when reopening the workspace. The port-zero development option gets a temporary profile.
+The application owns the workspace process. File → New Window starts a separate process at the native workspace chooser. A fixed port and per-workspace profile allow editor sessions to be recovered when reopening the workspace. The port-zero development option gets a temporary profile.
 
 <ui:copy id="windows-window-lifetime">
 using System.Security.Cryptography;
@@ -478,9 +479,24 @@ internal sealed class WorkspaceWindow : Form
                 return;
             }
 
+            var address = new Uri(request.Uri);
+            if (address.Query == "?blank-window")
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(Application.ExecutablePath, "--blank-window"));
+                }
+                catch (Exception error)
+                {
+                    MessageBox.Show(this, error.Message, "Could not open another window",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
+
             using var deferral = request.GetDeferral();
             await Task.Yield();
-            await openWindow(new Uri(request.Uri), request);
+            await openWindow(address, request);
         };
         core.PermissionRequested += async (_, request) =>
         {
@@ -610,7 +626,7 @@ cp -R "$build/web" "$build/app/web"
 
 <ui:file path="scripts/build-simple-windows.sh" executable="true"><ui:paste select="#windows-bundle-layout"/></ui:file>
 
-The Windows smoke test opens an exact filename containing spaces, punctuation and Unicode in a real WinForms window. It checks that Files and source appear together, a cross-origin API request is refused, Save writes the guarded edit, a second window shares the workspace, generated source stays read-only, and closing the last window detaches the host.
+The Windows smoke test opens an exact filename containing spaces, punctuation and Unicode in a real WinForms window. It checks that Files and source appear together, a cross-origin API request is refused, Save writes the guarded edit, generated source stays read-only, and closing the editor window detaches the host.
 
 <ui:copy id="windows-window-smoke">
 import assert from "node:assert/strict";
@@ -689,20 +705,9 @@ try {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await eventually(async () => await readFile(source, "utf8") === "first line from WinForms\n", "the guarded save");
 
-  await page.locator("nav").getByText("File", { exact: true }).click();
-  await page.getByRole("button", { name: "New Window", exact: true }).click();
-  const other = await eventually(() => page.context().pages().find(tab =>
-    tab !== page && new URL(tab.url()).pathname === "/simple.html"), "a second WinForms workspace");
-  await expect(other.locator(".cm-content").and(
-    other.locator(`[aria-label=${JSON.stringify(name)}]`))).toHaveText("first line from WinForms");
-
-  await other.bringToFront();
-  await other.locator('[aria-label="Files"] [title="generated.txt"]').click();
-  await expect(other.locator('.cm-content[aria-label="generated.txt"]')).toHaveAttribute("contenteditable", "false");
+  await tree.locator('[title="generated.txt"]').click();
+  await expect(page.locator('.cm-content[aria-label="generated.txt"]')).toHaveAttribute("contenteditable", "false");
   assert.equal(await readFile(join(workspace, "generated.txt"), "utf8"), "Generated source\n");
-  const popupClosed = once(other, "close");
-  await other.evaluate(() => { setTimeout(() => window.close(), 50); });
-  await Promise.race([popupClosed, delay(15000, undefined, { ref: false }).then(() => { throw new Error("Second window did not close."); })]);
 
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     `if (-not (Get-Process -Id ${app.pid}).CloseMainWindow()) { exit 1 }`]);

@@ -1,6 +1,8 @@
 package com.hickorydocs.simple
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,13 +38,41 @@ private fun JSONObject.optional(key: String) = if (isNull(key)) null else optStr
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 class Engine(address: String) {
     var snippetClipboardReader:(()->String?)?=null
-    private val origin = URI(address).also {
+    internal val origin = URI(address).also {
         require(it.scheme in listOf("http", "https") && it.host != null && it.userInfo == null && it.query == null && it.fragment == null && it.path in listOf("", "/")) {
             "Enter the workspace server's http:// or https:// address, without a path or password."
         }
     }
     var sourceRootAddress:String?=null;private set
     var sourceWorkspaceID:String?=null;private set
+    suspend fun openWindowClaim(): SimpleWindowClaim {
+        val endpoint = origin.resolve("/api/simple-window").toString().replaceFirst("http", "ws")
+        val reply = CompletableDeferred<String>()
+        val claim = SimpleWindowClaim(origin)
+        claim.socket = debugHTTP.newWebSocket(Request.Builder().url(endpoint).build(), object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) { reply.complete(text) }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { closeClaim() }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                reply.completeExceptionally(t)
+                closeClaim()
+            }
+            private fun closeClaim() {
+                claim.active = false
+                reply.completeExceptionally(IllegalStateException("Workspace connection ended. Reconnect to continue."))
+            }
+        })
+        try {
+            val admitted = withTimeout(5000) { reply.await() }
+            if (admitted == "already-open") error("That workspace is already open in another window.")
+            check(admitted.startsWith("opened:")) { "The server did not confirm this workspace window." }
+            check(claim.active) { "Workspace connection ended. Reconnect to continue." }
+            claim.epoch = admitted
+            return claim
+        } catch (failure: Throwable) {
+            claim.close()
+            throw failure
+        }
+    }
     val debugURL get() = origin.resolve("/api/ws?doc=workspace").toString().replaceFirst("http", "ws")
     suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         val connection = origin.resolve(path).toURL().openConnection() as HttpURLConnection
@@ -169,6 +199,13 @@ fun nativeThreadReading(event:JSONObject,session:String,stop:String,selected:Lon
 }
 fun debugURI(path: String): String = languageURI(path)
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
+class SimpleWindowClaim(val origin: URI) {
+    lateinit var epoch: String
+    var active by mutableStateOf(true)
+    lateinit var socket: WebSocket
+    fun close() { socket.close(1001, null) }
+}
+
 private val debugHTTP = OkHttpClient.Builder().retryOnConnectionFailure(false).build()
 data class NativeRunOutput(val category: String, val text: String, val source: String?, val line: Int?)
 class NativeDebugger(private val engine: Engine, private val scope: CoroutineScope, private val recordedMessages: Boolean = false) {

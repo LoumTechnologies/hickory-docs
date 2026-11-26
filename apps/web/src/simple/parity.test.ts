@@ -24,7 +24,7 @@ import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentHistory, AgentSession, MarkdownMessage, agentTranscript, formattedToolJSON } from "./Agent";
-import { App } from "./App";
+import { WorkspaceApp as App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
 import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
 import changeCases from "../../../simple-contract/change-plan-cases.json";

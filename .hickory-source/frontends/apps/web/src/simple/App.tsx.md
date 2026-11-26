@@ -56,7 +56,10 @@ in flight or the address is still blank. The tooltip layer draws these messages
 over the workspace without changing any control’s dimensions.
 
 The browser lets its own origin open an already configured workspace. The
-welcome screen appears only when that initial lookup fails on a blank launch.
+welcome screen appears when that initial lookup fails or a window is opened
+explicitly with New Window. That command names a blank launch so it can show
+workspace choices without requesting a listing or agent history. A connection
+must hold the engine’s window socket before this app mounts the editor.
 It can retry that origin or navigate to an editor served by another Hickory
 host. Keep the normal editor mounted for an explicit file or after a workspace
 has loaded, so a failed listing cannot hide the user's source.
@@ -142,6 +145,83 @@ type OpenFileOptions = {
 };
 type OpenedFile = {buffer: Buffer; current: () => boolean};
 export function App() {
+  const [connection, setConnection] = useState<"opening" | "welcome" | "opened">(() =>
+    new URLSearchParams(location.search).has("blank-window") ? "welcome" : "opening");
+  const [failure, setFailure] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const claim = useRef<WebSocket | null>(null);
+  const workspaceEpoch = useRef<string | null>(null);
+
+  async function connect() {
+    if (claim.current) return null;
+    setFailure("");
+    const url = new URL("/api/simple-window", location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(url);
+    claim.current = socket;
+    return new Promise<string | null>(resolve => {
+      let admitted = false;
+      const timer = window.setTimeout(() => socket.close(), 5000);
+      socket.addEventListener("message", event => {
+        if (claim.current !== socket) return;
+        const epoch = typeof event.data === "string" && event.data.startsWith("opened:")
+          ? event.data.slice("opened:".length) : "";
+        if (epoch && (!workspaceEpoch.current || workspaceEpoch.current === epoch)) {
+          clearTimeout(timer);
+          admitted = true;
+          workspaceEpoch.current = epoch;
+          const address = new URL(location.href);
+          if (address.searchParams.has("blank-window")) {
+            address.searchParams.delete("blank-window");
+            history.replaceState(history.state, "", address);
+          }
+          setMounted(true);
+          setConnection("opened");
+          resolve(null);
+          return;
+        }
+        const message = event.data === "already-open" ? "That workspace is already open in another window." :
+          "This server no longer hosts the original workspace session. Open it in a new window.";
+        claim.current = null;
+        setFailure(message);
+        setConnection("welcome");
+        resolve(message);
+        socket.close();
+      });
+      socket.addEventListener("close", () => {
+        clearTimeout(timer);
+        if (claim.current !== socket) { resolve(null); return; }
+        claim.current = null;
+        const message = admitted ? "Workspace connection ended. Reconnect to continue." :
+          "Could not open the workspace on this server. Check its address and try again.";
+        setFailure(message);
+        setConnection("welcome");
+        resolve(message);
+      }, {once: true});
+    });
+  }
+
+  useEffect(() => {
+    if (connection === "opening") void connect();
+    return () => {
+      const socket = claim.current;
+      claim.current = null;
+      socket?.close();
+    };
+  }, []);
+
+  return <>
+    {mounted && <div hidden={connection !== "opened"} inert={connection !== "opened"}>
+      <WorkspaceApp connected={connection === "opened"} />
+    </div>}
+    {connection === "opening" && <main className="workspace-welcome"><p role="status">Opening workspace…</p></main>}
+    {connection === "welcome" && <WorkspaceWelcome initialError={failure} retry={connect} />}
+  </>;
+}
+
+export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
+  const connectedNow = useRef(connected);
+  connectedNow.current = connected;
   const [layout, setLayout] = useState<Layout>(() => initialLayout(true));
   const [hiddenFilesPane, setHiddenFilesPane] = useState<string | null>(null);
   const liveLayout=useRef(layout);liveLayout.current=layout;
@@ -192,8 +272,8 @@ export function App() {
     if (agentWorkspace) agentOwner.current.id = agentWorkspace;
   }
   const owner = agentOwner.current, agent = owner.session;
-  const agentCurrent = () => agentOwner.current === owner;
-  const overlayCurrent = () => overlayWorkspace() === overlayScope;
+  const agentCurrent = () => connectedNow.current && agentOwner.current === owner;
+  const overlayCurrent = () => connectedNow.current && overlayWorkspace() === overlayScope;
   agent.workspaceCurrent = agentCurrent;
   const conversations = useMemo(() => {
     const sessions = new Map<string, AgentSession>([['agent', agent]]);
@@ -627,6 +707,7 @@ export function App() {
   useEffect(() => {
     const command = (event: KeyboardEvent) => {
       if (requestedPath === null && workspaceLookup !== "opened") return;
+      if (!connectedNow.current) return;
       // Terminal control keys belong to the PTY, including Ctrl+N and Ctrl+S.
       if (event.defaultPrevented || (event.target instanceof Element && event.target.closest(".terminal-screen"))) return;
       if (!(event.metaKey || event.ctrlKey)) return;
@@ -702,7 +783,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   const context:CommandContext={separateFiles:!!separateFilesPane,...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly&&!buffer.resourceDeleted,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
-    "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
+    "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(new URL("/simple.html?blank-window", location.href), "_blank", "noopener");},
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{const recheck = buffer?.startupWorkspace === undefined; void loadFiles().then(() => { if (recheck) return refreshCurrentSource(); });},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
@@ -721,13 +802,13 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     }
     return <WorkspaceWelcome retry={async () => {
       await loadFiles();
-      return listingFailure.current;
+      return listingFailure.current && "Could not open the workspace on this server. Check its address and try again.";
     }} />;
   }
   return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={overlayScope}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
-    {[...conversations].map(([address, session]) => <AgentHistory key={address} session={session} visible={address === 'agent' || groups(layout).some(group => group.active === address)} />)}
+    {[...conversations].map(([address, session]) => <AgentHistory key={address} session={session} visible={connected && (address === 'agent' || groups(layout).some(group => group.active === address))} />)}
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
@@ -805,7 +886,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{!isAgentTab(active ?? "") && <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
-function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
+function WorkspaceWelcome({ retry, initialError = "" }: { retry: () => Promise<string | null>; initialError?: string }) {
   const [connecting, setConnecting] = useState(false);
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
@@ -815,7 +896,7 @@ function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
     setError("");
     const failure = await retry();
     if (failure) {
-      setError("Could not open the workspace on this server. Check its address and try again.");
+      setError(failure);
       setBusy(false);
     }
   }
@@ -849,7 +930,7 @@ function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
     </form> : <div className="workspace-welcome-actions">
       <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => { setConnecting(true); setError(""); }}>Connect to a Workspace Server…</button>
     </div>}
-    {error && <p role="alert">{error}</p>}
+    {(error || initialError) && <p role="alert">{error || initialError}</p>}
   </section></main>;
 }
 

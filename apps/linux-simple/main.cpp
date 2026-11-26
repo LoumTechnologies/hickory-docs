@@ -22,6 +22,7 @@
 #include <QVBoxLayout>
 #include <QWebEngineDownloadRequest>
 #include <QWebEngineNewWindowRequest>
+#include <QUrlQuery>
 #include <QWebEnginePage>
 #include <QWebEnginePermission>
 #include <QWebEngineProfile>
@@ -95,7 +96,11 @@ public:
             if (!request.isUserInitiated())
                 return;
             const auto url = request.requestedUrl();
-            if (workspacePage(url, this->workspace)) {
+            if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
+                if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--blank-window")})) {
+                    QMessageBox::warning(this, tr("Could not open another window"), tr("Try File → New Window again."));
+                }
+            } else if (workspacePage(url, this->workspace)) {
                 auto *window = new WorkspaceWindow(this->profile, this->workspace);
                 request.openIn(window->view->page());
                 window->show();
@@ -295,7 +300,9 @@ int main(int argc, char **argv)
 
     const bool existing = parser.isSet(connectOption);
     bool validPort = false;
-    const int requestedPort = parser.value(existing ? connectOption : portOption).toInt(&validPort);
+    const auto defaultToFreePort = parser.isSet(blankOption) && !existing && !parser.isSet(portOption);
+    const int requestedPort = (defaultToFreePort ? QStringLiteral("0")
+        : parser.value(existing ? connectOption : portOption)).toInt(&validPort);
     if (!validPort || requestedPort < (existing ? 1 : 0) || requestedPort > 65535) {
         return showError(existing ? QObject::tr("Use a loopback port between 1 and 65535.")
                                   : QObject::tr("Use a local host port between 0 and 65535."));

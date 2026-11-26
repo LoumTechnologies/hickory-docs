@@ -80,6 +80,8 @@ async fn prepare_inner(
 
     let store = FileDocStore::new(index.clone());
     let mut state = LocalState {
+        simple_window: Arc::new(tokio::sync::Semaphore::new(1)),
+        simple_window_epoch: rand_id(),
         private_prediction: None,
         ui_actions: Arc::new(ui_actions::Hub::default()),
         fleet_pairings: Arc::new(fleet_pairings::Pairings::default()),

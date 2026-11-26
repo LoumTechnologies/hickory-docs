@@ -68,8 +68,9 @@ The default port is 38174. Reuse it for editor session recovery, or pass
 `--port 0` for a temporary session.
 
 WinForms owns the application windows and uses WebView2 for the shared editor.
-**File → New Window** opens another window for the same workspace. Closing the
-last window detaches the local workspace host.
+**File → New Window** opens a disconnected welcome window. Choose a different
+local folder or workspace server there. Closing the editor window detaches its
+local workspace host.
 
 ## Run on KDE/Linux
 
@@ -95,8 +96,9 @@ workspace host. It needs no Node server at runtime.
 The KDE window embeds the same workspace as Simple Browser. File editing,
 language providers, debugger, test/coverage, Git, recovery, terminal and agent
 workflows go through the same frontend and engine. The host binds only
-`127.0.0.1:38174`. Other windows on that workspace can use **File → New Window**.
-Use `--port` to run a different workspace concurrently. Local editor settings
+`127.0.0.1:38174`. Use **File → New Window** to choose a different workspace. A second editor
+window cannot attach to an engine whose workspace is already open. Use
+`--port` to run a different workspace concurrently from the command line. Local editor settings
 and recovery are scoped to the loopback origin. Reuse that port when reopening
 the same session. Port 0 assigns a temporary origin and profile.
 

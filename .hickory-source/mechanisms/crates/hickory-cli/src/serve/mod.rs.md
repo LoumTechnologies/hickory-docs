@@ -697,6 +697,8 @@ pub struct RunRecord {
 #[derive(Clone)]
 pub struct LocalState {
     pub(crate) private_prediction: Option<Arc<private_predictions::Bound>>,
+    pub(crate) simple_window: Arc<tokio::sync::Semaphore>,
+    pub(crate) simple_window_epoch: u64,
     pub(crate) ui_actions: Arc<ui_actions::Hub>,
     pub(crate) fleet_pairings: Arc<fleet_pairings::Pairings>,
     /// Text files explicitly opened outside the workspace.
@@ -1283,6 +1285,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/pick-folder", post(shell::pick_folder))
         .route("/save-file-dialog", post(shell::save_file_dialog))
         .route("/window/close", post(shell::close_window))
+        .route("/simple-window", get(socket::simple_window))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))
         .route("/open-file", post(plain_file::open_file))

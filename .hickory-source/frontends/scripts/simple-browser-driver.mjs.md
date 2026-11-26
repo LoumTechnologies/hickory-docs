@@ -26,7 +26,7 @@ and scroll position while the floating panel is visible. Media emulation changes
 the user's preference on the same page, exercising live reduced-motion updates.
 
 <ui:copy id="simple-b622660cef-0">
-import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
+import { chromium, expect } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
 let browser, page, nativeTable;
 let templateHeldRoute,templateHoldHandler;
@@ -91,7 +91,9 @@ try {
       let value = null;
       switch (request.action) {
         case "launch":
-          browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
+          browser = await chromium.launch({ headless: true });
+          // The context outlives its first page so a popup can remain open after that page closes.
+          page = await (await browser.newContext({ viewport: { width: 1100, height: 750 } })).newPage();
           page.on("pageerror", error => { pageErrors.push(String(error)); if (pageErrors.length > 8) pageErrors.shift(); });
           page.on("websocket",socket=>{for(const direction of ["framesent","framereceived"])socket.on(direction,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;const value=JSON.parse(new TextDecoder().decode(payload.subarray(1)));debugWire.push({direction,op:value.op,event:value.event,session:value.session,doc:value.doc,stop:value.stop,thread:value.thread,frame:value.frame,request_id:value.request_id,reference:value.reference,about:value.about,message:value.message,source_hash:value.source_hash,source_test:value.source_test?{candidate_id:value.source_test.candidate_id,selection:value.source_test.selection}:undefined});if(debugWire.length>512)debugWire.shift();}catch{}});});
           page.on("request",request=>{if(new URL(request.url()).pathname==="/api/agent-proposals/report"&&request.method()==="POST"){try{proposalReports.push(request.postDataJSON());if(proposalReports.length>8)proposalReports.shift();}catch{}}if(new URL(request.url()).pathname!=="/api/behavior/verify"||request.method()!=="POST")return;const body=request.postData();if(body&&body.length<=1048576){try{behaviorRequests.push(JSON.parse(body));if(behaviorRequests.length>16)behaviorRequests.shift();}catch{}}});
@@ -123,6 +125,36 @@ try {
           await page.getByRole("button", { name: "Connect", exact: true }).click();
           await welcome.waitFor({ state: "detached" });
           await page.locator('.file-tree').getByText("notes.txt", { exact: true }).waitFor();
+          break;
+        }
+        case "exclusive-new-window": {
+          const opening = page.context().waitForEvent("page", { timeout: 10000 });
+          await menu("File", "New Window");
+          const child = await opening;
+          const address = new URL(page.url()).origin;
+          const welcome = child.getByRole("heading", { name: "Welcome to Hickory Docs", exact: true });
+          const files = child.locator('[aria-label="Files"]');
+          const history = child.getByRole("tab", { name: "Agent History", exact: true });
+          const connect = child.getByRole("button", { name: "Connect", exact: true });
+          await expect(welcome).toBeVisible();
+          await expect(files).toHaveCount(0);
+          await expect(history).toHaveCount(0);
+          await expect(child.getByRole("alert")).toHaveCount(0);
+          await child.getByRole("button", { name: "Connect to a Workspace Server…" }).click();
+          await child.getByRole("textbox", { name: "Workspace server address" }).fill(address);
+          await connect.click();
+          await expect(child.getByRole("alert")).toHaveText("That workspace is already open in another window.");
+          await expect(files).toHaveCount(0);
+          await expect(history).toHaveCount(0);
+          await expect(editor(request.path)).toHaveText(request.draft);
+          await page.close();
+          page = child;
+          await expect(async () => {
+            if (await connect.isVisible()) await connect.click({ timeout: 2000 });
+            await expect(files).toBeVisible({ timeout: 1000 });
+          }).toPass({ timeout: 12000 });
+          await expect(welcome).toBeHidden();
+          await expect(files.getByRole("button", { name: request.path, exact: true })).toBeVisible();
           break;
         }
         case "startup-held": {

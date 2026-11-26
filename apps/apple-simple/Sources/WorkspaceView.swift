@@ -12,6 +12,8 @@ struct WorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var workspace: Workspace
+    var launch: SimpleWindowLaunch? = nil
+    var closeWindow: (() -> Void)? = nil
     var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
     @State private var connectionError = ""
@@ -21,16 +23,37 @@ struct WorkspaceView: View {
     @State private var openingLocalWorkspace = false
     #endif
     #if os(iOS)
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    @State private var presentedWindow: SimpleWindowLaunch?
     @State private var selectionEdit: MobileSelectionEdit?
     @State private var selectionReplacement = ""
     #endif
-    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{showServerConnection()}])}
+    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":newWindow,"file.connect":showServerConnection])}
+
+    private func newWindow() {
+        let destination = SimpleWindowLaunch()
+        #if os(iOS)
+        if !supportsMultipleWindows {
+            presentedWindow = destination
+            return
+        }
+        #endif
+        openWindow(id: "workspace", value: destination)
+    }
     var body: some View {
         let epoch = workspace.sourceNavigationEpoch
         VStack(spacing: 0) {
             #if !os(macOS)
             HStack {
-                Menu("File") {ForEach(menuCommands.filter {$0.group=="File"}) {WorkspaceCommandButton(command:$0)}}
+                Menu("File") {
+                    ForEach(menuCommands.filter {
+                        $0.group == "File" && (!workspace.windowConnectionLost || ["file.connect", "file.window"].contains($0.id))
+                    }) { WorkspaceCommandButton(command: $0) }
+                    if let closeWindow {
+                        Button("Close Window", action: closeWindow)
+                            .disabled(reason: workspace.hasUnsavedChanges ? "Save your documents before closing this window." : nil)
+                    }
+                }
                 Menu("Edit") {
                     EditorNavigationSettings()
                     ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
@@ -49,12 +72,19 @@ struct WorkspaceView: View {
                     }
                     #endif
                 }
+                .disabled(workspace.windowConnectionLost)
                 Menu("View") {ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}}
+                    .disabled(workspace.windowConnectionLost)
                 Spacer()
             }.padding(.horizontal, 8).frame(height: 32)
             Divider()
             #endif
-            if workspace.engine != nil || workspace.currentBuffer != nil {
+            if workspace.windowConnectionLost {
+                VStack(spacing: 12) {
+                    Text("Workspace connection ended. Reconnect to continue.")
+                    Button("Connect to a Workspace Server…", action: showServerConnection)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if workspace.engine != nil || workspace.currentBuffer != nil {
                 PaneView(workspace: workspace, id: workspace.layout.rootID)
             } else {
                 welcome
@@ -81,6 +111,9 @@ struct WorkspaceView: View {
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
         #if os(iOS)
+        .fullScreenCover(item: $presentedWindow) { launch in
+            SimpleWindowRoot(launch: launch, closeWindow: { presentedWindow = nil })
+        }
         .sheet(item: $selectionEdit) { selections in
             VStack(alignment: .leading, spacing: 12) {
                 Text("Edit selections").font(.headline)
@@ -180,6 +213,10 @@ struct WorkspaceView: View {
             guard !startupResolved else { return }
             defer { startupResolved = true }
             guard workspace.engine == nil else { return }
+            if launch != nil {
+                workspace.address = ""
+                return
+            }
             #if os(macOS)
             if workspace.address.isEmpty, let location = LocalWorkspaceHost.takeLaunchLocation() {
                 await openLocalWorkspace(location)
@@ -192,6 +229,7 @@ struct WorkspaceView: View {
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
         .focusedSceneValue(\.simpleOpenLocalFolder, localFolderAction)
+        .focusedSceneValue(\.simpleNewWindow, newWindow)
         .onOpenURL { url in
             if url.isFileURL { Task { await openLocalWorkspace(url) } }
         }

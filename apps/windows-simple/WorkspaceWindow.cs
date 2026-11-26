@@ -49,9 +49,24 @@ internal sealed class WorkspaceWindow : Form
                 return;
             }
 
+            var address = new Uri(request.Uri);
+            if (address.Query == "?blank-window")
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(Application.ExecutablePath, "--blank-window"));
+                }
+                catch (Exception error)
+                {
+                    MessageBox.Show(this, error.Message, "Could not open another window",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
+
             using var deferral = request.GetDeferral();
             await Task.Yield();
-            await openWindow(new Uri(request.Uri), request);
+            await openWindow(address, request);
         };
         core.PermissionRequested += async (_, request) =>
         {

@@ -74,6 +74,16 @@ class BrowserDriver:
 def welcome_acceptance(driver):
     driver.act("workspace-welcome", url=driver.url)
 
+def exclusive_new_window_acceptance(driver, folder):
+    path = "notes.txt"
+    driver.act("open", path=path)
+    driver.act("append", path=path, text=" unsaved")
+    driver.act("exclusive-new-window", path=path, draft="before unsaved")
+    assert (folder / path).read_text() == "before"
+    driver.act("open", path=path)
+    assert driver.act("content", path=path) == "before"
+
+
 def early_source_acceptance(driver, folder):
     path, sibling = "nested/README #é.md", "nested/peer.txt"
     text = (folder / path).read_text()
@@ -1417,6 +1427,9 @@ raise RuntimeError('wrong assistant fence')
             if "--workspace-welcome-only" in sys.argv:
                 welcome_acceptance(driver)
                 print("Browser: neutral welcome, explicit server address, failed retry and recovered file tree passed")
+            elif "--new-window-only" in sys.argv:
+                exclusive_new_window_acceptance(driver, folder)
+                print("Browser: disconnected New Window, duplicate workspace refusal, preserved draft and release on close passed")
             elif "--early-source-only" in sys.argv:
                 early_source_acceptance(driver, folder)
                 print("Browser: readable first-open source survives delayed and failed ownership; guarded editing attaches to the same editor")

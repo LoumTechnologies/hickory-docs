@@ -74,20 +74,9 @@ try {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await eventually(async () => await readFile(source, "utf8") === "first line from WinForms\n", "the guarded save");
 
-  await page.locator("nav").getByText("File", { exact: true }).click();
-  await page.getByRole("button", { name: "New Window", exact: true }).click();
-  const other = await eventually(() => page.context().pages().find(tab =>
-    tab !== page && new URL(tab.url()).pathname === "/simple.html"), "a second WinForms workspace");
-  await expect(other.locator(".cm-content").and(
-    other.locator(`[aria-label=${JSON.stringify(name)}]`))).toHaveText("first line from WinForms");
-
-  await other.bringToFront();
-  await other.locator('[aria-label="Files"] [title="generated.txt"]').click();
-  await expect(other.locator('.cm-content[aria-label="generated.txt"]')).toHaveAttribute("contenteditable", "false");
+  await tree.locator('[title="generated.txt"]').click();
+  await expect(page.locator('.cm-content[aria-label="generated.txt"]')).toHaveAttribute("contenteditable", "false");
   assert.equal(await readFile(join(workspace, "generated.txt"), "utf8"), "Generated source\n");
-  const popupClosed = once(other, "close");
-  await other.evaluate(() => { setTimeout(() => window.close(), 50); });
-  await Promise.race([popupClosed, delay(15000, undefined, { ref: false }).then(() => { throw new Error("Second window did not close."); })]);
 
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     `if (-not (Get-Process -Id ${app.pid}).CloseMainWindow()) { exit 1 }`]);

@@ -18,9 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // A protocol version, not a release version: compatible releases may attach.
-// Version 4 separates read-only observation from explicit generation. Do not
-// attach a new editor to an older daemon that still weaves every discovered page.
-const PROTOCOL: u32 = 4;
+// Version 5 adds Simple UI window admission. A new editor needs an engine
+// that can reserve the workspace before opening any files.
+const PROTOCOL: u32 = 5;
 const PREDICTION_PROTOCOL: &str = "private_prediction_v1";
 pub(crate) const WORKER: &str = "HICKORY_ENGINE_WORKER";
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(2);

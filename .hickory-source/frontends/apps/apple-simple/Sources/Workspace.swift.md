@@ -263,7 +263,60 @@ struct StartupSourceObservation {
         catch { self.error = "\(error.localizedDescription) Your edits are retained. Copy them before closing; compare with disk before retrying." }
     }
 }
+@MainActor @Observable final class SimpleWindowClaim {
+    let origin: URL
+    private let socket: URLSessionWebSocketTask
+    let epoch: String
+    private(set) var active = true
+
+    private init(origin: URL, socket: URLSessionWebSocketTask, epoch: String) {
+        self.origin = origin
+        self.socket = socket
+        self.epoch = epoch
+        Task { [weak self, socket] in
+            _ = try? await socket.receive()
+            self?.active = false
+            socket.cancel(with: .goingAway, reason: nil)
+        }
+    }
+
+    static func open(_ engine: Engine) async throws -> SimpleWindowClaim {
+        var endpoint = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        endpoint.scheme = endpoint.scheme == "https" ? "wss" : "ws"
+        endpoint.path = "/api/simple-window"
+        let socket = engine.session.webSocketTask(with: URLRequest(url: endpoint.url!, timeoutInterval: 5))
+        socket.resume()
+        do {
+            let message = try await withTaskCancellationHandler {
+                try await socket.receive()
+            } onCancel: {
+                socket.cancel(with: .goingAway, reason: nil)
+            }
+            switch message {
+            case .string(let admitted) where admitted.hasPrefix("opened:"):
+                return SimpleWindowClaim(origin: engine.origin, socket: socket, epoch: admitted)
+            case .string("already-open"):
+                throw EngineError(message: "That workspace is already open in another window.")
+            default:
+                throw EngineError(message: "The server did not confirm this workspace window.")
+            }
+        } catch {
+            socket.cancel(with: .goingAway, reason: nil)
+            throw error
+        }
+    }
+
+    deinit { socket.cancel(with: .goingAway, reason: nil) }
+}
+
 @MainActor @Observable final class Workspace {
+    private let exclusiveWindow: Bool
+    private var windowClaim: SimpleWindowClaim?
+    var windowConnectionLost: Bool { windowClaim?.active == false }
+
+    init(exclusiveWindow: Bool = false) {
+        self.exclusiveWindow = exclusiveWindow
+    }
     var draggingTab: String?
     let changes = WorkspaceChanges()
     var showWorkspaceSearch = false
@@ -638,10 +691,26 @@ preserve the native editor and its view state.
     }
     func connect(opening explicitPath: String? = nil) async -> Bool {
         guard !connecting else { return false }
-        guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
         connecting = true; defer { connecting = false }
         do {
             let next = try Engine(address: address)
+            if exclusiveWindow, windowConnectionLost, engine?.origin == next.origin {
+                let renewed = try await SimpleWindowClaim.open(next)
+                guard renewed.epoch == windowClaim?.epoch else {
+                    throw EngineError(message: "This server no longer hosts the original workspace session. Open it in a new window.")
+                }
+                windowClaim = renewed
+                return true
+            }
+            guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
+            let admission: SimpleWindowClaim?
+            if !exclusiveWindow {
+                admission = nil
+            } else if let windowClaim, windowClaim.active, windowClaim.origin == next.origin {
+                admission = windowClaim
+            } else {
+                admission = try await SimpleWindowClaim.open(next)
+            }
             let heldReading = engine == nil ? buffers.values.first(where: { $0.startupObservation?.origin == next.origin }) : nil
             let requestedPath = explicitPath ?? heldReading?.file.path
             var requestedScope = generation, requestedInteraction = paneInteraction
@@ -653,11 +722,16 @@ preserve the native editor and its view state.
             catch {
                 await startup?.value
                 if let requestedPath, buffers[requestedPath]?.startupObservation?.origin == next.origin {
+                    windowClaim = admission
                     status = "\(error.localizedDescription) \(requestedPath) remains readable. Use Workspace Connection to retry the file tree."
                     return true
                 }
                 throw error
             }
+            if admission?.active == false {
+                throw EngineError(message: "Workspace connection ended. Reconnect to continue.")
+            }
+            windowClaim = admission
             let requestedTabIsCurrent = startupIsCurrent()
             let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.

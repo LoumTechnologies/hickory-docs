@@ -16,8 +16,16 @@ On macOS the File menu takes its local folder action from the focused
 window. A user can switch folders after leaving the welcome screen, and the
 existing workspace guards still protect unsaved changes.
 
+Route New Window through the focused scene so the desktop menu and the iOS
+fallback use the same command. A unique launch value asks SwiftUI for a fresh
+scene that skips the original app’s automatic workspace connection.
+
 <ui:copy id="simple-967795f4aa-0">
 import SwiftUI
+
+struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
+    var id = UUID()
+}
 
 @main struct HickorySimpleApp: App {
     @State private var fallbackWorkspace = Workspace()
@@ -27,13 +35,17 @@ import SwiftUI
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
     @FocusedValue(\.simpleOpenLocalFolder) private var openLocalFolder
+    @FocusedValue(\.simpleNewWindow) private var newWindow
+    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":newWindow ?? {openWindow(id:"workspace", value: SimpleWindowLaunch())},"file.connect":{NotificationCenter.default.post(name:.simpleConnect,object:nil)}])}
     #endif
-    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{NotificationCenter.default.post(name:.simpleConnect,object:nil)}])}
     var body: some Scene {
         #if os(macOS)
-        WindowGroup("Hickory Simple", id: "workspace") {
-            SimpleWindowRoot().frame(minWidth: 480, minHeight: 320)
+        WindowGroup("Hickory Simple", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
+            SimpleWindowRoot(launch: launch).frame(minWidth: 480, minHeight: 320)
                 .onAppear {
+                    // A regular startup may originate from the command line.
+                    // Let SwiftUI order an explicitly opened scene itself.
+                    guard launch == nil else { return }
                     DispatchQueue.main.async {
                         NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
                         NSApp.activate()
@@ -58,16 +70,23 @@ import SwiftUI
             }
         }
         #else
-        WindowGroup(id: "workspace") { SimpleWindowRoot() }
+        WindowGroup(id: "workspace", for: SimpleWindowLaunch.self) { $launch in
+            SimpleWindowRoot(launch: launch)
+        }
         #endif
     }
 }
 private struct SimpleWorkspaceKey: FocusedValueKey { typealias Value = Workspace }
 #if os(macOS)
 private struct SimpleOpenLocalFolderKey: FocusedValueKey { typealias Value = () -> Void }
+private struct SimpleNewWindowKey: FocusedValueKey { typealias Value = () -> Void }
 #endif
 extension FocusedValues {
     #if os(macOS)
+    var simpleNewWindow: (() -> Void)? {
+        get { self[SimpleNewWindowKey.self] }
+        set { self[SimpleNewWindowKey.self] = newValue }
+    }
     var simpleOpenLocalFolder: (() -> Void)? {
         get { self[SimpleOpenLocalFolderKey.self] }
         set { self[SimpleOpenLocalFolderKey.self] = newValue }
@@ -79,10 +98,13 @@ extension FocusedValues {
     }
 }
 @MainActor private enum WorkspaceWindows { static let values = NSHashTable<Workspace>.weakObjects() }
-private struct SimpleWindowRoot: View {
-    @State private var workspace = Workspace()
+struct SimpleWindowRoot: View {
+    var launch: SimpleWindowLaunch? = nil
+    var closeWindow: (() -> Void)? = nil
+    @State private var workspace = Workspace(exclusiveWindow: true)
     var body: some View {
-        WorkspaceView(workspace: workspace).focusedSceneValue(\.simpleWorkspace, workspace)
+        WorkspaceView(workspace: workspace, launch: launch, closeWindow: closeWindow)
+            .focusedSceneValue(\.simpleWorkspace, workspace.windowConnectionLost ? nil : workspace)
             .onAppear { WorkspaceWindows.values.add(workspace) }
     }
 }

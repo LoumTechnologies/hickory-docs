@@ -41,6 +41,7 @@ uses the same editor pane as a confirmed workspace.
 <ui:copy id="simple-d8c991adb6-0">
 package com.hickorydocs.simple
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        workspace.exclusiveWindow = true
         workspace.connectFromLaunch(
             intent.getStringExtra("hickory_api_origin"),
             intent.getStringExtra("hickory_open_file"),
@@ -108,13 +110,20 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(workspace){workspace.editorRecovery.captureLoop(workspace)}
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
-    val commands=workspace.commands(descriptors,mapOf("file.connect" to showServerConnection,"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
+    val commands = workspace.commands(descriptors, mapOf(
+        "file.connect" to showServerConnection,
+        "file.window" to {
+            context.startActivity(Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK))
+        },
+    ))
     LaunchedEffect(workspace.engine) {
         if (workspace.engine != null) connection = false
     }
     BackHandler(workspace.hasUnsavedChanges) { workspace.status = "Save your documents before leaving this workspace." }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().onPreviewKeyEvent {
-        if(it.type==KeyEventType.KeyDown&&it.key==Key.P&&(it.isCtrlPressed||it.isMetaPressed)) {workspace.showEverywhere=true;true}
+        if (workspace.windowConnectionLost) false
+        else if(it.type==KeyEventType.KeyDown&&it.key==Key.P&&(it.isCtrlPressed||it.isMetaPressed)) {workspace.showEverywhere=true;true}
         else if (workspace.active == "terminal") false
         else if (it.type == KeyEventType.KeyDown && it.key == Key.S && (it.isCtrlPressed || it.isMetaPressed)) {
             scope.launch { workspace.save() }; true
@@ -125,13 +134,22 @@ class MainActivity : ComponentActivity() {
         } else false
     }) {
         Row(Modifier.fillMaxWidth().height(32.dp)) {
-            CommandMenu("File",commands.filter {it.group=="File"})
-            CommandMenu("Edit",commands.filter {it.group=="Edit"} + multipleSelectionCommands(workspace))
-            CommandMenu("View",commands.filter {it.group=="View"})
+            CommandMenu("File", commands.filter {
+                it.group == "File" && (!workspace.windowConnectionLost || it.id == "file.connect" || it.id == "file.window")
+            })
+            if (!workspace.windowConnectionLost) {
+                CommandMenu("Edit",commands.filter {it.group=="Edit"} + multipleSelectionCommands(workspace))
+                CommandMenu("View",commands.filter {it.group=="View"})
+            }
         }
         HorizontalDivider()
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-            if (workspace.engine != null || workspace.currentBuffer != null) {
+            if (workspace.windowConnectionLost) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Workspace connection ended. Reconnect to continue.")
+                    Button(onClick = showServerConnection) { Text("Connect to a Workspace Server…") }
+                }
+            } else if (workspace.engine != null || workspace.currentBuffer != null) {
                 Pane(workspace, workspace.layout.rootID)
             } else {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {

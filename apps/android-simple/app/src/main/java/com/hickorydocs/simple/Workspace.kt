@@ -461,6 +461,9 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var debugger by mutableStateOf<NativeDebugger?>(null)
     var engine by mutableStateOf<Engine?>(null)
     var address by mutableStateOf("")
+    var exclusiveWindow = false
+    private var windowClaim by mutableStateOf<SimpleWindowClaim?>(null)
+    val windowConnectionLost get() = windowClaim?.active == false
     var connecting by mutableStateOf(false)
     private var launchFile: Pair<String, String>? = null
     private data class StartupPreview(val engine: Engine, val source: StartupSource, val editor: DocumentBuffer)
@@ -554,12 +557,25 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
 
     suspend fun connect(): Boolean {
         if (connecting) return false
-        if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
         connecting = true
         var reading: kotlinx.coroutines.Job? = null
+        var candidate: SimpleWindowClaim? = null
         try {
             val origin = address
             val next = Engine(origin)
+            if (exclusiveWindow && windowConnectionLost && engine?.origin == next.origin) {
+                candidate = next.openWindowClaim()
+                check(candidate.epoch == windowClaim?.epoch) {
+                    "This server no longer hosts the original workspace session. Open it in a new window."
+                }
+                windowClaim?.close()
+                windowClaim = candidate
+                return true
+            }
+            if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
+            if (exclusiveWindow) {
+                candidate = windowClaim?.takeIf { it.active && it.origin == next.origin } ?: next.openWindowClaim()
+            }
             val requested = launchFile?.takeIf { it.first == origin }?.second
             var requestedGeneration = generation
             var requestedNavigation = foregroundNavigation
@@ -585,6 +601,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
                 val observed = startupPreview?.takeIf { it.engine === next }?.source ?: throw failure
                 listingUnavailable = true
                 observed.rootPath to emptyList()
+            }
+            check(candidate?.active != false) { "Workspace connection ended. Reconnect to continue." }
+            if (windowClaim !== candidate) {
+                windowClaim?.close()
+                windowClaim = candidate
             }
             val preview = startupPreview?.takeIf { it.engine === next }
             val requestedTabIsCurrent = startupIsCurrent()
@@ -621,7 +642,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { status = "${failure.message} Check the workspace address and reconnect."; return false }
-        finally { reading?.cancel(); connecting = false }
+        finally {
+            reading?.cancel()
+            if (candidate !== windowClaim) candidate?.close()
+            connecting = false
+        }
     }
     private fun adoptSavedText(buffer: DocumentBuffer, source: String) {
         val edit = reviewedSourceReplacement(buffer.text, source) ?: return
@@ -861,7 +886,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val source=buffer.text;buffer.debugRevealSource=source;buffer.debugRevealCurrent={valid()&&buffer.text==source}
         buffer.debugReveal=line to ((buffer.debugReveal?.second ?: 0)+1)
     }
-    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); allAgentSessions.forEach { it.debugger?.close() }; super.onCleared() }
+    override fun onCleared() { windowClaim?.close(); sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); allAgentSessions.forEach { it.debugger?.close() }; super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)
