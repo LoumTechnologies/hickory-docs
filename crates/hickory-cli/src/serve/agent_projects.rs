@@ -221,8 +221,10 @@ fn record_capture(turn: &str, capture: &CapturedTurn, resolution: Option<&str>) 
     let path = capture_sidecar(&capture.session, &token)?;
     let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(std::path::Path::new(".")))?;
     let writer = std::io::BufWriter::new(file.as_file_mut());
-    let mut compressed = flate2::write::GzEncoder::new(writer, flate2::Compression::fast());
-    serde_json::to_writer(&mut compressed, capture)?;
+    let compressed = flate2::write::GzEncoder::new(writer, flate2::Compression::fast());
+    let mut json = std::io::BufWriter::with_capacity(64 * 1024, compressed);
+    serde_json::to_writer(&mut json, capture)?;
+    let compressed = json.into_inner().map_err(|error| error.into_error())?;
     compressed.finish()?.into_inner().map_err(|error| error.into_error())?.sync_all()?;
     file.persist_noclobber(&path)?;
     #[cfg(unix)]
