@@ -9,7 +9,7 @@ def parse_action(raw):
         if len(value["python"].encode()) > 65_536:
             raise ValueError("Python snippet exceeds 64 KiB")
         return value
-    if set(value) == {"done"} and isinstance(value["done"], str):
+    if set(value) == {"done"} and isinstance(value["done"], str) and value["done"].strip():
         return value
     if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and value["tool"].strip() and isinstance(value["arguments"], dict):
         if len(json.dumps(value, allow_nan=False).encode()) > 65_536:

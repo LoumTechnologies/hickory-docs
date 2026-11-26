@@ -48,9 +48,11 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(parse_action('{"python":"1 + 2"}'), {'python': '1 + 2'})
         self.assertEqual(parse_action('{"tool":"list_docs","arguments":{}}'),
                          {'tool': 'list_docs', 'arguments': {}})
+        self.assertEqual(parse_action('{"done":" Finished "}'), {'done': ' Finished '})
         for raw in ['{"shell":"not a tool"}', '{"python":"x","done":"ok"}', '[]', '```python\nx\n```',
                     '{"tool":"list_docs","arguments":[]}', '{"tool":"read_doc","arguments":{"n":NaN}}',
                     '{"tool":"","arguments":{}}', json.dumps({'tool': ' \t', 'arguments': {}}),
+                    '{"done":""}', json.dumps({'done': ' \t'}),
                     '{"tool":"list_docs","arguments":{},"done":"malformed"}']:
             with self.assertRaises(ValueError):
                 parse_action(raw)
