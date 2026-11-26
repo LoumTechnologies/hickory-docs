@@ -349,6 +349,13 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val intent = foregroundNavigation
         return { foregroundNavigation == intent }
     }
+    var filesRoot by mutableStateOf("Workspace")
+        private set
+    var filesRefreshing by mutableStateOf(false)
+        private set
+    var filesRefreshError by mutableStateOf("")
+        private set
+    private var filesRefreshTicket = 0
     var rootFiles by mutableStateOf<List<FileNode>>(emptyList())
     var files by mutableStateOf<List<FileNode>>(emptyList())
     var directoryScope by mutableStateOf("")
@@ -637,6 +644,9 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             if (preview == null) { layout = PaneLayout.workspaceDefault(); focused = "document-group" }
             else buffers[preview.source.path] = preview.editor
             if (requestedTabIsCurrent) { requestedGeneration = generation; requestedNavigation = foregroundNavigation }
+            filesRoot = root
+            filesRefreshing = false
+            filesRefreshError = if (listingUnavailable) "Refresh Files to confirm the workspace and permission." else ""
             status = root
             if (requested != null) {
                 directoryScope = requested.substringBeforeLast('/', "")
@@ -713,17 +723,33 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         catch (failure: Exception) { if (current()) status = "Could not check ${file.path} on disk. ${failure.message}" }
     }
     suspend fun refresh() {
-        val current = generation; val server = engine ?: return
+        val current = generation
+        val server = engine ?: return
+        val ticket = ++filesRefreshTicket
+        fun ownsReading() = generation == current && filesRefreshTicket == ticket
+        filesRefreshing = true
+        filesRefreshError = ""
         try {
             val (root, tree) = server.files()
-            if (generation == current) {
-                rootFiles = tree; files = scopedFiles(tree); status = root
-                val preview = startupPreview?.source?.path?.let { findFileNode(it, tree) }?.takeUnless { it.dir }
-                if (preview != null) confirmStartupPreview(preview, server) else refreshCurrentSource()
+            if (!ownsReading()) return
+            filesRoot = root
+            rootFiles = tree
+            files = scopedFiles(tree)
+            filesRefreshing = false
+            status = root
+        } catch (cancelled: CancellationException) {
+            if (ownsReading()) filesRefreshing = false
+            throw cancelled
+        } catch (failure: Exception) {
+            if (ownsReading()) {
+                filesRefreshing = false
+                filesRefreshError = "${failure.message} Check the server and refresh again."
+                status = filesRefreshError
             }
+            return
         }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { if (generation == current) status = "${failure.message} Check the server and refresh again." }
+        val preview = startupPreview?.source?.path?.let { findFileNode(it, rootFiles) }?.takeUnless { it.dir }
+        if (preview != null) confirmStartupPreview(preview, server) else refreshCurrentSource()
     }
     suspend fun loadBuffer(file: FileNode, forStartup: Boolean = false): DocumentBuffer {
         buffers[file.path]?.let { return it }

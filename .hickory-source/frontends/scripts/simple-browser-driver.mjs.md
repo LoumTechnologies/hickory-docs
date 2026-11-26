@@ -1188,6 +1188,36 @@ try {
           }) : null;
           break;
         }
+        case "pane-status-layout": {
+          const status = name => page.getByLabel(name, { exact: true });
+          const files = status("Files status");
+          const history = status("Agent History status");
+          const document = status("Document status");
+          const bounds = async strip => {
+            await expect(strip).toBeVisible();
+            return await strip.boundingBox();
+          };
+          const bottom = box => box.y + box.height;
+          await page.getByRole("tab", { name: "Files", exact: true }).click();
+          await page.getByRole("button", { name: "notes.txt", exact: true }).click();
+          await editor("notes.txt").waitFor();
+          const filesBar = await bounds(files);
+          const editorBar = await bounds(document);
+          expect(filesBar.height).toBe(editorBar.height);
+          expect(bottom(filesBar)).toBeCloseTo(bottom(editorBar), 0);
+          expect(editorBar.x).toBeGreaterThan(filesBar.x + filesBar.width);
+          await menu("View", "Agent History");
+          await expect(history).toHaveText("3 conversations");
+          expect(await bounds(history)).toEqual(filesBar);
+          await editor("notes.txt").click();
+          await menu("View", "Split below");
+          const upper = await bounds(document);
+          const lower = await bounds(page.locator(".pane-status:empty"));
+          expect(upper.height).toBe(lower.height);
+          expect(bottom(upper)).toBeLessThan(lower.y);
+          expect(bottom(lower)).toBeCloseTo(bottom(filesBar), 0);
+          break;
+        }
         case "conversation-history-view": {
           const history = page.getByRole("region", { name: "Agent History" });
           if (!(await history.isVisible())) await menu("View", "Agent History");

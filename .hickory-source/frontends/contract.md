@@ -63,7 +63,16 @@ mismatch, a different checkout revision, unbuilt changes, or missing evidence
 gets its own status. Distributed builds omit the control. Reading this status
 runs independently of opening and editing files.
 
-The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and pane status bars. The workspace has no global footer. The View menu (Panes on macOS) carries workspace notices and the active document’s position and save state. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
+The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and pane status bars. Each visible pane has a compact bottom strip. Strips share a height and surface
+within each frontend so adjacent panes read as one band, with split dividers
+showing which pane owns each strip. A pane above another pane keeps its strip at
+its own bottom edge. Files shows the displayed folder and listing refresh state.
+Agent History shows the current view’s distinct conversation count once history
+and organization are available. Refresh or history failures retain readable
+content and offer a pane-local retry. Editors show their own one-based cursor
+position and document state. Terminal shows its session state. The workspace has
+no global footer. The View menu (Panes on macOS) still carries workspace notices
+and the active document’s position and save state. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
 ### Start, branch, reopen and organize agent conversations
 
@@ -102,7 +111,15 @@ The [browser sidebar witness](apps/web/src/simple/parity.test.ts.md) checks
 what opening, branching and starting a conversation show before Send.
 The [browser history organization witness](scripts/test-simple-browser.py.md)
 drives Favorite, Archive and Restore through the real engine and compares the
-recorded session files before and after.
+recorded session files before and after. It also measures the status strips
+when swapping sidebar tabs and splitting the editor below.
+
+On 2026-11-26, the focused Chromium witness verified that Files and Agent
+History occupy the same strip bounds, adjacent strips align, and a vertical
+split gives each pane its own bottom strip. The focused browser component
+tests covered Files retry with a retained editor and conversation counts
+across history views. The macOS target and Android Kotlin sources compiled.
+Native strip placement still needs on-device review.
 
 The complete outcome includes:
 

@@ -158,6 +158,9 @@ export class AgentSession {
   historyLoaded = false;
   messageForks = false;
   historyError = "";
+  reviewReadError = "";
+  historyReload = 0;
+  retryHistory() { this.historyReload++; this.publish(); }
   selection: { id: string | null; fork?: "user" | "assistant" } | undefined;
   get tip() { return this.selection ? this.selection.id : this.turns.at(-1)?.id ?? null; }
   get transcript() { return agentTranscript(this.turns, this.tip, this.selection?.fork === "user"); }
@@ -461,31 +464,46 @@ export function AgentHistoryPane({ session, open }: { session: AgentSession; ope
       </li>;
     })}</ul> : null;
   };
-  return <section className="file-tree" aria-label="Agent History">
-    <button className="new-conversation-button" aria-label="New conversation" title="New conversation" onClick={() => open(null)}>✎</button>
-    {flags && <select aria-label="Conversation history view" value={view} onChange={event => setView(event.target.value as ConversationHistoryView)}>
-      <option>History</option><option>Favorites</option><option>Archived</option>
-    </select>}
-    {session.historyError && <p role="alert">{session.historyError}</p>}
-    {organizationError && <p role="alert">{organizationError} <button type="button" onClick={() => setReload(value => value + 1)}>Refresh conversation organization</button></p>}
-    {rows(null, new Set())}
-    {!visible.length && !session.historyError && <p role="status">{!session.historyLoaded ? "Loading conversations…" :
-      view === "Favorites" ? "No favorite conversations." : view === "Archived" ? "No archived conversations." : "No conversations yet."}</p>}
+  const count = new Set(visible.map(turn => turn.session ?? turn.id)).size;
+  const noun = view === "Favorites" ? "favorite" : view === "Archived" ? "archived conversation" : "conversation";
+  const failure = session.historyError || organizationError;
+  const reading = failure ? "History unavailable" : !session.historyLoaded || !flags ? "Loading history…" : `${count} ${noun}${count === 1 ? "" : "s"}`;
+  return <section className="pane-with-status" aria-label="Agent History">
+    <div className="file-tree">
+      <button className="new-conversation-button" aria-label="New conversation" title="New conversation" onClick={() => open(null)}>✎</button>
+      {flags && <select aria-label="Conversation history view" value={view} onChange={event => setView(event.target.value as ConversationHistoryView)}>
+        <option>History</option><option>Favorites</option><option>Archived</option>
+      </select>}
+      {session.historyError && <p role="alert">{session.historyError}</p>}
+      {organizationError && <p role="alert">{organizationError}</p>}
+      {rows(null, new Set())}
+      {!visible.length && !session.historyError && <p role="status">{!session.historyLoaded ? "Loading conversations…" :
+        view === "Favorites" ? "No favorite conversations." : view === "Archived" ? "No archived conversations." : "No conversations yet."}</p>}
+    </div>
+    <footer className="pane-status" aria-label="Agent History status">
+      <span className="pane-status-label" role="status" title={failure || undefined}>{reading}</span>
+      {failure && <button type="button" aria-label={session.historyError ? "Retry history" : "Refresh conversation organization"} onClick={() => {
+        if (session.historyError) session.retryHistory();
+        if (organizationError) setReload(value => value + 1);
+      }}>Retry</button>}
+    </footer>
   </section>;
 }
 export function AgentHistory({ session, visible }: { session: AgentSession; visible: boolean }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
   const observing = visible || session.running;
+  const reload = session.historyReload;
   useEffect(() => {
     if (!observing) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const current = () => !cancelled && session.workspaceCurrent();
-    const unsubscribe = getWorkspaceRealtime()?.onRunEvent(message => { if (current()) session.receive(message); });
     const refresh = async () => {
       const mutation = session.mutation;
+      let listed = false;
       try {
         const response = await api.agentTurns("workspace");
+        listed = true;
         if (current() && mutation === session.mutation && !session.busy) {
           const own = session.liveTurn;
           const active = response.turns.find(turn => turn.status === "running");
@@ -514,12 +532,28 @@ export function AgentHistory({ session, visible }: { session: AgentSession; visi
             session.pendingReviews = null;
             session.publish();
           }
+          if (current() && mutation === session.mutation && session.reviewReadError) {
+            session.reviewReadError = "";
+            session.publish();
+          }
         }
-      } catch (reason) { if (current() && mutation === session.mutation) { session.historyError = `Cannot read agent history: ${String(reason)}`; session.publish(); } }
+      } catch (reason) {
+        if (current() && mutation === session.mutation) {
+          if (listed) session.reviewReadError = `Cannot refresh agent review: ${String(reason)}`;
+          else session.historyError = `Cannot read agent history: ${String(reason)}`;
+          session.publish();
+        }
+      }
       if (current()) timer = setTimeout(refresh, 1000);
     };
     void refresh();
-    return () => { cancelled = true; clearTimeout(timer); unsubscribe?.(); };
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [session, observing, reload]);
+  useEffect(() => {
+    if (!observing) return;
+    return getWorkspaceRealtime()?.onRunEvent(message => {
+      if (session.workspaceCurrent()) session.receive(message);
+    });
   }, [session, observing]);
   return null;
 }
@@ -575,7 +609,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch, newConver
     </div>
     {review && <AgentExactReview session={session} review={review} close={() => setReview(value => value === review ? null : value)} />}
     {session.selection?.fork && <p className="message-label" role="status">New branch from {session.selection.fork === "user" ? "user" : "assistant"} message. {session.branchEdit?.side === "assistant" ? "Save the edited answer to create it." : "Send to start it."}</p>}
-    {error && <div role="alert" className="notice">{error}</div>}
+    {(error || session.reviewReadError) && <div role="alert" className="notice">{error || session.reviewReadError}</div>}
     <form className="agent-composer" onKeyDownCapture={event => {
       if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
         event.preventDefault(); event.stopPropagation(); void session.send();
@@ -589,11 +623,11 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch, newConver
           : <button aria-label={session.branchEdit?.side === "assistant" ? "Save assistant branch" : "Send"} title={session.branchEdit?.side === "assistant" ? "Save this edited answer on the new branch without calling a model" : running ? "Wait for the current operation to finish." : !prompt.trim() ? "Enter a message first." : "Send"} disabled={running || session.branchEdit?.side !== "assistant" && !prompt.trim()}>{session.branchEdit?.side === "assistant" ? "✓" : "↑"}</button>}
       </div>
     </form>
-    <div className="agent-pane-status" role="status"><AgentStatus session={session} />
-      <span role="status">{inlineRenderNotice}</span>
+    <footer className="pane-status agent-pane-status" aria-label="Agent status"><AgentStatus session={session} />
+      {inlineRenderNotice && <span className="pane-status-label" role="status" title={inlineRenderNotice}>{inlineRenderNotice}</span>}
       <button type="button" aria-label="New conversation" title="New conversation" onClick={() => newConversation ? newConversation() : session.select(null)}>✎</button>
-      {reviewProposals && <button type="button" onClick={reviewProposals}>Review pending proposals</button>}
-    </div>
+      {reviewProposals && <button type="button" aria-label="Review pending proposals" title="Review pending proposals" onClick={reviewProposals}>Review</button>}
+    </footer>
   </div>;
 }
 
@@ -679,7 +713,7 @@ export function AgentStatus({ session }: { session: AgentSession }) {
       onClick={() => { setCustom(!!session.model && !models.includes(session.model)); setOpen(!open); }}>
       <span aria-hidden="true">{choice.icon}</span> {session.model || choice.models[0]} <span aria-hidden="true">◴</span> {session.effort || "Default"}
     </button>
-    <span title={`Reported usage for this conversation; unavailable turn usage is excluded · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
+    <span className="pane-status-label" title={`Reported usage for this conversation; unavailable turn usage is excluded · ${cost}`}>{tokens === undefined ? "Tokens unavailable" : `${tokens.toLocaleString()} tokens`}{tokens !== undefined && ` · ${cost}`}</span>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Agent settings" className="agent-settings"
       style={{ left: Math.max(8, Math.min(anchor.current?.getBoundingClientRect().left ?? 8, window.innerWidth - 298)), bottom: window.innerHeight - (anchor.current?.getBoundingClientRect().top ?? window.innerHeight) + 4 }}>
       <label>Provider<select aria-label="Provider" disabled={session.running} title={session.running ? "Wait for the current operation to finish." : undefined} value={provider} onChange={event => {

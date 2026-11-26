@@ -74,6 +74,9 @@ export function Terminal({ session }: { session: TerminalSession }) {
   return <div className="terminal-body">
     <div ref={host} className="terminal-screen" aria-label="Terminal screen" />
     {session.error && <div role="alert" className="notice">{session.error}</div>}
+    <footer className="pane-status" aria-label="Terminal status">
+      <span className="pane-status-label" role="status">{session.error ? "Terminal issue" : session.opening ? "Opening…" : session.id ? "Session open" : "No session"}</span>
+    </footer>
   </div>;
 }
 </ui:copy>

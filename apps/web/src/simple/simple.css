@@ -95,7 +95,14 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .new-conversation-button { border: 1px solid GrayText; border-radius: 5px; min-width: 30px; min-height: 28px; text-align: center; background: color-mix(in srgb, CanvasText 5%, Canvas); }
 .agent-activity-icon { display: inline-block; width: 1em; text-align: center; }
 .agent-body { height: 100%; min-width: 0; display: flex; flex-direction: column; }
-.agent-pane-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 8px; border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); font-size: 11px; }
+/* Each pane reserves the same bottom row. Content above it scrolls independently. */
+.pane-with-status { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-width: 0; }
+.pane-status { display: flex; align-items: center; gap: 8px; height: 26px; flex: 0 0 26px; padding: 0 8px; border-top: 1px solid color-mix(in srgb, CanvasText 16%, Canvas); background: color-mix(in srgb, CanvasText 4%, Canvas); font-size: 11px; white-space: nowrap; }
+.pane-status-label { flex: 1; }
+.pane-status > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-status > button { padding: 3px 4px; }
+.pane-status > button:not(.agent-status-trigger) { flex-shrink: 0; }
+.pane-status .agent-status-trigger { margin-inline: 0; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-body form { display: flex; gap: 4px; padding: 6px; border-top: 1px solid GrayText; }

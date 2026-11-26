@@ -1103,6 +1103,7 @@ def conversation_history_organization_acceptance(driver, folder):
     show("History")
     observe(first)
     assert {path.name: path.read_bytes() for path in sessions.glob("*.md")} == before
+    driver.act("pane-status-layout")
 
 
 def conversation_tabs_acceptance(driver, folder):

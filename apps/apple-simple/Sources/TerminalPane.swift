@@ -118,6 +118,9 @@ struct TerminalPane: View {
             if let engine, let id = session.id { InteractiveTerminal(engine: engine, session: session, id: id).id(id) }
             else { Text(session.opening ? "Opening Terminal…" : "Choose Terminal to connect.").frame(maxWidth: .infinity, maxHeight: .infinity) }
             if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).padding(6) }
+            PaneStatusBar {
+                Text(!session.error.isEmpty ? "Terminal issue" : session.opening ? "Opening…" : session.id == nil ? "No session" : "Session open")
+            }
         }
     }
 }

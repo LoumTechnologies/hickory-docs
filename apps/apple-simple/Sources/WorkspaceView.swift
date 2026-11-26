@@ -449,6 +449,21 @@ struct PaneMenu: View {
     }
 }
 extension Notification.Name { static let simpleConnect = Notification.Name("hickory.simple.connect") }
+struct PaneStatusBar<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 8, content: content)
+            .font(.caption).lineLimit(1)
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 26)
+            .background(Color.primary.opacity(0.04))
+            .overlay(alignment: .top) { Divider() }
+    }
+}
+
 struct PaneView: View {
     var workspace: Workspace
     let id: String
@@ -604,9 +619,22 @@ struct PaneView: View {
     }
     @ViewBuilder private func content(_ tab: String?) -> some View {
         if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .files {
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) { FileRows(nodes: workspace.files, workspace: workspace) }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
-            }.accessibilityLabel("Files")
+            VStack(spacing: 0) {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 0) { FileRows(nodes: workspace.files, workspace: workspace) }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
+                }.accessibilityLabel("Files")
+                let folder = workspace.openFolderPath.isEmpty ? workspace.filesRoot : workspace.openFolderPath
+                PaneStatusBar {
+                    Text(folder).help(folder)
+                    Spacer(minLength: 0)
+                    if workspace.filesRefreshing {
+                        Text("Refreshing…").layoutPriority(1)
+                    } else if !workspace.filesRefreshError.isEmpty {
+                        Text("Couldn’t refresh").help(workspace.filesRefreshError).layoutPriority(1)
+                        Button("Retry") { Task { await workspace.refresh() } }.accessibilityLabel("Retry Files refresh").layoutPriority(2)
+                    }
+                }
+            }
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agentHistory {
@@ -637,9 +665,18 @@ struct PaneView: View {
                 }, buffer: buffer, debugger: workspace.debugger)
                     .modifier(GitEditorComparisonTask(buffer: buffer)).id(buffer.id)
                 if !buffer.error.isEmpty { Text(buffer.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
+                PaneStatusBar {
+                    Text(editorPosition(buffer))
+                    Spacer(minLength: 0)
+                    Text(editorSaveState(buffer)).layoutPriority(1)
+                }
             }
         } else {
-            Text("Open a file or move a tab here").foregroundStyle(.secondary).font(.callout)
+            VStack(spacing: 0) {
+                Text("Open a file or move a tab here").foregroundStyle(.secondary).font(.callout)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PaneStatusBar { EmptyView() }
+            }
         }
     }
 }
@@ -657,6 +694,18 @@ extension Workspace {
     }
 }
 
+@MainActor private func editorPosition(_ buffer: DocumentBuffer) -> String {
+    let position = languagePosition(buffer.text, buffer.selection.location)
+    return "Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)"
+}
+
+@MainActor private func editorSaveState(_ buffer: DocumentBuffer) -> String {
+    if buffer.resourceDeleted { return "Deleted source" }
+    if buffer.readOnly { return "Read-only" }
+    if buffer.saving { return "Saving…" }
+    return buffer.dirty ? "Modified" : "Saved"
+}
+
 struct WorkspaceStatusMenu: View {
     let workspace: Workspace
 
@@ -665,10 +714,8 @@ struct WorkspaceStatusMenu: View {
         Menu("Workspace status") {
             if !workspace.status.isEmpty { Text(workspace.status) }
             if let buffer = workspace.currentBuffer {
-                let position = languagePosition(buffer.text, buffer.selection.location)
-                let state = buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"
-                Text("\(buffer.file.name) · \(state)")
-                Text("Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)")
+                Text("\(buffer.file.name) · \(editorSaveState(buffer))")
+                Text(editorPosition(buffer))
                 if let language = buffer.language {
                     Text(language.completionNotice.isEmpty ? language.status : language.completionNotice)
                 } else if !buffer.snippets.notice.isEmpty {

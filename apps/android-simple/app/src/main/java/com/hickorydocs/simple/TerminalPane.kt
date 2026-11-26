@@ -100,5 +100,13 @@ private val terminalHTTP = OkHttpClient()
             })
         } else Text(if (session.opening) "Opening Terminal…" else "Choose Terminal to connect.", modifier = Modifier.weight(1f))
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        PaneStatusBar {
+            PaneStatusText(when {
+                session.error.isNotEmpty() -> "Terminal issue"
+                session.opening -> "Opening…"
+                id != null -> "Session open"
+                else -> "No session"
+            })
+        }
     }
 }

@@ -148,6 +148,8 @@ class AgentSession {
     var historyLoaded by mutableStateOf(false)
     var messageForks by mutableStateOf(false)
     var historyError by mutableStateOf("")
+    var reviewReadError by mutableStateOf("")
+    var historyReload by mutableIntStateOf(0)
     val transcript: List<Pair<AgentTurn, Boolean>> get() {
         val byId = turns.associateBy { it.id }
         val seen = mutableSetOf<String>()
@@ -170,7 +172,7 @@ class AgentSession {
         error = ""
     }
     fun resetHistory() {
-        turns = emptyList(); selection = null; historyLoaded = false; messageForks = false; historyError = ""; liveTurn = null; sending = false; mutation++; earlyEvents.clear()
+        turns = emptyList(); selection = null; historyLoaded = false; messageForks = false; historyError = ""; reviewReadError = ""; liveTurn = null; sending = false; mutation++; earlyEvents.clear()
     }
     var provider by mutableStateOf("codex-subscription")
     var model by mutableStateOf("")
@@ -500,33 +502,55 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
     }
     val visibleIDs = visible.mapTo(mutableSetOf()) { it.id }
     val children = visible.groupBy { turn -> turn.parentID?.takeIf(visibleIDs::contains) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
-        Row {
-            OutlinedButton(onClick = { open(null) }, modifier = Modifier.semantics { contentDescription = "New conversation" }) { Text("✎") }
-            if (flags != null) Box {
-                TextButton(onClick = { showViews = true }, modifier = Modifier.semantics { contentDescription = "Conversation history view" }) {
-                    Text(view.name)
-                }
-                DropdownMenu(expanded = showViews, onDismissRequest = { showViews = false }) {
-                    ConversationHistoryView.entries.forEach { choice ->
-                        DropdownMenuItem(text = { Text(choice.name) }, onClick = { view = choice; showViews = false })
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(5.dp)) {
+            Row {
+                OutlinedButton(onClick = { open(null) }, modifier = Modifier.semantics { contentDescription = "New conversation" }) { Text("✎") }
+                if (flags != null) Box {
+                    TextButton(onClick = { showViews = true }, modifier = Modifier.semantics { contentDescription = "Conversation history view" }) {
+                        Text(view.name)
+                    }
+                    DropdownMenu(expanded = showViews, onDismissRequest = { showViews = false }) {
+                        ConversationHistoryView.entries.forEach { choice ->
+                            DropdownMenuItem(text = { Text(choice.name) }, onClick = { view = choice; showViews = false })
+                        }
                     }
                 }
             }
-        }
-        if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
-        if (error.isNotEmpty()) {
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { reload += 1 }) { Text("Refresh conversation organization") }
-        }
-        if (visible.isEmpty() && session.historyError.isEmpty()) Text(
-            if (!session.historyLoaded) "Loading conversations…" else when (view) {
-                ConversationHistoryView.History -> "No conversations yet."
-                ConversationHistoryView.Favorites -> "No favorite conversations."
-                ConversationHistoryView.Archived -> "No archived conversations."
+            if (session.historyError.isNotEmpty()) Text(session.historyError, color = MaterialTheme.colorScheme.error)
+            if (error.isNotEmpty()) {
+                Text(error, color = MaterialTheme.colorScheme.error)
             }
-        )
-        AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
+            if (visible.isEmpty() && session.historyError.isEmpty()) Text(
+                if (!session.historyLoaded) "Loading conversations…" else when (view) {
+                    ConversationHistoryView.History -> "No conversations yet."
+                    ConversationHistoryView.Favorites -> "No favorite conversations."
+                    ConversationHistoryView.Archived -> "No archived conversations."
+                }
+            )
+            AgentHistoryRows(children[null].orEmpty(), children, byId, emptySet(), session, flags, !busy && error.isEmpty(), ::update, open)
+        }
+        val failed = session.historyError.isNotEmpty() || error.isNotEmpty()
+        val status = when {
+            failed -> "History unavailable"
+            !session.historyLoaded || flags == null -> "Loading history…"
+            else -> {
+                val count = visible.map { it.session ?: it.id }.toSet().size
+                val noun = when (view) {
+                    ConversationHistoryView.History -> "conversation"
+                    ConversationHistoryView.Favorites -> "favorite"
+                    ConversationHistoryView.Archived -> "archived conversation"
+                }
+                "$count $noun${if (count == 1) "" else "s"}"
+            }
+        }
+        PaneStatusBar {
+            PaneStatusText(status, Modifier.weight(1f))
+            if (failed) PaneStatusAction("Retry", "Retry Agent History") {
+                if (session.historyError.isNotEmpty()) session.historyReload++
+                if (error.isNotEmpty()) reload++
+            }
+        }
     }
 }
 
@@ -582,17 +606,20 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
 
 @Composable private fun ObserveConversation(workspace: Workspace, engine: Engine?, session: AgentSession) {
     LaunchedEffect(engine, session) {
-        if (engine == null) { session.historyError = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
-        launch {
-            while (isActive && workspace.engine === engine) {
-                engine.agentEvents().collect { event -> if (workspace.engine === engine) session.receive(event) }
-                delay(2000)
-            }
+        if (engine == null) return@LaunchedEffect
+        while (isActive && workspace.engine === engine) {
+            engine.agentEvents().collect { event -> if (workspace.engine === engine) session.receive(event) }
+            delay(2000)
         }
+    }
+    LaunchedEffect(engine, session, session.historyReload) {
+        if (engine == null) { session.historyError = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
         while (isActive) {
+            val mutation = session.mutation
+            var listed = false
             try {
-                val mutation = session.mutation
                 val (latest, totals, messageForks) = engine.agentHistory()
+                listed = true
                 if (workspace.engine !== engine) return@LaunchedEffect
                 if (mutation == session.mutation && !session.sending) {
                     session.turns = latest
@@ -616,10 +643,16 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                                     .put("context", liveAgentContext(simpleAgentContext(workspace))))
                         }
                     } else { session.waitingTurn = null; if (own != null) session.liveTurn = null }
+                    if (isActive && workspace.engine === engine && mutation == session.mutation) session.reviewReadError = ""
                 }
             }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { if (isActive && workspace.engine === engine) session.historyError = "Cannot read agent history: ${failure.message}" }
+            catch (failure: Exception) {
+                if (isActive && workspace.engine === engine && mutation == session.mutation) {
+                    if (listed) session.reviewReadError = "Cannot refresh agent review: ${failure.message}"
+                    else session.historyError = "Cannot read agent history: ${failure.message}"
+                }
+            }
             delay(1000)
         }
     }
@@ -679,7 +712,8 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                 }
             } }
         }
-        if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+        val notice = session.error.ifEmpty { session.reviewReadError }
+        if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
         session.selection?.userFork?.let { Text("New branch from ${if (it) "user" else "assistant"} message. ${if (session.branchEdit?.user == false) "Save the edited answer to create it." else "Send to start it."}", fontSize = 12.sp) }
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -711,9 +745,9 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        PaneStatusBar {
             AgentStatus(session, engine, Modifier.weight(1f))
-            TextButton(onClick = { workspace.openConversation() }) { Text("New conversation") }
+            PaneStatusAction("✎", "New conversation") { workspace.openConversation() }
         }
     }
 }

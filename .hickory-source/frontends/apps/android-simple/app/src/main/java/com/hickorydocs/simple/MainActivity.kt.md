@@ -183,10 +183,8 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.widthIn(max = 300.dp).padding(horizontal = 12.dp, vertical = 6.dp)) {
                         if (workspace.status.isNotEmpty()) Text(workspace.status)
                         workspace.currentBuffer?.let { buffer ->
-                            val position = languagePosition(buffer.text, buffer.state.selection.end)
-                            val state = if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved"
-                            Text("${buffer.file.name} · $state")
-                            Text("Ln ${position.getInt("line") + 1}, Col ${position.getInt("character") + 1}")
+                            Text("${buffer.file.name} · ${editorSaveState(buffer)}")
+                            Text(editorPosition(buffer))
                             val notice = buffer.language?.completionNotice.orEmpty().ifEmpty { buffer.snippets.notice }
                             if (notice.isNotEmpty()) Text(notice)
                         }

@@ -415,6 +415,10 @@ struct StartupSourceObservation {
         didSet { if oldValue != focused { paneInteraction = UUID() } }
     }
     @ObservationIgnored private var paneInteraction = UUID()
+    var filesRoot = "Workspace"
+    var filesRefreshing = false
+    var filesRefreshError = ""
+    @ObservationIgnored private var filesRefreshTicket = UUID()
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
     private var displayedFolder: NativeSourceKey?
@@ -706,6 +710,9 @@ struct StartupSourceObservation {
             if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             if preview == nil { buffers = [:]; layout = PaneLayout.workspaceDefault(); focused = "document-group" }
             if requestedTabIsCurrent { requestedScope = generation; requestedInteraction = paneInteraction }
+            filesRoot = tree.root
+            filesRefreshing = false
+            filesRefreshError = ""
             status = tree.root
             displayFolder(nil)
             if let requestedPath, !requestedPath.isEmpty {
@@ -769,10 +776,15 @@ struct StartupSourceObservation {
     }
     func refresh() async {
         guard let engine else { return }
-        let current = generation
+        let current = generation, ticket = UUID()
+        filesRefreshTicket = ticket
+        filesRefreshing = true
+        filesRefreshError = ""
         do {
             let tree = try await engine.files()
-            guard current == generation else { return }
+            guard current == generation, filesRefreshTicket == ticket else { return }
+            filesRoot = tree.root
+            filesRefreshing = false
             sourceRootAddress = tree.root_path
             sourceWorkspaceID = tree.workspace_id
             rootFiles = tree.tree
@@ -786,7 +798,14 @@ struct StartupSourceObservation {
                 await refreshCurrentSource()
             }
         }
-        catch { if current == generation { status = error.localizedDescription } }
+        catch {
+            guard current == generation, filesRefreshTicket == ticket else { return }
+            filesRefreshing = false
+            if !Task.isCancelled {
+                filesRefreshError = error.localizedDescription
+                status = filesRefreshError
+            }
+        }
     }
     func loadBuffer(_ file: FileNode, forStartup: Bool = false) async throws -> DocumentBuffer {
         if let buffer = buffers[file.path] { return buffer }

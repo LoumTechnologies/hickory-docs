@@ -689,7 +689,11 @@ describe("pane edge docking", () => {
         Object.defineProperty(event, "dataTransfer", { value: dataTransfer }); fireEvent(pane, event);
         if (type === "dragover") expect(pane.getAttribute("data-drop-edge")).toBe(edge);
       }
-      const order = screen.getAllByRole("tablist").map(list => Array.from(list.querySelectorAll('[role="tab"]')).map(tab => tab.textContent));
+      const order = screen.getAllByRole("tablist").map(list => within(list).getAllByRole("tab").map(tab => {
+        const label = tab.cloneNode(true) as HTMLElement;
+        label.querySelectorAll('[aria-hidden="true"]').forEach(icon => icon.remove());
+        return label.textContent?.trim();
+      }));
       expect(order).toEqual(edge === "center" ? [['Files', 'Agent History'], ['a.txt', 'b.txt •']] : [['Files', 'Agent History'], ...(edge === "left" || edge === "top" ? [['b.txt •'], ['a.txt']] : [['a.txt'], ['b.txt •']])]);
       expect(screen.getAllByRole("tabpanel").length).toBe(beforeCount + (edge === "center" ? -1 : 1));
       const content = screen.container.querySelector<HTMLElement>('[aria-label="b.txt"].cm-content')!;
@@ -1185,15 +1189,35 @@ describe("simple semantic navigation", () => {
     const screen = render(createElement(App));
     try {
       await screen.findByRole("button", { name: "other.py" });
+      const filesStatus = screen.container.querySelector('[aria-label="Files status"]')!;
+      expect(filesStatus.textContent).toBe("workspace");
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
       fireEvent.click(screen.getByRole("button", { name: "Open Directory" }));
       const picker = within(screen.getByRole("dialog", { name: "Open Directory" }));
       fireEvent.click(picker.getByRole("button", { name: "src" }));
       fireEvent.click(picker.getByRole("button", { name: "Open this folder" }));
       await waitFor(() => expect(screen.queryByRole("button", { name: "other.py" })).toBeNull());
+      expect(filesStatus.textContent).toBe("src");
       act(() => openLocation("other.py", 1, 2));
       await waitFor(() => expect(screen.container.querySelector('.cm-content[aria-label="other.py"]')).toBeTruthy());
       expect(api.file).toHaveBeenCalledWith("other.py");
+
+      const documentStatus = screen.container.querySelector('[aria-label="Document status"]')!;
+      expect(documentStatus.textContent).toContain("Saved");
+      const input = screen.container.querySelector<HTMLElement>('.cm-content[aria-label="other.py"]')!;
+      const editor = EditorView.findFromDOM(input)!;
+      act(() => editor.dispatch({ selection: { anchor: 2 } }));
+      expect(documentStatus.textContent).toContain("Ln 1, Col 3");
+
+      vi.mocked(api.files).mockRejectedValueOnce(Error("Connection lost"));
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+      const retry = await screen.findByRole("button", { name: "Retry Files refresh" });
+      expect(filesStatus.textContent).toContain("Couldn’t refresh");
+      expect(within(filesStatus.parentElement as HTMLElement).getByRole("button", { name: "a.py" })).toBeTruthy();
+      expect(EditorView.findFromDOM(input)).toBe(editor);
+      fireEvent.click(retry);
+      await waitFor(() => expect(filesStatus.textContent).toBe("src"));
+      expect(EditorView.findFromDOM(input)).toBe(editor);
     } finally {
       screen.unmount();
       if (showModal) Object.defineProperty(prototype, "showModal", showModal);
@@ -1602,8 +1626,10 @@ describe("simple literate subscription agent", () => {
   it("keeps confirmed history available when a conversation archive cannot be confirmed", async () => {
     const session = new AgentSession();
     const flags = { "sessions/first.md": { favorite: true, archived: false } };
-    session.setTurns([{ id: "first", parent_id: null, prompt: "First conversation", answer: "Answer",
-      error: null, status: "ok", created_at: "", provider: "", model: "", usage: null, session: "sessions/first.md" }]);
+    const first = { id: "first", parent_id: null, prompt: "First conversation", answer: "Answer",
+      error: null, status: "ok", created_at: "", provider: "", model: "", usage: null, session: "sessions/first.md" };
+    session.setTurns([first, { ...first, id: "follow-up", parent_id: "first", prompt: "Follow-up" }]);
+    session.historyLoaded = true;
     const client = vi.mocked(request);
     client.mockResolvedValueOnce(flags).mockRejectedValueOnce(new Error("Connection lost"))
       .mockResolvedValueOnce(flags)
@@ -1613,25 +1639,33 @@ describe("simple literate subscription agent", () => {
     const screen = render(createElement(AgentHistoryPane, { session, open }));
     try {
       const more = await screen.findByLabelText("More actions for First conversation");
+      const historyStatus = within(screen.container.querySelector<HTMLElement>('[aria-label="Agent History status"]')!);
+      expect(historyStatus.getByRole("status").textContent).toBe("1 conversation");
+      const actions = within(more.closest("details")!);
       fireEvent.click(more);
-      fireEvent.click(screen.getByText("Archive", { selector: "button" }));
+      fireEvent.click(actions.getByText("Archive", { selector: "button" }));
       expect((await screen.findByRole("alert")).textContent).toContain("Cannot confirm the change");
-      expect(screen.getByRole("img", { name: "Favorite" })).toBeTruthy();
+      expect(historyStatus.getByRole("status").textContent).toBe("History unavailable");
+      expect(screen.getAllByRole("img", { name: "Favorite" })).toHaveLength(2);
       fireEvent.click(screen.getByRole("button", { name: "First conversation" }));
       expect(open).toHaveBeenCalledWith("first");
       fireEvent.click(screen.getByRole("button", { name: "Refresh conversation organization" }));
       await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
       const picker = screen.getByRole("combobox");
       fireEvent.change(picker, { target: { value: "Favorites" } });
+      expect(historyStatus.getByRole("status").textContent).toBe("1 favorite");
       expect(screen.getByRole("button", { name: "First conversation" })).toBeTruthy();
-      fireEvent.click(screen.getByLabelText("More actions for First conversation"));
-      fireEvent.click(screen.getByText("Archive", { selector: "button" }));
+      const favoriteActions = screen.getByLabelText("More actions for First conversation");
+      fireEvent.click(favoriteActions);
+      fireEvent.click(within(favoriteActions.closest("details")!).getByText("Archive", { selector: "button" }));
       await waitFor(() => expect(screen.queryByRole("button", { name: "First conversation" })).toBeNull());
       expect(client).toHaveBeenCalledWith("POST", "/api/docs/workspace/agent/history", { turn: "first", archived: true });
       fireEvent.change(picker, { target: { value: "Archived" } });
-      expect(screen.getByRole("img", { name: "Favorite" })).toBeTruthy();
-      fireEvent.click(screen.getByLabelText("More actions for First conversation"));
-      fireEvent.click(screen.getByText("Restore", { selector: "button" }));
+      expect(historyStatus.getByRole("status").textContent).toBe("1 archived conversation");
+      expect(screen.getAllByRole("img", { name: "Favorite" })).toHaveLength(2);
+      const archivedActions = screen.getByLabelText("More actions for First conversation");
+      fireEvent.click(archivedActions);
+      fireEvent.click(within(archivedActions.closest("details")!).getByText("Restore", { selector: "button" }));
       await waitFor(() => expect(screen.queryByRole("button", { name: "First conversation" })).toBeNull());
       fireEvent.change(picker, { target: { value: "Favorites" } });
       expect(screen.getByRole("button", { name: "First conversation" })).toBeTruthy();

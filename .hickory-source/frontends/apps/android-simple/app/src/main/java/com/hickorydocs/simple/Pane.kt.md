@@ -101,6 +101,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -119,6 +120,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 
 private const val TAB_MIME = "application/vnd.hickorydocs.tab"
@@ -1499,13 +1501,59 @@ row key and use the same file-opening action when any line of a label is tapped.
 The View command gives a standalone Files pane zero space. The split still
 composes both children, so the neighboring editor keeps its native state.
 
+Place the status row after the scrolling tree or weighted editor. The row
+belongs to the active tab, so it stays at that pane’s edge when the layout
+splits or the user focuses another editor. Long labels yield to retry controls.
+
 <ui:copy id="simple-0d1e071614-1">
+@Composable internal fun PaneStatusBar(content: @Composable RowScope.() -> Unit = {}) {
+    Box(Modifier.fillMaxWidth().heightIn(min = 26.dp).background(MaterialTheme.colorScheme.surfaceContainer)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 26.dp).padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+            content = content)
+        HorizontalDivider(Modifier.align(Alignment.TopCenter))
+    }
+}
+
+@Composable internal fun PaneStatusText(label: String, modifier: Modifier = Modifier) {
+    Text(label, modifier, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable internal fun PaneStatusAction(label: String, description: String, action: () -> Unit) {
+    PaneStatusText(label, Modifier.heightIn(min = 26.dp).wrapContentHeight()
+        .clickable(role = Role.Button, onClick = action).semantics { contentDescription = description })
+}
+
+internal fun editorPosition(buffer: DocumentBuffer): String {
+    val position = languagePosition(buffer.text, buffer.state.selection.end)
+    return "Ln ${position.getInt("line") + 1}, Col ${position.getInt("character") + 1}"
+}
+
+internal fun editorSaveState(buffer: DocumentBuffer): String = when {
+    buffer.resourceDeleted -> "Deleted source"
+    buffer.readOnly -> "Read-only"
+    buffer.saving -> "Saving…"
+    buffer.dirty -> "Modified"
+    else -> "Saved"
+}
+
 @Composable private fun PaneContent(workspace: Workspace, tab: String?, group: String) {
     val conversation = workspace.agentSession(tab)
     if (conversation != null) { key(conversation) { AgentPane(workspace.engine, conversation, workspace) }; return }
     when (tab) {
-        "files" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(5.dp)) {
-            FileRows(workspace.files, workspace)
+        "files" -> Column(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(5.dp)) {
+                FileRows(workspace.files, workspace)
+            }
+            PaneStatusBar {
+                PaneStatusText(workspace.directoryScope.ifEmpty { workspace.filesRoot }, Modifier.weight(1f))
+                if (workspace.filesRefreshing) {
+                    PaneStatusText("Refreshing…")
+                } else if (workspace.filesRefreshError.isNotEmpty()) {
+                    PaneStatusText("Couldn’t refresh", Modifier.semantics { contentDescription = workspace.filesRefreshError })
+                    PaneStatusAction("Retry", "Retry Files refresh") { workspace.viewModelScope.launch { workspace.refresh() } }
+                }
+            }
         }
         "terminal" -> TerminalPane(workspace)
         "agent-history" -> {
@@ -1521,7 +1569,10 @@ composes both children, so the neighboring editor keeps its native state.
             }
         }
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
-        null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        null -> Column(Modifier.fillMaxSize()) {
+            Text("Open a file or move a tab here", modifier = Modifier.weight(1f).padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            PaneStatusBar()
+        }
         else -> workspace.bufferForTab(tab)?.let { buffer ->
             Column(Modifier.fillMaxSize()) {
                 val server = workspace.engine
@@ -1534,6 +1585,10 @@ composes both children, so the neighboring editor keeps its native state.
                         }
                     })
                 if (buffer.error.isNotEmpty()) Text(buffer.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+                PaneStatusBar {
+                    PaneStatusText(editorPosition(buffer), Modifier.weight(1f))
+                    PaneStatusText(editorSaveState(buffer))
+                }
             }
         }
     }

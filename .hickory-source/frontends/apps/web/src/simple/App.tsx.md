@@ -334,6 +334,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const requested = useRef(new Map<string, {path: string}>());
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
+  const [filesReading, setFilesReading] = useState<"idle" | "refreshing" | "failed">("idle");
   const acceptStartupFiles = useRef<((response: Awaited<ReturnType<typeof api.files>>) => void) | null>(null);
   const pendingStartupLocation = useRef<{
     location: OpenLocation;
@@ -413,6 +414,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   }
   async function loadFiles() {
     const ticket = ++filesGeneration.current;
+    setFilesReading("refreshing");
     try {
       const response = await api.files();
       if (ticket !== filesGeneration.current) return;
@@ -423,6 +425,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
       const previousFailure = listingFailure.current;
       if (previousFailure) setNotice(current => current === previousFailure ? "" : current);
       listingFailure.current = null;
+      setFilesReading("idle");
       buffers.workspace = response.root_path ?? "";
       buffers.workspaceId = response.workspace_id ?? "";
       setWorkspaceFiles(response.tree);
@@ -432,6 +435,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     } catch (error) {
       if (ticket !== filesGeneration.current) return;
       listingFailure.current = `${String(error)} Check the Hickory backend and choose File → Refresh.`;
+      setFilesReading("failed");
       setNotice(listingFailure.current);
       setWorkspaceLookup(current => current === "opened" ? current : "welcome");
     }
@@ -741,10 +745,27 @@ The window keyboard handler consumes Ctrl/Cmd+N before the browser default and u
 
 Menu and tab-strip commands expose the same operations as native menus. Empty leaves accept drops. Recursive splits retain arbitrary arrangements; resizing updates only their proportions.
 
+Place the folder and document strips inside the selected tab’s pane. The
+folder label follows the displayed tree scope. During a listing refresh, keep
+the tree and let only the latest request settle the status. A document strip
+subscribes to that document’s buffer so focus in another pane cannot replace
+its cursor position or save state.
+
 <ui:copy id="simple-e8a50a27b2-1">
   const label = (tab: string) => tab === "files" ? "Files" : isAgentTab(tab) ? "Conversation" : tab === "agent-history" ? "Agent History" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
-    if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>;
+    if (tab === "files") {
+      const root = filesFolder || workspaceRoot || "Workspace";
+      const reading = filesReading === "failed" ? "Couldn’t refresh" : filesReading === "refreshing" ? "Refreshing…" : "";
+      return <div className="pane-with-status">
+        <div className="file-tree" aria-label="Files"><Tree nodes={filesFolder ? findPath(filesFolder)?.children ?? [] : workspaceFiles} open={openFileVisit} /></div>
+        <footer className="pane-status" aria-label="Files status">
+          <span className="pane-status-label" title={root}>{root}</span>
+          {reading && <span role="status" title={listingFailure.current ?? undefined}>{reading}</span>}
+          {filesReading === "failed" && <button aria-label="Retry Files refresh" onClick={() => void loadFiles()}>Retry</button>}
+        </footer>
+      </div>;
+    }
     if (tab === "agent-history") return <AgentHistoryPane key={overlayScope} session={agent} open={openConversation} />;
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (isAgentTab(tab)) {
@@ -752,7 +773,10 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       return <Agent key={tab} session={session} newConversation={(id = null, fork) => openConversation(id, fork, session)} reviewProposals={() => openAgentProposals()} reviewRecordedPatch={reviewRecordedPatch} />;
     }
     const document = bufferForTab(tab);
-    return document ? <Document key={document.file.path} buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} /> : null;
+    return document ? <div className="pane-with-status" key={document.file.path}>
+      <Document buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} />
+      <footer className="pane-status" aria-label="Document status"><EditorStatus buffer={document} /></footer>
+    </div> : null;
   }
   // Keep the scroll recipient while the pointer rests. Scrolling content under
   // a stationary cursor must not silently transfer the next wheel to a grid.
@@ -1079,7 +1103,9 @@ function LayoutView(props: LayoutProps) {
         const tab = event.dataTransfer.getData("application/x-hickory-tab");
         if (selected) props.dock(tab, node.id, selected); else props.drop(tab, node.id);
       }}>
-      {node.active ? props.content(node.active) : <p className="empty">Open a file or move a tab here</p>}
+      {node.active ? props.content(node.active) : <div className="pane-with-status">
+        <p className="empty">Open a file or move a tab here</p><div className="pane-status" />
+      </div>}
       {overPane && <div className={`pane-drop-preview ${edge ?? "center"}`} aria-hidden="true" />}
     </div>
   </section>;
@@ -1118,11 +1144,15 @@ in View, including in the Linux and Windows webviews.
 
 type DevBuildReading = { backend: string; checkout: string; verdict: string };
 
-function EditorStatus({ buffer, notice }: { buffer: Buffer; notice: string }) {
+function EditorStatus({ buffer, notice }: { buffer: Buffer; notice?: string }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const { line, character } = utf16ToPosition(buffer.text, Math.min(buffer.caretOffset, buffer.text.length));
   const state = buffer.resourceDeleted ? "Deleted source · retained snapshot"
     : buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved";
+  if (notice === undefined) return <>
+    <span className="pane-status-label" aria-label="Editor position">Ln {line + 1}, Col {character + 1}</span>
+    <span title={state}>{state}</span>
+  </>;
   return <>
     {[notice, buffer.completionNotice, buffer.inlineRenderNotice].filter(Boolean).map((message, index) => <div key={index}>{message}</div>)}
     <div>{buffer.file.name} · {state}</div>

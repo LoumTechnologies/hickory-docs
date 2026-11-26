@@ -95,6 +95,7 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     var historyLoaded = false
     var messageForks = false
     var historyError = ""
+    var historyReload = 0
     var transcript: [NativeAgentMessagePair] {
         var id = tip, userOnly = selection?.userFork == true
         var seen = Set<String>(), rows: [NativeAgentMessagePair] = []
@@ -337,7 +338,7 @@ struct NativeConversationObserver: View {
     let current: () -> Bool
     var body: some View {
         Color.clear.frame(width: 0, height: 0)
-            .task(id: epoch) {
+            .task(id: [epoch.uuidString, String(session.historyReload)]) {
                 guard let engine else { session.historyError = "Connect to a workspace server to use the agent."; return }
                 await session.observe(engine, current: current)
             }
@@ -387,29 +388,47 @@ struct NativeAgentHistoryPane: View {
         let children = Dictionary(grouping: visible) { turn in
             turn.parent_id.flatMap { ids.contains($0) ? $0 : nil }
         }
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Button { open(nil) } label: { Image(systemName: "square.and.pencil").frame(width: 26, height: 22) }
-                        .buttonStyle(.bordered).accessibilityLabel("New conversation").help("New conversation")
-                    if flags != nil {
-                        Picker("Conversation history view", selection: $view) {
-                            ForEach(NativeConversationHistoryView.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                        }.pickerStyle(.menu).labelsHidden()
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Button { open(nil) } label: { Image(systemName: "square.and.pencil").frame(width: 26, height: 22) }
+                            .buttonStyle(.bordered).accessibilityLabel("New conversation").help("New conversation")
+                        if flags != nil {
+                            Picker("Conversation history view", selection: $view) {
+                                ForEach(NativeConversationHistoryView.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }.pickerStyle(.menu).labelsHidden()
+                        }
                     }
+                    if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
+                    if !organizationError.isEmpty {
+                        Text(organizationError).foregroundStyle(.red)
+                    }
+                    if visible.isEmpty && session.historyError.isEmpty {
+                        Text(emptyMessage).foregroundStyle(.secondary)
+                    }
+                    rows(children[nil] ?? [], children: children, seen: [])
+                }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+            }.accessibilityLabel("Agent History")
+            PaneStatusBar {
+                Text(historyStatus(visible))
+                Spacer(minLength: 0)
+                if !session.historyError.isEmpty || !organizationError.isEmpty {
+                    Button("Retry") {
+                        if !session.historyError.isEmpty { session.historyReload += 1 }
+                        if !organizationError.isEmpty { reload += 1 }
+                    }.accessibilityLabel("Retry Agent History").layoutPriority(1)
                 }
-                if !session.historyError.isEmpty { Text(session.historyError).foregroundStyle(.red) }
-                if !organizationError.isEmpty {
-                    Text(organizationError).foregroundStyle(.red)
-                    Button("Refresh conversation organization") { reload += 1 }
-                }
-                if visible.isEmpty && session.historyError.isEmpty {
-                    Text(emptyMessage).foregroundStyle(.secondary)
-                }
-                rows(children[nil] ?? [], children: children, seen: [])
-            }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
-        }.accessibilityLabel("Agent History")
-            .task(id: reload) { await readFlags() }
+            }
+        }.task(id: reload) { await readFlags() }
+    }
+
+    private func historyStatus(_ visible: [AgentTurn]) -> String {
+        if !session.historyError.isEmpty || !organizationError.isEmpty { return "History unavailable" }
+        guard session.historyLoaded, flags != nil else { return "Loading history…" }
+        let count = Set(visible.map { $0.session ?? $0.id }).count
+        let noun = view == .favorites ? "favorite" : view == .archived ? "archived conversation" : "conversation"
+        return "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 
     private var emptyMessage: String {
@@ -1042,13 +1061,13 @@ struct AgentPane: View {
                     }
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
-            HStack {
+            PaneStatusBar {
                 NativeAgentStatus(session: session, engine: engine)
                 Spacer()
                 Button { if let newConversation { newConversation(nil, nil) } else { session.select(nil) } } label: {
                     Image(systemName: "square.and.pencil")
-                }.accessibilityLabel("New conversation").help("New conversation")
-            }.font(.caption).buttonStyle(.borderless).padding(.horizontal, 8).padding(.vertical, 4)
+                }.accessibilityLabel("New conversation").help("New conversation").layoutPriority(1)
+            }
         }
         .sheet(item: $openReview) { proposal in
             VStack(alignment: .leading, spacing: 12) {
@@ -1127,6 +1146,10 @@ requires the same workspace and turn plus the engine’s current capture ID.
 Capture the prompt before sending and clear it only if the user has not typed a replacement. An optimistic running record prevents a second send before the next history refresh.
 
 The iPhone inspector is owned by the Agent pane instead of its scrolling message row. When the keyboard takes vertical space, the selected recorded source keeps its inspector. If the recorded source or workspace closes, retire that presentation.
+
+The history strip uses the same scoped rows as the tree, counting each
+retained session once. A retry restarts the history read or flags request
+without changing the open conversation or its activity subscription.
 
 <ui:copy id="simple-42e0887630-1">
     private var presentRecordedInspection: ((NativeDebugInspector) -> Void)? {
