@@ -26,7 +26,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use hick_lang::{AgentProjectCapture, ProjectInventory, ProjectSnapshot, ProjectTree};
+use hick_lang::{AgentProjectCapture, ProjectInventory, ProjectSnapshot, ProjectSnapshotDelta, ProjectTree};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -47,7 +47,10 @@ pub struct CapturedTurn {
     pub documents: BTreeMap<String, String>,
     pub inventory: ProjectInventory,
     pub starting: ProjectSnapshot,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed: Option<ProjectSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    completed_delta: Option<ProjectSnapshotDelta>,
     pub ambiguous: BTreeSet<String>,
     pub error: Option<String>,
     pub response: Option<String>,
@@ -144,6 +147,7 @@ pub async fn begin(
         inventory: project.inventory,
         starting: ProjectSnapshot::capture(&starting),
         completed: None,
+        completed_delta: None,
         ambiguous: BTreeSet::new(),
         error: None,
         response: None,
@@ -228,6 +232,7 @@ pub async fn begin_editors(
         inventory: ProjectInventory::default(),
         starting,
         completed: None,
+        completed_delta: None,
         ambiguous: BTreeSet::new(),
         error: None,
         response: None,
@@ -263,6 +268,10 @@ whole workspace snapshots in RAM. Keep the only surviving copy when writing the
 record failed, so a storage failure cannot discard evidence of actual writes.
 Buffer the JSON writes before compression so each snapshot byte and array
 separator does not require its own call into the encoder.
+The new sidecar stores the completed tree relative to the starting snapshot.
+This keeps unchanged file bytes once per capture. Restore the in-memory
+completed snapshot even if serialization fails so the best available evidence
+remains accessible.
 
 <storycode:copy id="f-570609cb95dd-finish">
 fn capture_sidecar(session: &std::path::Path, token: &str) -> anyhow::Result<PathBuf> {
@@ -271,7 +280,7 @@ fn capture_sidecar(session: &std::path::Path, token: &str) -> anyhow::Result<Pat
     Ok(session.with_extension(format!("capture-{token}.json.gz")))
 }
 
-fn record_capture(turn: &str, capture: &CapturedTurn, resolution: Option<&str>) -> anyhow::Result<()> {
+fn record_capture(turn: &str, capture: &mut CapturedTurn, resolution: Option<&str>) -> anyhow::Result<()> {
     let record = super::acp::record::Record::existing(capture.session.clone());
     record.check()?;
     // Publish the small transcript reference only after the complete capture is durable.
@@ -281,7 +290,12 @@ fn record_capture(turn: &str, capture: &CapturedTurn, resolution: Option<&str>) 
     let writer = std::io::BufWriter::new(file.as_file_mut());
     let compressed = flate2::write::GzEncoder::new(writer, flate2::Compression::fast());
     let mut json = std::io::BufWriter::with_capacity(64 * 1024, compressed);
-    serde_json::to_writer(&mut json, capture)?;
+    let completed = capture.completed.take();
+    capture.completed_delta = completed.as_ref().map(|completed| completed.changes_since(&capture.starting));
+    let result = serde_json::to_writer(&mut json, capture);
+    capture.completed = completed;
+    capture.completed_delta = None;
+    result?;
     let compressed = json.into_inner().map_err(|error| error.into_error())?;
     compressed.finish()?.into_inner().map_err(|error| error.into_error())?.sync_all()?;
     file.persist_noclobber(&path)?;
@@ -355,7 +369,7 @@ pub async fn finish(
     capture.error = result.err().map(|e| format!("{e:#}"));
     let turn_id = turn.to_owned();
     let Ok(capture) = tokio::task::spawn_blocking(move || {
-        match record_capture(&turn_id, &capture, None) {
+        match record_capture(&turn_id, &mut capture, None) {
             Ok(()) => capture.persisted = true,
             Err(e) => capture.error = Some(format!("Project capture could not be recorded: {e:#}")),
         }
@@ -440,8 +454,12 @@ fn read_capture(session: &std::path::Path, reference: &str) -> anyhow::Result<Ca
     // Covers both maximum folder snapshots serialized as byte arrays, plus metadata.
     const MAX_CAPTURE_JSON: u64 = 2 * 1024 * 1024 * 1024;
     let mut reader = BufReader::new(reader.take(MAX_CAPTURE_JSON + 1));
-    let capture = serde_json::from_reader(&mut reader)?;
+    let mut capture: CapturedTurn = serde_json::from_reader(&mut reader)?;
     anyhow::ensure!(reader.get_ref().limit() > 0, "Capture exceeds its decoding budget");
+    if let Some(delta) = capture.completed_delta.take() {
+        anyhow::ensure!(capture.completed.is_none(), "Capture contains two completed project states");
+        capture.completed = Some(capture.starting.clone().applying(delta));
+    }
     Ok(capture)
 }
 
@@ -563,7 +581,7 @@ pub async fn finalize(
         });
     }
     capture.response = Some(response.clone());
-    record_capture(&turn, &capture, Some("user-declared"))
+    record_capture(&turn, &mut capture, Some("user-declared"))
         .map_err(|e| ApiError::unprocessable(e.to_string()))?;
     state.agent.projects.lock().unwrap().remove(&turn);
     Ok(Json(json!({"response":response,"verified":true})))
@@ -788,6 +806,7 @@ mod recorded_declared_patch_tests {
             inventory: evaluated.inventory,
             starting: ProjectSnapshot::capture(starting),
             completed: Some(ProjectSnapshot::capture(&evaluated.new)),
+            completed_delta: None,
             ambiguous: BTreeSet::new(),
             error: None,
             response: Some(sources[entry].clone()),
@@ -838,6 +857,43 @@ mod recorded_declared_patch_tests {
                 .into(),
             ),
         ])
+    }
+
+    #[test]
+    fn capture_sidecar_restores_delta_and_legacy_snapshots() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = temporary.path().join("turn.md");
+        std::fs::write(&session, "<hick:session xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n</hick:session>\n").unwrap();
+        let mut starting = inputs();
+        starting.insert("stable.txt", hick_lang::ProjectEntry::file(&b"unchanged\n"[..])).unwrap();
+        let mut capture = capture(temporary.path(), session.clone(), declarations(), &starting);
+        let expected = capture.completed.as_ref().unwrap().restore().unwrap();
+
+        record_capture("turn", &mut capture, None).unwrap();
+        assert_eq!(capture.completed.as_ref().unwrap().restore().unwrap(), expected);
+        let source = std::fs::read_to_string(&session).unwrap();
+        let parsed = hick_lang::parse(&source).unwrap();
+        let context = parsed.all_tags().into_iter().find(|tag| {
+            tag.name == "context" && tag.get_attribute("kind") == Some("literate-project-capture")
+        }).unwrap();
+        let record: Value = serde_json::from_str(&context.text_content()).unwrap();
+        let reference = record["capture_ref"].as_str().unwrap();
+        let encoded: Value = serde_json::from_reader(flate2::read::GzDecoder::new(
+            std::fs::File::open(capture_sidecar(&session, reference).unwrap()).unwrap(),
+        )).unwrap();
+        assert!(!encoded["starting"]["entries"]["stable.txt"].is_null());
+        assert!(encoded.get("completed").is_none());
+        assert!(encoded["completed_delta"]["updated"].get("stable.txt").is_none());
+        assert_eq!(read_capture(&session, reference).unwrap().completed.unwrap().restore().unwrap(), expected);
+
+        let legacy = "00112233445566778899aabbccddeeff";
+        let mut encoded = flate2::write::GzEncoder::new(
+            std::fs::File::create(capture_sidecar(&session, legacy).unwrap()).unwrap(),
+            flate2::Compression::fast(),
+        );
+        serde_json::to_writer(&mut encoded, &capture).unwrap();
+        encoded.finish().unwrap();
+        assert_eq!(read_capture(&session, legacy).unwrap().completed.unwrap().restore().unwrap(), expected);
     }
 
     #[tokio::test]

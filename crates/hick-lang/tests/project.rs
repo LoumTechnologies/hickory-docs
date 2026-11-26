@@ -172,6 +172,19 @@ fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
     assert!(!project.inventory.contains("project.md"));
     assert!(!project.inventory.contains("node_modules/x"));
     assert!(project.inventory.contains("migration.sql"));
+    expected.remove("link").unwrap();
+    let mut before = project.new.clone();
+    let mut origin_only = ProjectEntry::file(b"same bytes".to_vec());
+    before.insert("origin.txt", origin_only.clone()).unwrap();
+    origin_only.origins.push(ByteOrigin {
+        output: (0, 10),
+        document: "owner.md".into(),
+        source: (5, 15),
+    });
+    expected.insert("origin.txt", origin_only).unwrap();
+    let before = ProjectSnapshot::capture(&before);
+    let changes = ProjectSnapshot::capture(&expected).changes_since(&before);
+    assert_eq!(before.applying(changes).restore().unwrap(), expected);
     for path in [
         "../x", "/x", "x//y", "x\\y", "C:x", "NUL.txt", "x.", "x/../y", "é.rs",
     ] {

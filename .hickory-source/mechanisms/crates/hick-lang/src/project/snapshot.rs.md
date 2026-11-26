@@ -29,13 +29,20 @@ pub struct ProjectSnapshot {
 ### `SnapshotEntry`
 
 <storycode:copy id="f-0c552f23bf83-SnapshotEntry">
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct SnapshotEntry {
     bytes: Vec<u8>,
     kind: EntryKind,
     executable: bool,
     origins: Vec<ByteOrigin>,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ProjectSnapshotDelta {
+    updated: BTreeMap<String, SnapshotEntry>,
+    removed: Vec<String>,
 }
 </storycode:copy>
 <a id="f-0c552f23bf83-impl-ProjectSnapshot"></a>
@@ -44,6 +51,9 @@ struct SnapshotEntry {
 Restore through the same complete-inventory check as a disk capture. Byte
 ownership, portable paths and metadata must all be valid before the restored
 tree can support a recorded changeset.
+To store a before and after pair, record only the added, removed or changed
+entries after the starting snapshot. Comparing complete entries preserves mode,
+kind and provenance differences even when the output bytes match.
 
 <storycode:copy id="f-0c552f23bf83-impl-ProjectSnapshot">
 impl ProjectSnapshot {
@@ -66,6 +76,26 @@ impl ProjectSnapshot {
                 .collect(),
         }
     }
+    pub fn changes_since(&self, starting: &Self) -> ProjectSnapshotDelta {
+        let updated = self.entries.iter()
+            .filter(|(path, entry)| starting.entries.get(*path) != Some(*entry))
+            .map(|(path, entry)| (path.clone(), entry.clone()))
+            .collect();
+        let removed = starting.entries.keys()
+            .filter(|path| !self.entries.contains_key(*path))
+            .cloned()
+            .collect();
+        ProjectSnapshotDelta { updated, removed }
+    }
+
+    pub fn applying(mut self, changes: ProjectSnapshotDelta) -> Self {
+        for path in changes.removed {
+            self.entries.remove(&path);
+        }
+        self.entries.extend(changes.updated);
+        self
+    }
+
     pub fn restore(&self) -> Result<ProjectTree, String> {
         ProjectTree::from_inventory(
             self.entries

@@ -24,7 +24,7 @@ pub use discovery::load_project_sources;
 pub use edit::{regenerate_patch, reverse_project_edit};
 
 mod snapshot;
-pub use snapshot::ProjectSnapshot;
+pub use snapshot::{ProjectSnapshot, ProjectSnapshotDelta};
 
 mod recorded;
 pub use recorded::RecordedCell;

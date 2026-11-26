@@ -115,7 +115,7 @@ mod snapshot;
 ### `use_declaration`
 
 <storycode:copy id="f-134665e92482-use_declaration-8">
-pub use snapshot::ProjectSnapshot;
+pub use snapshot::{ProjectSnapshot, ProjectSnapshotDelta};
 
 </storycode:copy>
 <a id="f-134665e92482-recorded"></a>
