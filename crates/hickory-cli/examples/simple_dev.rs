@@ -319,9 +319,21 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = initial_file(&project, env::var_os("HICKORY_OPEN_FILE"), showcase)?;
-    let python = env::var_os("HICKORY_AGENT_PYTHON")
-        .map(PathBuf::from)
-        .or_else(|| checkout_python(&root));
+    let python = if let Some(path) = env::var_os("HICKORY_AGENT_PYTHON") {
+        Some(PathBuf::from(path))
+    } else if let Some(path) = checkout_python(&root) {
+        let mut refresh = cmd("uv", &[
+            "sync", "--project", "apps/agent", "--locked", "--offline", "--no-editable",
+            "--reinstall-package", "hickory-agent-worker",
+        ]);
+        refresh.env("UV_PROJECT_ENVIRONMENT", root.join("apps/agent/.venv"));
+        if let Err(error) = session.run(&mut refresh).await {
+            eprintln!("Could not refresh the Python agent. Using the installed worker. {error:#}");
+        }
+        Some(path)
+    } else {
+        None
+    };
     if let Some(executable) = match platform {
         "linux" => Some("target/simple-linux/app/bin/hickory-simple"),
         "windows" => Some("target/simple-windows/app/HickorySimple.exe"),

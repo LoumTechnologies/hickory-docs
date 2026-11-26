@@ -313,7 +313,11 @@ Attach the checkout's installed Python worker when it is available. Opening
 source must work without it. This attaches an existing runtime from the host
 checkout, independent of which workspace the user opens and whether an engine
 is already running. Preserve the virtual environment's launcher path so Python
-can find its installed packages.
+can find its installed packages. Refresh the default worker from this checkout
+on each launch. The sandbox reads installed packages, so a code change in the
+checkout would otherwise leave the worker on its old version. Use the local
+package cache and report a refresh failure while continuing with the installed
+runtime. A caller-supplied runtime bypasses package synchronization.
 
 <ui:copy id="simple-3119f25e95-2">
 fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf, bool)> {
@@ -425,9 +429,21 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = initial_file(&project, env::var_os("HICKORY_OPEN_FILE"), showcase)?;
-    let python = env::var_os("HICKORY_AGENT_PYTHON")
-        .map(PathBuf::from)
-        .or_else(|| checkout_python(&root));
+    let python = if let Some(path) = env::var_os("HICKORY_AGENT_PYTHON") {
+        Some(PathBuf::from(path))
+    } else if let Some(path) = checkout_python(&root) {
+        let mut refresh = cmd("uv", &[
+            "sync", "--project", "apps/agent", "--locked", "--offline", "--no-editable",
+            "--reinstall-package", "hickory-agent-worker",
+        ]);
+        refresh.env("UV_PROJECT_ENVIRONMENT", root.join("apps/agent/.venv"));
+        if let Err(error) = session.run(&mut refresh).await {
+            eprintln!("Could not refresh the Python agent. Using the installed worker. {error:#}");
+        }
+        Some(path)
+    } else {
+        None
+    };
     if let Some(executable) = match platform {
         "linux" => Some("target/simple-linux/app/bin/hickory-simple"),
         "windows" => Some("target/simple-windows/app/HickorySimple.exe"),
