@@ -3,7 +3,7 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-The existing status bar and Edit menu open a floating, paged Problems view. Messages remain readable when their positions are stale; only matching source snapshots enable precise navigation. Next/previous consume the same model as the list. An explicit source expectation survives asynchronous file opening and is checked again by the workspace.
+The Edit menu shows the report count and opens a floating, paged Problems view. Messages remain readable when their positions are stale; only matching source snapshots enable precise navigation. Next/previous consume the same model as the list. An explicit source expectation survives asynchronous file opening and is checked again by the workspace.
 
 The workspace total counts received messages. Show the active file's language
 and report state separately. An absent session and a missing source-bound
@@ -42,7 +42,7 @@ export function WorkspaceProblems({ buffers, source, visible, setVisible, curren
     };
     window.addEventListener(NEXT_PROBLEM, move); return () => window.removeEventListener(NEXT_PROBLEM, move);
   }, [problems, current]);
-  return <><button className="simple-problems-status" type="button" onClick={() => { if (visible) close(); else setVisible(true); }} aria-label={`Problems: ${problems.length} reported`}>Problems {problems.length}</button>{visible && createPortal(
+  return <><button type="button" onClick={() => { if (visible) close(); else setVisible(true); }} aria-label={`Problems: ${problems.length} reported`}>Problems ({problems.length})</button>{visible && createPortal(
     <div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace Problems" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
       <button type="button" aria-label="Close Problems" onClick={close}>×</button>
       <strong>Problems</strong><p>Language-provider reports · {problems.filter(problem => problem.current).length} current locations</p>

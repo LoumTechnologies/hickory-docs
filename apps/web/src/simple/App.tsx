@@ -720,8 +720,16 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
   const handlersRef=useRef(handlers);handlersRef.current=handlers;
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
-  const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} data-tip={command.reason??command.label} aria-description={command.reason??undefined} onClick={command.run}>{command.label}</button>);
-  const statusNotices = [notice, buffer?.completionNotice, buffer?.inlineRenderNotice].filter(Boolean).join(" · ");
+  const focusCurrent = () => { if (buffer) editorForBuffer(buffer)?.view.focus(); };
+  const commandMenu = (group: string) => commands.filter(command => command.group === group && command.id in handlers).map(command => {
+    if (command.id === "workspace.analysis") {
+      return <WorkspaceAnalysisView key={command.id} buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={focusCurrent} />;
+    }
+    if (command.id === "workspace.problems") {
+      return <WorkspaceProblems key={command.id} buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={focusCurrent} />;
+    }
+    return <button key={command.id} disabled={command.reason!==null} data-tip={command.reason??command.label} aria-description={command.reason??undefined} onClick={command.run}>{command.label}</button>;
+  });
   if (requestedPath === null && workspaceLookup !== "opened") {
     if (workspaceLookup === "opening") {
       return <main className="workspace-welcome"><p role="status">Opening workspace…</p></main>;
@@ -744,6 +752,10 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       {commandMenu("View")}
+      <div className="workspace-menu-status" role="status" aria-label="Workspace status">
+        {buffer ? <EditorStatus buffer={buffer} notice={notice} /> : [notice, status].filter(Boolean).join(" · ")}
+      </div>
+      {buildStamp && <DevBuildStatus ui={buildStamp} />}
     </div></details><span className="app-name">Hickory Simple</span></nav>
     <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} title={tab => isAgentTab(tab) ? <AgentTabTitle session={conversations.get(tab) ?? agent} /> : <><span aria-hidden="true">{tabIdentity(tab).kind === "source" ? "▤ " : ""}</span>{label(tab)}</>} content={content} close={close}
       drop={(tab, target, before) => { retireTabMove(tab, target); setLayout(current => move(current, tab, target, before)); setFocused(target); }}
@@ -809,7 +821,6 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
       opened.buffer.setGitComparison(comparison);return true;
     }} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={`git-review:${overlayScope}`} workspace={overlayScope} buffers={buffers} history={changeHistory} alive={overlayCurrent} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} source={buffer ?? undefined} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{!isAgentTab(active ?? "") && <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function WorkspaceWelcome({ retry, initialError = "" }: { retry: () => Promise<string | null>; initialError?: string }) {
@@ -960,15 +971,20 @@ function LayoutView(props: LayoutProps) {
 
 type DevBuildReading = { backend: string; checkout: string; verdict: string };
 
-function EditorPosition({ buffer }: { buffer: Buffer }) {
+function EditorStatus({ buffer, notice }: { buffer: Buffer; notice: string }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const { line, character } = utf16ToPosition(buffer.text, Math.min(buffer.caretOffset, buffer.text.length));
-  return <span aria-label="Editor position">Ln {line + 1}, Col {character + 1} · </span>;
+  const state = buffer.resourceDeleted ? "Deleted source · retained snapshot"
+    : buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved";
+  return <>
+    {[notice, buffer.completionNotice, buffer.inlineRenderNotice].filter(Boolean).map((message, index) => <div key={index}>{message}</div>)}
+    <div>{buffer.file.name} · {state}</div>
+    <div aria-label="Editor position">Ln {line + 1}, Col {character + 1}</div>
+  </>;
 }
 
 function DevBuildStatus({ ui }: { ui: string }) {
   const [reading, setReading] = useState<DevBuildReading | null>();
-  const [open, setOpen] = useState(false);
   useEffect(() => {
     const lifetime = new AbortController();
     const url = "/api/dev-build?" + new URLSearchParams({ ui: ui.replace("+", "~") });
@@ -999,13 +1015,10 @@ function DevBuildStatus({ ui }: { ui: string }) {
   const describe = (stamp = "unknown") => stamp === "unknown" ? stamp
     : stamp.endsWith("+") ? stamp.slice(0, -1) + " · uncommitted changes" : stamp + " · clean";
   const label = `${reading?.verdict ?? (reading === null ? "Backend unknown" : "Checking")} · ${short}`;
-  return <span onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
-    <button className="simple-build-status" aria-expanded={open} aria-label={`Development build ${label}`}
-      onClick={() => setOpen(value => !value)}>{label}</button>
-    {open && <span className="simple-build-details">
-      <span>UI · {describe(ui)}</span>
-      <span>Backend · {describe(reading?.backend)}</span>
-      <span>Engine checkout · {describe(reading?.checkout)}</span>
-    </span>}
-  </span>;
+  return <details className="simple-build-details">
+    <summary>Development build · {label}</summary>
+    <div>UI · {describe(ui)}</div>
+    <div>Backend · {describe(reading?.backend)}</div>
+    <div>Engine checkout · {describe(reading?.checkout)}</div>
+  </details>;
 }

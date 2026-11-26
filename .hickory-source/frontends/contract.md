@@ -17,7 +17,7 @@ KDE and WinForms use the editor served at that host's origin. File and
 preconfigured workspace launches go directly to the requested workspace.
 A readable startup preview stays available while workspace authority loads.
 
-Development launches show the running UI's build commit in the status bar.
+Development launches expose the running UI's build commit under View, or Panes on macOS.
 The focused source tab shows its one-based line and column. Each Agent pane
 shows provider, model, effort and reported conversation usage in its own bottom
 status strip, including when several conversations are split on screen. Selecting
@@ -61,7 +61,7 @@ mismatch, a different checkout revision, unbuilt changes, or missing evidence
 gets its own status. Distributed builds omit the control. Reading this status
 runs independently of opening and editing files.
 
-The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
+The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and pane status bars. The workspace has no global footer. The View menu (Panes on macOS) carries workspace notices and the active document’s position and save state. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
 ### Start, branch, reopen and organize agent conversations
 
@@ -2924,7 +2924,7 @@ Focused TypeScript, Swift and Kotlin trail witnesses cover caret retention, bran
 
 ## Workspace Problems
 
-The existing status bar and Edit menu open a floating, filterable Problems list on every simple platform. Retained workspace buffers contribute language-provider messages independently of mounted panes. The list is paged; revealing or paging it cannot resize code. Next/previous navigation uses the same source-location index and wraps over current locations. Unversioned and stale messages remain readable and offer a file open, while precise navigation requires a captured matching source version. Source expectations survive asynchronous destination opening and are checked again before a precise reveal. The count is reported provider information, never an execution or verification verdict.
+Edit shows the report count and opens a floating, filterable Problems list on every simple platform. Retained workspace buffers contribute language-provider messages independently of mounted panes. The list is paged; revealing or paging it cannot resize code. Next/previous navigation uses the same source-location index and wraps over current locations. Unversioned and stale messages remain readable and offer a file open, while precise navigation requires a captured matching source version. Source expectations survive asynchronous destination opening and are checked again before a precise reveal. The count is reported provider information, never an execution or verification verdict.
 
 The browser language-session binding is a separate workspace module shared by the editor and Problems; replacing either renderer does not replace transport or source-snapshot rules. Native diagnostic values retain their decoded locations so status rendering does not repeatedly scan whole documents. Full-project analysis and provider analysis scope are separate from the retained-buffer report index.
 
@@ -2933,7 +2933,7 @@ Verification: four focused browser component/protocol checks passed for source/v
 
 ## Bounded workspace knowledge acquisition
 
-Workspace analysis is available from the existing Edit menu and status bar on browser, macOS, iOS and Android. Its floating report distinguishes attempted files, readable sources, provider-returned symbol lists, unavailable or stale reads, and generated/unclassified exclusions. Two workers each await a source load and outline before taking another file. Stop prevents further admission while current reads drain; another run cannot multiply that limit. Closing the report does not stop the run. It reads retained drafts without changing the active pane, caret or layout and does not save them. Background diagnostics join the existing source-bound Problems index independently; an empty outline or absent diagnostic is not a verification verdict.
+Edit opens Workspace Analysis and shows progress while a read runs on browser, macOS, iOS and Android. Its floating report distinguishes attempted files, readable sources, provider-returned symbol lists, unavailable or stale reads, and generated/unclassified exclusions. Two workers each await a source load and outline before taking another file. Stop prevents further admission while current reads drain; another run cannot multiply that limit. Closing the report does not stop the run. It reads retained drafts without changing the active pane, caret or layout and does not save them. Background diagnostics join the existing source-bound Problems index independently; an empty outline or absent diagnostic is not a verification verdict.
 
 The model accepts source/outline adapters rather than owning UI or transport. Native workspace connections and browser retained sessions are shared with existing editors. Background outline reads depend on source and provider identity, not the caret or language-tools popup. A changed source rejects its reply. Source text remains available even if a provider read fails. Changing native workspace servers stops the previous scheduler and creates a fresh report model. Report rows become stale when their captured source no longer matches the retained buffer.
 
@@ -4004,7 +4004,7 @@ See `target/browser-tab-open-*-safety.log`.
 
 The Simple Browser delayed-capability replay also aborts an inline rendering
 stylesheet after the user has typed and selected source. The workspace
-status bar reports the optional failure while the same editor keeps its
+status in View reports the optional failure while the same editor keeps its
 dimensions, scroll, selection, draft and Undo history. A separate Agent
 replay aborts the asset with an open draft and keeps the failure in the
 existing heading. See `scripts/test-simple-browser.py` modes

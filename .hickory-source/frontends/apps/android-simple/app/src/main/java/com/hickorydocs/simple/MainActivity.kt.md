@@ -15,6 +15,10 @@ See the [workspace connection and open](Workspace.kt.md) and the
 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
+The Edit menu shows diagnostic counts and background analysis progress. Anchor
+both reports to that menu so opening either leaves the active pane in place.
+The View menu reads workspace notices and the focused document's status.
+
 Opening Move releases the workspace editor's text focus so its separate
 dialog can take keyboard input. Android can otherwise leave Gboard targeting
 the previous editor after the dialog displays a caret. Releasing focus
@@ -138,8 +142,39 @@ class MainActivity : ComponentActivity() {
                 it.group == "File" && (!workspace.windowConnectionLost || it.id == "file.connect" || it.id == "file.window")
             })
             if (!workspace.windowConnectionLost) {
-                CommandMenu("Edit",commands.filter {it.group=="Edit"} + multipleSelectionCommands(workspace))
-                CommandMenu("View",commands.filter {it.group=="View"})
+                val editCommands = commands.filter { it.group == "Edit" }.map { command ->
+                    when {
+                        command.id == "workspace.problems" -> command.copy(label = "Problems (${workspace.problems.size})")
+                        command.id == "workspace.analysis" && workspace.analysis.running ->
+                            command.copy(label = "Workspace analysis · ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}")
+                        else -> command
+                    }
+                }
+                CommandMenu("Edit", editCommands + multipleSelectionCommands(workspace), overlays = {
+                    DropdownMenu(expanded = workspace.showAnalysis, onDismissRequest = { workspace.showAnalysis = false }) {
+                        WorkspaceAnalysisView(workspace)
+                    }
+                    DropdownMenu(expanded = workspace.showProblems, onDismissRequest = { workspace.showProblems = false }) {
+                        WorkspaceProblemsView(workspace)
+                    }
+                })
+                CommandMenu("View", commands.filter { it.group == "View" }, extraItems = {
+                    HorizontalDivider()
+                    Column(Modifier.widthIn(max = 300.dp).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        if (workspace.status.isNotEmpty()) Text(workspace.status)
+                        workspace.currentBuffer?.let { buffer ->
+                            val position = languagePosition(buffer.text, buffer.state.selection.end)
+                            val state = if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved"
+                            Text("${buffer.file.name} · $state")
+                            Text("Ln ${position.getInt("line") + 1}, Col ${position.getInt("character") + 1}")
+                            val notice = buffer.language?.completionNotice.orEmpty().ifEmpty { buffer.snippets.notice }
+                            if (notice.isNotEmpty()) Text(notice)
+                        }
+                        if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
+                            DevBuildStatus(BuildConfig.DEV_BUILD_STAMP, workspace.engine)
+                        }
+                    }
+                })
             }
         }
         HorizontalDivider()
@@ -163,26 +198,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-        HorizontalDivider()
-        Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
-            if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
-                DevBuildStatus(BuildConfig.DEV_BUILD_STAMP, workspace.engine)
-            }
-            if (workspace.agentSession(workspace.active) == null) Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
-            else Spacer(Modifier.weight(1f))
-            Box {
-                Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.widthIn(max = 112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
-                DropdownMenu(expanded=workspace.showAnalysis,onDismissRequest={workspace.showAnalysis=false}) {WorkspaceAnalysisView(workspace)}
-            }
-            Box {
-                Text("Problems ${workspace.problems.size}", fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(max = 144.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { workspace.showProblems = !workspace.showProblems }.padding(horizontal = 4.dp))
-                DropdownMenu(expanded = workspace.showProblems, onDismissRequest = { workspace.showProblems = false }) { WorkspaceProblemsView(workspace) }
-            }
-            workspace.currentBuffer?.let { buffer ->
-                val position = languagePosition(buffer.text, buffer.state.selection.end)
-                Text("Ln ${position.getInt("line") + 1}, Col ${position.getInt("character") + 1} · ", fontSize = 11.sp)
-                Text(if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved", fontSize = 11.sp) }
         }
     }
     if (workspace.fileCommand != null) AlertDialog(onDismissRequest = { workspace.fileCommand = null; workspace.savingAll = false }, title = { Text(workspace.fileCommand ?: "File") }, text = {
@@ -238,7 +253,12 @@ class MainActivity : ComponentActivity() {
         )
     }
 }
-@Composable private fun CommandMenu(label: String, commands: List<WorkspaceCommand>) {
+@Composable private fun CommandMenu(
+    label: String,
+    commands: List<WorkspaceCommand>,
+    extraItems: @Composable () -> Unit = {},
+    overlays: @Composable () -> Unit = {},
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text(label, fontSize = 13.sp) }
@@ -252,7 +272,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            extraItems()
         }
+        overlays()
     }
 }
 
@@ -327,7 +349,6 @@ the editor and gives the full identities with explicit dirty-state labels.
 @Composable private fun DevBuildStatus(ui: String, engine: Engine?) {
     var reading by remember(engine) { mutableStateOf<org.json.JSONObject?>(null) }
     var verdict by remember(engine) { mutableStateOf("Checking") }
-    var showing by remember { mutableStateOf(false) }
     LaunchedEffect(engine, ui) {
         if (engine == null) {
             verdict = "Backend unknown"
@@ -353,18 +374,10 @@ the editor and gives the full identities with explicit dirty-state labels.
         stamp.endsWith("+") -> stamp.dropLast(1) + " · uncommitted changes"
         else -> stamp + " · clean"
     }
-    Box {
-        Text("$verdict · $short", fontSize = 11.sp, maxLines = 1, modifier = Modifier
-            .clickable(role = androidx.compose.ui.semantics.Role.Button) { showing = !showing }
-            .padding(end = 4.dp))
-        DropdownMenu(expanded = showing, onDismissRequest = { showing = false }) {
-            Column(Modifier.widthIn(max = 300.dp).padding(horizontal = 12.dp)) {
-                Text("UI · ${describe(ui)}")
-                Text("Backend · ${describe(reading?.optString("backend"))}")
-                Text("Engine checkout · ${describe(reading?.optString("checkout"))}")
-            }
-        }
-    }
+    Text("Development build · $verdict · $short")
+    Text("UI · ${describe(ui)}")
+    Text("Backend · ${describe(reading?.optString("backend"))}")
+    Text("Engine checkout · ${describe(reading?.optString("checkout"))}")
 }
 </ui:copy>
 

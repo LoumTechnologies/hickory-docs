@@ -3,7 +3,7 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-Expose acquisition through the existing Edit menu and status bar. The report floats over code and has bounded, filterable pages; starting it never activates a source pane. It names generated and unclassified exclusions and keeps zero-symbol reads distinct from a clean-project claim. Closing the report leaves background work alive; Stop drains admitted reads without starting more files. Opening source remains a separate action through the existing Files or navigation surfaces.
+Expose acquisition through Edit. The label shows progress while acquisition runs. The report floats over code and has bounded, filterable pages; starting it never activates a source pane. It names generated and unclassified exclusions and keeps zero-symbol reads distinct from a clean-project claim. Closing the report leaves background work alive; Stop drains admitted reads without starting more files. Opening source remains a separate action through the existing Files or navigation surfaces.
 
 <ui:copy id="simple-workspace-analysis-browser-view">
 import {useEffect,useRef,useState,useSyncExternalStore} from "react";
@@ -23,7 +23,7 @@ export function WorkspaceAnalysisView({buffers,files,model,focusCurrent}:{buffer
   const close=()=>{setVisible(false);focusCurrent();};
   const reports=[...model.knowledge.values()].filter(item=>`${item.path} ${item.notice}`.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>a.path.localeCompare(b.path));
   const last=Math.max(0,Math.ceil(reports.length/100)-1),selected=Math.min(page,last);
-  return <><button type="button" className="simple-problems-status" style={{width:112,overflow:"hidden",whiteSpace:"nowrap"}} onClick={()=>visible?close():setVisible(true)} aria-label="Workspace analysis status">{model.running?`Reading ${model.completed}/${model.scope.files.length}`:"Analysis"}</button>{visible&&createPortal(
+  return <><button type="button" onClick={()=>visible?close():setVisible(true)}>{model.running?`Workspace analysis · ${model.completed}/${model.scope.files.length}`:"Workspace analysis"}</button>{visible&&createPortal(
     <div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace analysis" onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();close();}}}>
       <button aria-label="Close analysis" onClick={close}>×</button><strong>Workspace analysis</strong>
       <p>{model.completed}/{model.scope.files.length} attempted · {[...model.knowledge.values()].filter(item=>item.source!==undefined).length} sources read · {model.scope.generated} generated and {model.scope.unclassified} unclassified excluded.</p>

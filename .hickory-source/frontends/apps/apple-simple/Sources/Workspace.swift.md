@@ -381,6 +381,7 @@ struct StartupSourceObservation {
     var gitHistory=GitHistoryModel()
     var showEverywhere = false
     var showAnalysis = false
+    var showDevelopmentBuild = false
     func startAnalysis() {
         let model=analysis, current=generation, files=rootFiles
         Task { _ = await model.run(files,load:{file in

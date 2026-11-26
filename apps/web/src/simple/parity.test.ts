@@ -1094,6 +1094,7 @@ describe("simple workspace Problems", () => {
         expect(node).toBeTruthy();
         return EditorView.findFromDOM(node!)!;
       });
+      fireEvent.click(screen.getByText("Edit", { exact: true, selector: "summary" }));
       fireEvent.click(await screen.findByRole("button", { name: "Problems: 0 reported" }));
       const panel = within(await within(document.body).findByRole("dialog", { name: "Workspace Problems" }));
       await panel.findByText("Audit.kt · kotlin");
@@ -1133,7 +1134,7 @@ describe("simple workspace Problems", () => {
     expect(nextWorkspaceProblem(records, records[0].location, -1)?.path).toBe("d.py");
     expect(nextWorkspaceProblem(records.filter(problem => !problem.current), null, 1)).toBeNull();
   });
-  it("opens the status/menu Problems overlay without replacing the editor and retires locations while typing", async () => {
+  it("opens Problems from Edit without replacing the editor and retires locations while typing", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const source = "value = 1", range = { start: { line: 0, character: 1 }, end: { line: 0, character: 5 } };
     vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "problem.py", path: "problem.py", dir: false }] });
@@ -1144,7 +1145,19 @@ describe("simple workspace Problems", () => {
       fireEvent.click(await screen.findByRole("button", { name: "problem.py" }));
       const content = await waitFor(() => { const node = screen.container.querySelector<HTMLElement>('.cm-content[aria-label="problem.py"]'); expect(node).toBeTruthy(); return node!; });
       const view = EditorView.findFromDOM(content)!;
-      fireEvent.click(await screen.findByRole("button", { name: "Problems: 1 reported" }));
+      expect(screen.container.querySelector("main > footer")).toBeNull();
+      const problems = await screen.findByRole("button", { name: "Problems: 1 reported" });
+      const editMenu = problems.closest("nav details");
+      expect(editMenu?.querySelector("summary")?.textContent).toBe("Edit");
+      expect(editMenu?.hasAttribute("open")).toBe(false);
+      fireEvent.click(screen.getByText("View", { exact: true, selector: "summary" }));
+      expect(screen.getByRole("status", { name: "Workspace status" }).textContent).toContain("problem.py · Saved");
+      expect(screen.getByLabelText("Editor position").textContent).toBe("Ln 1, Col 1");
+      fireEvent.click(screen.getByText("View", { exact: true, selector: "summary" }));
+      fireEvent.click(screen.getByText("Edit", { exact: true, selector: "summary" }));
+      expect(editMenu?.hasAttribute("open")).toBe(true);
+      fireEvent.click(problems);
+      expect(editMenu?.hasAttribute("open")).toBe(false);
       const panel = await within(document.body).findByRole("dialog", { name: "Workspace Problems" });
       const location = within(panel).getByRole("button", { name: "problem.py:1 · Example issue" });
       expect(location.hasAttribute("disabled")).toBe(false);
@@ -1403,7 +1416,7 @@ describe("simple file commands", () => {
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("new.py");
     const screen = render(createElement(App));
     try {
-      await waitFor(()=>expect(screen.container.querySelector("footer")?.textContent).toContain("workspace"));
+      await waitFor(()=>expect(screen.container.querySelector(".workspace-menu-status")?.textContent).toContain("workspace"));
       const menu = screen.container.querySelector("nav details .menu")!;
       expect([...menu.querySelectorAll("button")].map(item => item.textContent)).toEqual([
         "Open File", "Open Directory", "New Tab", "New Window", "Save", "Save As", "Save All", "Refresh", "Close tab",
@@ -1425,13 +1438,13 @@ describe("simple file commands", () => {
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("existing.py");
     const screen = render(createElement(App));
     try {
-      await waitFor(()=>expect(screen.container.querySelector("footer")?.textContent).toContain("workspace"));
+      await waitFor(()=>expect(screen.container.querySelector(".workspace-menu-status")?.textContent).toContain("workspace"));
       const menu = screen.container.querySelector("nav details .menu")! as HTMLElement;
       fireEvent.click(within(menu).getByRole("button", { name: "New Tab" }));
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
       act(() => view.dispatch({ changes: { from: 0, insert: "retained" } }));
       fireEvent.click(within(menu).getByRole("button", { name: "Save As" }));
-      await waitFor(() => expect(screen.getByRole("status").textContent).toContain("already exists"));
+      await waitFor(() => expect(screen.container.querySelector(".workspace-menu-status")?.textContent).toContain("already exists"));
       expect(view.state.doc.toString()).toBe("retained");
       expect(screen.getByRole("tab", { name: /Untitled/ })).toBeTruthy();
     } finally { screen.unmount(); prompt.mockRestore(); }

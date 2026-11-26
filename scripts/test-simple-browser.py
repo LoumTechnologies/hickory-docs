@@ -461,7 +461,7 @@ def workspace_analysis_acceptance(driver, folder):
     path="cache.py"; original=(folder/path).read_text()
     driver.act("open",path=path);driver.act("append",path=path,text="\n# retained draft")
     size=driver.act("editor-size",path=path)
-    driver.act("analysis-open",via="menu");driver.act("analysis-start")
+    driver.act("analysis-open");driver.act("analysis-start")
     deadline=time.monotonic()+120
     while time.monotonic()<deadline:
         report=driver.act("analysis-state",path=path)
@@ -472,9 +472,9 @@ def workspace_analysis_acceptance(driver, folder):
     assert report["finished"],report
     assert "background.py" in report["text"] and "unclassified excluded" in report["text"],report
     assert "unavailable" not in report["text"],report
-    driver.act("analysis-close");driver.act("problems-open",via="status")
+    driver.act("analysis-close");driver.act("problems-open")
     eventually(lambda:"background.py" in driver.act("problems-state",path=path)["text"],True)
-    driver.act("problems-close");driver.act("analysis-open",via="status")
+    driver.act("problems-close");driver.act("analysis-open")
     assert driver.act("analysis-state",path=path)["size"]==size
     driver.act("analysis-close")
     assert (folder/path).read_text()==original,"Analysis saved a draft"
@@ -486,8 +486,7 @@ def problems_acceptance(driver, folder):
     path = "problem.py"; original = (folder / path).read_text()
     driver.act("open", path=path)
     size = driver.act("editor-size", path=path)
-    eventually(lambda: driver.act("problem-count") > 0, True)
-    driver.act("problems-open", via="status")
+    driver.act("problems-open", reported=True)
     eventually(lambda: driver.act("problems-state", path=path)["current"] > 0, True)
     result = driver.act("problems-state", path=path)
     assert path in result["text"], result
@@ -496,7 +495,7 @@ def problems_acceptance(driver, folder):
     driver.act("problem-next")
     eventually(lambda: driver.act("caret-offset", path=path) > 0, True)
     driver.act("append", path=path, text="\n# retained draft")
-    driver.act("problems-open", via="menu")
+    driver.act("problems-open")
     result = driver.act("problems-state", path=path)
     assert path in result["text"] and result["size"] == size, result
     assert (folder / path).read_text() == original, "Problems saved source"
@@ -1557,10 +1556,10 @@ raise RuntimeError('wrong assistant fence')
                 print("Browser: shared menu/action commands, disabled reasons, keyboard entry, real type/member search, source-bound reveal, stale-type retirement, retained editor/draft/geometry and unchanged disk passed")
             elif "--workspace-analysis-only" in sys.argv:
                 workspace_analysis_acceptance(driver,folder)
-                print("Browser: workspace acquisition, unopened-source diagnostics, unchanged active editor/draft/geometry, floating status/menu report and unchanged disk passed")
+                print("Browser: workspace acquisition, unopened-source diagnostics, unchanged active editor/draft/geometry, floating Edit menu report and unchanged disk passed")
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
-                print("Browser: source-hash-bound provider Problems, precise next-problem navigation, status/menu access, stationary geometry, retained draft and unchanged disk passed")
+                print("Browser: source-hash-bound provider Problems, precise next-problem navigation, Edit menu access, stationary geometry, retained draft and unchanged disk passed")
             elif "--call-hierarchy-only" in sys.argv:
                 call_hierarchy_acceptance(driver, folder)
                 print("Browser: real cross-file callers and callees, exact UTF-16 carets, Back, retained draft and renamed-target refusal passed")

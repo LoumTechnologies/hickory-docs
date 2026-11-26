@@ -11,7 +11,7 @@ a light workspace.
 The welcome screen takes the disconnected window and uses the same system
 colors as the editor. Keep its controls sized for narrow browser windows.
 
-Use one fixed menu row, flexible content and one status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
+Use one fixed menu row and let the workspace fill the remaining height. The Agent pane sizes its own status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
 Keep full file and folder names readable within their pane. A long label
 wraps inside its own row so the editor and split keep their width.
@@ -45,7 +45,7 @@ button { border: 0; background: transparent; padding: 4px 8px; text-align: left;
 button:disabled { opacity: .45; cursor: default; }
 button:hover:not(:disabled), summary:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
 button:focus-visible, summary:focus-visible, .resize:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
-main { height: 100dvh; display: grid; grid-template-rows: 29px minmax(0,1fr) 23px; }
+main { height: 100dvh; display: grid; grid-template-rows: 29px minmax(0,1fr); }
 main.workspace-welcome { grid-template-rows: 1fr; place-items: center; overflow: auto; padding: 24px; }
 .workspace-welcome section { width: min(100%, 420px); }
 .workspace-welcome h1 { margin: 0 0 18px; font-size: 24px; }
@@ -99,7 +99,6 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
   line-height: 22px; padding: 0 4px;
 }
 .empty { margin: 16px; color: GrayText; }
-.simple-problems-status { float: right; min-width: 88px; text-align: right; padding: 0; font-size: 11px; }
 .simple-workspace-problems { position: fixed; z-index: 40; right: 8px; top: 32px; width: min(420px, calc(100dvw - 16px)); max-height: calc(100dvh - 64px); overflow: auto; padding: 8px; background: Canvas; color: CanvasText; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .simple-workspace-problems > div > button { display: block; width: 100%; overflow-wrap: anywhere; }
 .simple-workspace-problems input { width: 100%; }
@@ -110,24 +109,13 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-workspace-problems input[type="checkbox"] { width: auto; }
 .simple-workspace-problems pre { overflow: auto; max-height: 240px; font-size: 11px; }
 .simple-workspace-problems select { max-width: 100%; }
-.simple-build-status { margin-inline-end: 6px; font: inherit; }
-.simple-build-details {
-  position: fixed;
-  z-index: 30;
-  inset-inline-start: 9px;
-  bottom: 28px;
-  max-width: calc(100vw - 18px);
-  box-sizing: border-box;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, CanvasText 30%, Canvas);
-  background: Canvas;
-  color: CanvasText;
-  white-space: normal;
+.workspace-menu-status, .simple-build-details > div {
+  max-width: min(28rem, calc(100dvw - 7rem));
+  padding: 4px 8px;
   overflow-wrap: anywhere;
-  user-select: text;
 }
-.simple-build-details > span { display: block; }
-footer { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-menu-status { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); }
+.simple-build-details > summary { padding: 4px 8px; }
 .conversation-history-row { display: flex; align-items: start; gap: 3px; }
 .conversation-history-title { flex: 1; min-width: 0; }
 .conversation-history-actions { position: relative; }

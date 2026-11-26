@@ -53,7 +53,7 @@ SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache nati
 
 AppKit and UIKit move the insertion point to the end when the initial source
 text is assigned. Set the native selection from the buffer before attaching the delegate.
-The caret, status bar and first external refresh then start from the same position,
+The caret, menu position readout and first external refresh then start from the same position,
 even if the reviewer has only used the workspace search sheet.
 
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Apple capabilities use the real backend LSP channel and retain their own snapshot guards. Native semantic styling does not replace text, preserving the platform undo and selection model.

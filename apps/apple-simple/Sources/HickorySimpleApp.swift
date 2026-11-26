@@ -40,10 +40,11 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
             }
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
-                ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
+                ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:workspace.menuPresentation($0))}
             }
             CommandMenu("Panes") {
                 ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}
+                if let focusedWorkspace { WorkspaceStatusMenu(workspace: focusedWorkspace) }
             }
         }
         #else

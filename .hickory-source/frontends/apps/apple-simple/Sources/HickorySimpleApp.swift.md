@@ -13,7 +13,8 @@ port before calling the ordinary workspace connection. The window owns the
 host's input pipe. Closing the window releases the host's client lease.
 
 On macOS the File menu takes its local folder action from the focused
-window. A user can switch folders after leaving the welcome screen, and the
+window. The Panes menu uses that same window’s workspace for editor status
+and development build details. A user can switch folders after leaving the welcome screen, and the
 existing workspace guards still protect unsaved changes.
 
 Route New Window through the focused scene so the desktop menu and the iOS
@@ -65,10 +66,11 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
             }
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
-                ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
+                ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:workspace.menuPresentation($0))}
             }
             CommandMenu("Panes") {
                 ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}
+                if let focusedWorkspace { WorkspaceStatusMenu(workspace: focusedWorkspace) }
             }
         }
         #else

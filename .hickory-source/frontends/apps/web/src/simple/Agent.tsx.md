@@ -724,7 +724,7 @@ function AgentExactReview({ session, review, close }: {
 }
 </ui:copy>
 
-## Put conversation settings in the workspace status bar
+## Put conversation settings in the Agent pane status bar
 
 The focused Agent tab mounts these controls in the footer. The popover floats
 above the footer and the draft stays mounted. Codex choices come from the

@@ -1851,7 +1851,7 @@ operations change decorations, preserving the editor, undo and unsaved text.
 Equation modes can explicitly override caret-driven source reveal in either
 direction. The existing rail placement/overflow mechanism owns icon geometry.
 
-Inline rendering reports a failed asset through the workspace status bar or
+Inline rendering reports a failed asset through the workspace status in View or
 the Agent heading. The retained editor keeps its viewport when this optional
 capability fails. Only the renderer that still owns the retained view can
 publish its failure. The focused `--delayed-capabilities-only` and

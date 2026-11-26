@@ -41,6 +41,7 @@ async function menu(name, action) {
   await page.locator("nav").getByText(name, { exact: true }).click();
   await page.getByRole("button", { name: action, exact: true }).click();
 }
+const workspaceStatus = () => page.locator(".workspace-menu-status");
 const editor = path => page.locator(".cm-content").and(page.locator(`[aria-label=${JSON.stringify(path)}]`));
 const debugRail = () => page.locator(".cm-debug-rail");
 const sourceTestAction = name => debugRail().getByRole("button", {
@@ -182,7 +183,7 @@ try {
           break;
         }
         case "capability-held": value = !!capabilityGates.get(request.name)?.route; break;
-        case "workspace-status": value = await page.locator("footer[role=status]").innerText(); break;
+        case "workspace-status": value = await workspaceStatus().textContent(); break;
         case "agent-render-status": value = await page.locator(".agent-pane-status span[role=status]").innerText(); break;
         case "capability-release": {
           const gate = capabilityGates.get(request.name);
@@ -460,8 +461,8 @@ try {
         case "mark-editor":value=await editor(request.path).evaluate(node=>node.dataset.simpleAcceptanceIdentity ||= crypto.randomUUID());break;
         case "editor-rect":value=await editor(request.path).locator("..").evaluate(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});break;
         case "analysis-open":
-          if(request.via==="menu") await menu("Edit","Workspace analysis");
-          else await page.getByRole("button",{name:"Workspace analysis status",exact:true}).click();
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          await page.getByRole("button", { name: /^Workspace analysis(?: · |$)/ }).click();
           await page.getByRole("dialog",{name:"Workspace analysis",exact:true}).waitFor();break;
         case "analysis-start": await page.getByRole("button",{name:"Read workspace",exact:true}).click();break;
         case "analysis-close": await page.getByRole("button",{name:"Close analysis",exact:true}).click();break;
@@ -469,14 +470,13 @@ try {
           const panel=page.getByRole("dialog",{name:"Workspace analysis",exact:true});
           value={text:await panel.innerText(),finished:await panel.getByRole("button",{name:"Read workspace",exact:true}).isEnabled(),source:await editor(request.path).innerText(),size:await editor(request.path).locator("..").evaluate(node=>({width:node.clientWidth,height:node.clientHeight}))};break;
         }
-        case "problem-count": {
-          const control = page.getByRole("button", { name: /^Problems: \d+ reported$/ });
-          value = Number((await control.getAttribute("aria-label")).match(/\d+/)[0]); break;
+        case "problems-open": {
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          const name = request.reported ? /^Problems: [1-9]\d* reported$/ : /^Problems: \d+ reported$/;
+          await page.getByRole("button", { name }).click();
+          await page.getByRole("dialog", { name: "Workspace Problems" }).waitFor();
+          break;
         }
-        case "problems-open":
-          if (request.via === "menu") await menu("Edit", "Problems");
-          else await page.getByRole("button", { name: /^Problems: \d+ reported$/ }).click();
-          await page.getByRole("dialog", { name: "Workspace Problems" }).waitFor(); break;
         case "problems-state": {
           const panel = page.getByRole("dialog", { name: "Workspace Problems" });
           const text = await panel.innerText();
@@ -503,7 +503,7 @@ try {
         case "semantic-refuse-name": {
           const panel = page.getByRole("dialog", { name: "Semantic locations" });
           await panel.getByRole("button", { name: request.label, exact: true }).click();
-          await page.locator("footer").getByText(/The reported symbol has moved or changed/).waitFor();
+          await expect(workspaceStatus()).toContainText("The reported symbol has moved or changed");
           value = { sourceVisible: await editor(request.path).isVisible(), targetVisible: await editor(request.target).isVisible() };
           break;
         }
@@ -548,11 +548,11 @@ try {
           const choices=page.locator(".cm-tooltip-autocomplete li");await choices.first().waitFor({timeout:1500}).catch(()=>{});value=await choices.allTextContents();break;
         }
         case "completion-pick":await page.locator(".cm-tooltip-autocomplete li").filter({hasText:request.title}).first().click();break;
-        case "completion-cancel":await editor(request.path).press("Escape");await page.waitForFunction(()=>document.querySelector("footer")?.textContent.includes("Completion cancelled"));break;
-        case "completion-drain":await page.waitForTimeout(150);value=await page.locator("footer").innerText();break;
+        case "completion-cancel":await editor(request.path).press("Escape");await page.waitForFunction(()=>document.querySelector(".workspace-menu-status")?.textContent.includes("Completion cancelled"));break;
+        case "completion-drain":await page.waitForTimeout(150);value=await workspaceStatus().textContent();break;
         case "completion-choose": {
           await page.locator(".cm-tooltip-autocomplete li").filter({hasText:request.title}).first().click();
-          await page.waitForFunction(()=>{const text=document.querySelector("footer")?.textContent??"";return text.includes("Completion")&&!text.includes("Resolving completion");});value=await page.locator("footer").innerText();break;
+          await page.waitForFunction(()=>{const text=document.querySelector(".workspace-menu-status")?.textContent??"";return text.includes("Completion")&&!text.includes("Resolving completion");});value=await workspaceStatus().textContent();break;
         }
         case "redo":await editor(request.path).press(process.platform==="darwin"?"Meta+Shift+z":"Control+y");break;
         case "focus-source":await editor(request.path).focus();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));break;
@@ -641,8 +641,11 @@ try {
         case "local-history-select":{const panel=page.getByRole('dialog',{name:'Local source history',exact:true}),select=panel.getByRole('combobox',{name:'Retained save',exact:true});const id=request.id??await select.locator('option').evaluateAll(options=>options.find(option=>option.textContent.startsWith('published'))?.value);if(!id)throw Error('No published source history is available');await select.selectOption(id);await panel.getByRole('combobox',{name:'Snapshot',exact:true}).selectOption(request.side??'before');value={id,text:await panel.locator('pre').first().innerText(),draft:await panel.locator('pre').nth(1).innerText(),enabled:await panel.getByRole('button',{name:'Restore selected text to draft',exact:true}).isEnabled()};break;}
         case "local-history-restore":{const panel=page.getByRole('dialog',{name:'Local source history',exact:true});await panel.getByRole('button',{name:'Restore selected text to draft',exact:true}).click();await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Local source history"] [role="status"]')?.textContent;return text&&!text.startsWith('Preview');});value=await panel.innerText();break;}
         case "local-history-close":await page.getByRole('dialog',{name:'Local source history',exact:true}).getByRole('button',{name:'Close',exact:true}).click();break;
-        case "saved-status":await page.waitForFunction(()=>document.querySelector('footer')?.textContent?.endsWith(' · Saved'));value=await page.locator('footer').innerText();break;
-        case "source-copy-ready":await editor(request.path).waitFor();value={source:await editor(request.path).textContent(),status:await page.locator('footer').innerText()};break;
+        case "saved-status": {
+          const saved = workspaceStatus().getByText(/ · Saved$/);
+          await saved.waitFor({ state: "attached" }); value = await saved.textContent(); break;
+        }
+        case "source-copy-ready":await editor(request.path).waitFor();value={source:await editor(request.path).textContent(),status:await workspaceStatus().textContent()};break;
         case "history-state":value=await page.getByRole("dialog",{name:"Repository history",exact:true}).innerText();break;
         case "history-open":await menu("View",request.file?"Saved file history":"Repository history");await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Repository history"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});value=await page.getByRole("dialog",{name:"Repository history",exact:true}).innerText();break;
         case "history-read": {const panel=page.getByRole("dialog",{name:"Repository history",exact:true});await panel.getByRole("button",{name:`Read commit ${request.sha}`,exact:true}).click();await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Repository history"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});value=await panel.innerText();break;}
@@ -1271,7 +1274,9 @@ try {
           const source = editor("source.md");
           await source.press("Home");
           await source.press("ArrowRight");
+          await page.locator("nav").getByText("View", { exact: true }).click();
           const sourcePosition = await page.getByLabel("Editor position", {exact: true}).innerText();
+          await page.locator("nav").getByText("View", { exact: true }).click();
           await menu("View", "Agent History");
           await page.getByRole('region', {name:'Agent History'}).getByRole('button', {name:'# Previous question',exact:true}).click();
           const draft = editor("conversation/draft.md");

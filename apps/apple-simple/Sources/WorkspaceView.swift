@@ -56,7 +56,7 @@ struct WorkspaceView: View {
                 }
                 Menu("Edit") {
                     EditorNavigationSettings()
-                    ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
+                    ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:workspace.menuPresentation($0))}
                     #if os(iOS)
                     if let selections = MobileSelectionEdit(workspace) {
                         Button("Edit selections") {
@@ -73,7 +73,10 @@ struct WorkspaceView: View {
                     #endif
                 }
                 .disabled(workspace.windowConnectionLost)
-                Menu("View") {ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}}
+                Menu("View") {
+                    ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}
+                    WorkspaceStatusMenu(workspace: workspace)
+                }
                     .disabled(workspace.windowConnectionLost)
                 Spacer()
             }.padding(.horizontal, 8).frame(height: 32)
@@ -89,26 +92,6 @@ struct WorkspaceView: View {
             } else {
                 welcome
             }
-            Divider()
-            HStack {
-                if let stamp = DevBuildStatus.stamp {
-                    DevBuildStatus(ui: stamp, engine: workspace.engine)
-                        .id(workspace.engine?.origin)
-                }
-                if workspace.agentSession(workspace.activeTab) == nil { Text(workspace.status).lineLimit(1).help(workspace.status) }
-                Spacer(minLength: 8)
-                if workspace.agentSession(workspace.activeTab) == nil, let buffer = workspace.currentBuffer {
-                    let position = languagePosition(buffer.text, buffer.selection.location)
-                    Text("Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)").fixedSize()
-                    if let language = buffer.language { Text(language.completionNotice.isEmpty ? language.status:language.completionNotice).lineLimit(1).frame(maxWidth: 310).help(language.completionNotice.isEmpty ? language.status:language.completionNotice) } else if !buffer.snippets.notice.isEmpty {Text(buffer.snippets.notice).lineLimit(1).frame(maxWidth:310).help(buffer.snippets.notice)}
-                    Text(buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved")
-                }
-                Button(workspace.analysis.running ? "Reading \(workspace.analysis.completed)/\(workspace.analysis.scope.files.count)":"Analysis") { workspace.showAnalysis.toggle() }
-                    .frame(width:112).lineLimit(1).popover(isPresented:$workspace.showAnalysis) { WorkspaceAnalysisView(workspace:workspace) }
-                Button("Problems \(workspace.problems.count)") { workspace.showProblems.toggle() }
-                    .popover(isPresented: $workspace.showProblems) { WorkspaceProblemsView(workspace: workspace) }
-                Button("⋯", action: showServerConnection).help("Workspace connection")
-            }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
         #if os(iOS)
         .fullScreenCover(item: $presentedWindow) { launch in
@@ -151,6 +134,13 @@ struct WorkspaceView: View {
             }
         }
         .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
+        .popover(isPresented: $workspace.showAnalysis) { WorkspaceAnalysisView(workspace: workspace) }
+        .popover(isPresented: $workspace.showProblems) { WorkspaceProblemsView(workspace: workspace) }
+        .popover(isPresented: $workspace.showDevelopmentBuild) {
+            if let stamp = DevBuildStatus.stamp {
+                DevBuildStatus(ui: stamp, engine: workspace.engine).id(workspace.engine?.origin)
+            }
+        }
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showRecovery) {SourceRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showConstruction) {ConstructionReadingView(workspace:workspace).onKeyPress(.escape){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?();return .handled}}
@@ -588,6 +578,45 @@ struct PaneView: View {
         }
     }
 }
+extension Workspace {
+    func menuPresentation(_ command: WorkspaceCommand) -> WorkspaceCommand {
+        var item = command
+        switch command.id {
+        case "workspace.problems":
+            item.label = "Problems (\(problems.count))"
+        case "workspace.analysis" where analysis.running:
+            item.label = "Workspace analysis · \(analysis.completed)/\(analysis.scope.files.count)"
+        default: break
+        }
+        return item
+    }
+}
+
+struct WorkspaceStatusMenu: View {
+    let workspace: Workspace
+
+    var body: some View {
+        Divider()
+        Menu("Workspace status") {
+            if !workspace.status.isEmpty { Text(workspace.status) }
+            if let buffer = workspace.currentBuffer {
+                let position = languagePosition(buffer.text, buffer.selection.location)
+                let state = buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"
+                Text("\(buffer.file.name) · \(state)")
+                Text("Ln \(position["line", default: 0] + 1), Col \(position["character", default: 0] + 1)")
+                if let language = buffer.language {
+                    Text(language.completionNotice.isEmpty ? language.status : language.completionNotice)
+                } else if !buffer.snippets.notice.isEmpty {
+                    Text(buffer.snippets.notice)
+                }
+            }
+        }
+        if DevBuildStatus.stamp != nil {
+            Button("Development build…") { workspace.showDevelopmentBuild = true }
+        }
+    }
+}
+
 private struct DevBuildStatus: View {
     struct Reading: Decodable {
         let backend: String
@@ -602,7 +631,6 @@ private struct DevBuildStatus: View {
     let engine: Engine?
     @State private var reading: Reading?
     @State private var verdict = "Checking"
-    @State private var showing = false
 
     private func describe(_ stamp: String?) -> String {
         guard let stamp, stamp != "unknown" else { return "unknown" }
@@ -612,17 +640,14 @@ private struct DevBuildStatus: View {
     var body: some View {
         let short = ui == "unknown" ? "?" : String(ui.prefix(8)) + (ui.hasSuffix("+") ? "+" : "")
         let label = "\(verdict) · \(short)"
-        Button(label) { showing.toggle() }
-            .lineLimit(1)
-            .fixedSize()
-            .accessibilityLabel("Development build \(label)")
-            .popover(isPresented: $showing) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("UI · \(describe(ui))")
-                    Text("Backend · \(describe(reading?.backend))")
-                    Text("Engine checkout · \(describe(reading?.checkout))")
-                }.font(.caption.monospaced()).textSelection(.enabled).padding()
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Development build").font(.headline)
+            Text(label)
+            Text("UI · \(describe(ui))")
+            Text("Backend · \(describe(reading?.backend))")
+            Text("Engine checkout · \(describe(reading?.checkout))")
+        }
+            .font(.caption.monospaced()).textSelection(.enabled).padding()
             .task {
                 guard let engine else { verdict = "Backend unknown"; return }
                 while !Task.isCancelled {

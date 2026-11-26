@@ -29,7 +29,7 @@ export function WorkspaceProblems({ buffers, source, visible, setVisible, curren
     };
     window.addEventListener(NEXT_PROBLEM, move); return () => window.removeEventListener(NEXT_PROBLEM, move);
   }, [problems, current]);
-  return <><button className="simple-problems-status" type="button" onClick={() => { if (visible) close(); else setVisible(true); }} aria-label={`Problems: ${problems.length} reported`}>Problems {problems.length}</button>{visible && createPortal(
+  return <><button type="button" onClick={() => { if (visible) close(); else setVisible(true); }} aria-label={`Problems: ${problems.length} reported`}>Problems ({problems.length})</button>{visible && createPortal(
     <div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace Problems" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
       <button type="button" aria-label="Close Problems" onClick={close}>×</button>
       <strong>Problems</strong><p>Language-provider reports · {problems.filter(problem => problem.current).length} current locations</p>
