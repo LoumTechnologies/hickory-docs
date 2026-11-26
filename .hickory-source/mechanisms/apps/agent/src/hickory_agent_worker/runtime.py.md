@@ -95,7 +95,7 @@ class Broker:
 ### `execute`
 
 <storycode:copy id="f-56e1a215e79c-execute">
-def execute(session, broker, code):
+def execute(session, broker, code, *, tool_call=None):
     # No mounts, filesystem callbacks, CPython eval/exec, shell or provider SDK.
     # Every external effect is an RPC the Rust supervisor independently checks.
     printed = []
@@ -115,9 +115,9 @@ def execute(session, broker, code):
     try:
         result = session.feed_run(
             code,
-            external_lookup={"tool": lambda name, arguments: broker.call(
+            external_lookup={"tool": tool_call or (lambda name, arguments: broker.call(
                 "tool", {"name": name, "arguments": arguments}
-            )},
+            ))},
             print_callback=capture,
         )
         # Avoid exporting arbitrary interpreter proxies or non-JSON values.

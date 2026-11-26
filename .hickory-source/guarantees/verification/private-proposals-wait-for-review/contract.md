@@ -174,6 +174,13 @@ At a successful submission, the trusted tool adapter asks the host to recheck fr
 
 A fresh request still needs its task stage. In the local pilot, acceptance followed by context replacement caused the model to restart tool work rather than finish. The host now adds an explicit finalization-stage instruction only after a current accepted artifact exists. It still requires assessing unmet task requirements; neither this instruction nor a model summary can bypass completion verification.
 
+For a single advertised call the agent can supply arguments directly. Both
+forms leave tool effects and acceptance to the host. Like OpenCode's session
+runner, Hickory bounds what the model receives from a direct tool call. A large
+receipt still conveys the outcome and a short excerpt so the agent can choose
+a narrower read or inspect current state before making another edit. The host
+records the tool result independently of this observation.
+
 <storycode:copy id="f-afffc8ba20eb-Agent">
 class Agent:
     def __init__(self, model: ModelClient, tools: ToolClient, execute,
@@ -288,7 +295,8 @@ class Agent:
                          'tool_execution_started': False, 'error': str(exc),
                          'repair': 'Your response was not an action object. No snippet or tool ran. '
                                    'Reply with ONLY one raw JSON object: {"python":"snippet"} '
-                                   'or {"done":"summary with limitations"}. '
+                                   'or {"done":"summary with limitations"}. If a direct tool call is advertised, '
+                                   'its form is {"tool":"name","arguments":{}}. '
                                    'Do not include prose, Markdown fences, or reasoning outside the object. '
                                    'Every action in the rejected response is unexecuted, including valid-looking '
                                    'objects. Retry the first unfinished requested step; do not skip ahead to edits.'})
@@ -307,6 +315,29 @@ class Agent:
                 if receipt.get('accepted') is True:
                     return {'stopped': True, 'summary': action['done']}
                 observe(receipt)
+            elif 'tool' in action:
+                # This shortcut grants no new capabilities. The trusted tool client
+                # still owns argument checking, permissions, and effect receipts.
+                name = action['tool']
+                if not any(tool['name'] == name for tool in config.tools.get('tools', [])):
+                    observe({'ok': False, 'kind': 'tool_not_advertised', 'tool': name})
+                else:
+                    try:
+                        receipt = self.tools.call(name, action['arguments'])
+                    except Exception as exc:
+                        result = {'ok': False, 'tool': name, 'error': str(exc)[:8192]}
+                    else:
+                        ok = not (isinstance(receipt, dict) and receipt.get('isError') is True)
+                        encoded = json.dumps(receipt)
+                        if len(encoded) > 65_536:
+                            result = {'ok': ok, 'tool': name, 'kind': 'tool_result_truncated',
+                                      'preview': encoded[:2048],
+                                      'next': 'For details, use a narrower read or select a small part of its receipt in Monty. '
+                                              'Check current state before retrying a tool that can make changes.'}
+                        else:
+                            result = {'ok': ok, 'tool': name, 'result': receipt}
+                    self.check_cancelled()
+                    observe(result)
             elif 'python' in action:
                 self.record('action', {'code': action['python'], 'interpreter': 'monty'})
                 observe(self.execute(action['python']))

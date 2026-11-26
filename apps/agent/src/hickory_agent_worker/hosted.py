@@ -68,8 +68,11 @@ def main():
     try:
         with monty() as pool:
             with pool.checkout(limits=LIMITS) as session:
-                agent = Agent(Model(broker), Tools(broker),
-                    lambda code: execute(session, broker, code),
+                # Both forms go through the same broker, including discovery
+                # of accepted changesets for the next model context handoff.
+                tools = Tools(broker)
+                agent = Agent(Model(broker), tools,
+                    lambda code: execute(session, broker, code, tool_call=tools.call),
                     lambda kind, data: broker.call('record', {'kind': kind, 'data': data}),
                     context=HostedContext(broker, bootstrap.get('context_references', [])))
                 agent.run(Config(**bootstrap))

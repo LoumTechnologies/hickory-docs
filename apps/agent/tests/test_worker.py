@@ -13,7 +13,7 @@ from hickory_agent_worker.actions import parse_action
 from hickory_agent_worker.runtime import Broker, execute
 from hickory_agent_worker.core import Agent, Config
 from hickory_agent_worker.cli import ReplayModel, DevelopmentTools, ToolBridge
-from hickory_agent_worker.hosted import monty, LIMITS
+from hickory_agent_worker.hosted import monty, LIMITS, Tools as HostedTools
 
 
 class Tools:
@@ -44,11 +44,62 @@ class WorkerTests(unittest.TestCase):
             ('user', 'Branch point'), ('user', 'New branch'),
         ])
 
-    def test_only_one_declared_python_or_done_action(self):
+    def test_only_one_declared_action(self):
         self.assertEqual(parse_action('{"python":"1 + 2"}'), {'python': '1 + 2'})
-        for raw in ['{"shell":"rm -rf ."}', '{"python":"x","done":"ok"}', '[]', '```python\nx\n```']:
+        self.assertEqual(parse_action('{"tool":"list_docs","arguments":{}}'),
+                         {'tool': 'list_docs', 'arguments': {}})
+        for raw in ['{"shell":"not a tool"}', '{"python":"x","done":"ok"}', '[]', '```python\nx\n```',
+                    '{"tool":"list_docs","arguments":[]}', '{"tool":"read_doc","arguments":{"n":NaN}}',
+                    '{"tool":"list_docs","arguments":{},"done":"malformed"}']:
             with self.assertRaises(ValueError):
                 parse_action(raw)
+
+    def test_direct_route_preserves_tool_admission_and_receipts_without_monty(self):
+        calls, records = [], []
+        class Client(Tools):
+            def call(self, name, arguments):
+                calls.append((name, arguments))
+                if name == 'read_doc':
+                    return {'content': ['Oversized receipt: ' + 'é' * 70_000]}
+                return {'isError': True, 'content': ['Exact preview was declined']}
+
+        requests = [{'tool': 'unlisted', 'arguments': {}},
+                    {'tool': 'edit_doc', 'arguments': {'doc': 'fixture.md'}},
+                    {'tool': 'read_doc', 'arguments': {'doc': 'fixture.md'}},
+                    {'done': 'Stopped after refusal'}]
+        agent = Agent(ReplayModel(requests), Client(), lambda _: self.fail('No snippet requested'),
+                      lambda kind, data: records.append((kind, data)))
+        tools = {'tools': [{'name': 'edit_doc'}, {'name': 'read_doc'}]}
+        # The complete receipt would exhaust the context before the done step.
+        self.assertEqual(agent.run(Config('Use fixture', tools=tools, context_limit=65_536)),
+                         'Stopped after refusal')
+        self.assertEqual(calls, [('edit_doc', {'doc': 'fixture.md'}),
+                                 ('read_doc', {'doc': 'fixture.md'})])
+        observations = [data for kind, data in records if kind == 'observation']
+        self.assertEqual(observations[0]['kind'], 'tool_not_advertised')
+        self.assertFalse(observations[1]['ok'])
+        self.assertEqual(observations[1]['result']['content'], ['Exact preview was declined'])
+        self.assertEqual(observations[2]['kind'], 'tool_result_truncated')
+        self.assertTrue(observations[2]['ok'])
+        self.assertIn('Oversized receipt', observations[2]['preview'])
+        self.assertNotIn('result', observations[2])
+
+    def test_hosted_snippet_and_direct_call_share_accepted_handoff_path(self):
+        class FixtureBroker:
+            def call(self, method, params):
+                if method == 'handoff':
+                    return {'expected': 'host-checked'}
+                return {'content': [{'type': 'text', 'text': '{"accepted":true}'}]}
+
+        broker = FixtureBroker()
+        tools = HostedTools(broker)
+        tools.call('submit_changeset', {})
+        self.assertEqual(tools.take_handoff(), {'expected': 'host-checked'})
+        with monty() as pool, pool.checkout(limits=LIMITS) as session:
+            self.assertTrue(execute(session, broker, 'tool("submit_changeset", {})',
+                                    tool_call=tools.call)['ok'])
+        self.assertEqual(tools.take_handoff(), {'expected': 'host-checked'})
+        self.assertIsNone(tools.take_handoff())
 
     # Guarantee: docs/guarantees/agent/ui-action-dispatch.md
     def test_model_protocol_repair_does_not_misreport_tool_execution(self):

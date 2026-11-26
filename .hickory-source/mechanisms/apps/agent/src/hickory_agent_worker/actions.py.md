@@ -26,6 +26,11 @@ import json
 <a id="f-c95d123c0e92-parse_action"></a>
 ### `parse_action`
 
+For one tool, the model sends the name and JSON arguments directly. This
+avoids asking it to escape and print a Python program just to read a file.
+Reject mixed actions, misplaced arguments and non-JSON numbers before any
+tool or snippet can run.
+
 <storycode:copy id="f-c95d123c0e92-parse_action">
 def parse_action(raw):
     value = json.loads(raw)
@@ -37,7 +42,11 @@ def parse_action(raw):
         return value
     if set(value) == {"done"} and isinstance(value["done"], str):
         return value
-    raise ValueError('Use exactly {"python": "..."} or {"done": "..."}')
+    if set(value) == {"tool", "arguments"} and isinstance(value["tool"], str) and isinstance(value["arguments"], dict):
+        if len(json.dumps(value, allow_nan=False).encode()) > 65_536:
+            raise ValueError("Direct tool action exceeds 64 KiB; use a bounded snippet")
+        return value
+    raise ValueError('Use exactly {"tool":"name","arguments":{}}, {"python":"..."}, or {"done":"..."}')
 
 </storycode:copy>
 
