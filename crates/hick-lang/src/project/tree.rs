@@ -45,6 +45,34 @@ pub struct ProjectTree {
     entries: BTreeMap<String, Arc<ProjectEntry>>,
 }
 impl ProjectTree {
+    pub fn from_inventory(entries: Vec<(String, ProjectEntry)>) -> Result<Self, String> {
+        let mut folded = BTreeMap::new();
+        for (path, entry) in &entries {
+            Self::validate_entry(path, entry)?;
+            if let Some(existing) = folded.insert(path.to_ascii_lowercase(), path.as_str()) {
+                validate_path_collision(existing, path)?;
+                return Err(format!("duplicate project path: {path}"));
+            }
+        }
+        let mut prior = None;
+        for (key, &path) in &folded {
+            if let Some(prior) = prior {
+                validate_path_collision(prior, path)?;
+            }
+            for (end, _) in key.match_indices('/') {
+                if let Some(parent) = folded.get(&key[..end]) {
+                    validate_path_collision(parent, path)?;
+                }
+            }
+            prior = Some(path);
+        }
+        Ok(Self {
+            entries: entries
+                .into_iter()
+                .map(|(path, entry)| (path, Arc::new(entry)))
+                .collect(),
+        })
+    }
     pub fn entries(&self) -> &BTreeMap<String, Arc<ProjectEntry>> {
         &self.entries
     }
@@ -52,6 +80,14 @@ impl ProjectTree {
         self.entries.get(path)
     }
     pub fn insert(&mut self, path: &str, entry: ProjectEntry) -> Result<(), String> {
+        Self::validate_entry(path, &entry)?;
+        for existing in self.entries.keys() {
+            validate_path_collision(existing, path)?;
+        }
+        self.entries.insert(path.to_owned(), Arc::new(entry));
+        Ok(())
+    }
+    fn validate_entry(path: &str, entry: &ProjectEntry) -> Result<(), String> {
         validate_project_path(path)?;
         for origin in &entry.origins {
             if origin.output.0 > origin.output.1
@@ -62,10 +98,6 @@ impl ProjectTree {
                 return Err(format!("invalid byte provenance range for {path}"));
             }
         }
-        for existing in self.entries.keys() {
-            validate_path_collision(existing, path)?;
-        }
-        self.entries.insert(path.to_owned(), Arc::new(entry));
         Ok(())
     }
     pub fn remove(&mut self, path: &str) -> Result<Arc<ProjectEntry>, String> {

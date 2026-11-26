@@ -24,16 +24,7 @@ use hick_lang::{EntryKind, ProjectEntry, ProjectInventory, ProjectTree};
 use std::{io::Read, path::Path, process::Command};
 
 pub fn directory(root: &Path, inventory: Option<&ProjectInventory>) -> Result<ProjectTree> {
-    let mut tree = ProjectTree::default();
-    read_directory(
-        root,
-        root,
-        inventory,
-        &mut tree,
-        &mut (u64::MAX, usize::MAX),
-        false,
-    )?;
-    Ok(tree)
+    bounded(root, inventory, u64::MAX, usize::MAX, false)
 }
 
 /// Agent captures must refuse an oversized boundary before allocating its contents.
@@ -43,7 +34,7 @@ pub fn directory_bounded(
     bytes: u64,
     entries: usize,
 ) -> Result<ProjectTree> {
-    bounded(root, inventory, bytes, entries, false)
+    bounded(root, Some(inventory), bytes, entries, false)
 }
 
 pub(crate) fn directory_workspace_bounded(
@@ -52,26 +43,26 @@ pub(crate) fn directory_workspace_bounded(
     bytes: u64,
     entries: usize,
 ) -> Result<ProjectTree> {
-    bounded(root, inventory, bytes, entries, true)
+    bounded(root, Some(inventory), bytes, entries, true)
 }
 
 fn bounded(
     root: &Path,
-    inventory: &ProjectInventory,
+    inventory: Option<&ProjectInventory>,
     bytes: u64,
     entries: usize,
     workspace_capture: bool,
 ) -> Result<ProjectTree> {
-    let mut tree = ProjectTree::default();
+    let mut captured = Vec::new();
     read_directory(
         root,
         root,
-        Some(inventory),
-        &mut tree,
+        inventory,
+        &mut captured,
         &mut (bytes, entries),
         workspace_capture,
     )?;
-    Ok(tree)
+    ProjectTree::from_inventory(captured).map_err(anyhow::Error::msg)
 }
 
 /// Nested document journals and caches are app-owned, not source writes.
@@ -81,6 +72,11 @@ pub(crate) fn is_capture_metadata(path: &str) -> bool {
 </storycode:copy>
 <a id="f-fb969c2bf635-read_directory"></a>
 ### `read_directory`
+
+Keep entry and byte budgets authoritative while walking. Collect the accepted
+files and symlink payloads for one complete inventory check before returning
+a project tree. A repeated logical path or portable path clash invalidates
+the whole observation.
 
 The unbounded revision adapter remains available for explicit project verification.
 Agent snapshots use a byte and entry budget instead: check metadata before reading,
@@ -93,7 +89,7 @@ fn read_directory(
     root: &Path,
     dir: &Path,
     inventory: Option<&ProjectInventory>,
-    tree: &mut ProjectTree,
+    captured: &mut Vec<(String, ProjectEntry)>,
     remaining: &mut (u64, usize),
     workspace_capture: bool,
 ) -> Result<()> {
@@ -130,7 +126,7 @@ fn read_directory(
             if inventory.is_some_and(|i| !i.contains(&format!("{path}/"))) {
                 continue;
             }
-            read_directory(root, &full, inventory, tree, remaining, workspace_capture)?;
+            read_directory(root, &full, inventory, captured, remaining, workspace_capture)?;
         } else {
             if inventory.is_some_and(|i| !i.contains(&path)) {
                 continue;
@@ -172,16 +168,15 @@ fn read_directory(
             };
             #[cfg(not(unix))]
             let executable = false;
-            tree.insert(
-                &path,
+            captured.push((
+                path,
                 ProjectEntry {
                     bytes: bytes.into(),
                     kind,
                     executable,
                     origins: vec![],
                 },
-            )
-            .map_err(anyhow::Error::msg)?;
+            ));
         }
     }
     Ok(())

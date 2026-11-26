@@ -189,6 +189,25 @@ fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
     assert!(nested.insert("src", second.clone()).is_err());
     nested.insert("src/main.rs.bak", second.clone()).unwrap();
     nested.insert("src-old/main.rs", second).unwrap();
+    let snapshot = nested
+        .entries()
+        .iter()
+        .rev()
+        .map(|(path, entry)| (path.clone(), entry.as_ref().clone()))
+        .collect();
+    assert_eq!(ProjectTree::from_inventory(snapshot).unwrap(), nested);
+    for invalid in [
+        vec!["src", "src-old", "src/main.rs"],
+        vec!["src/main.rs", "src-old", "src"],
+        vec!["src/main.rs", "Src/other.rs"],
+        vec!["src/main.rs", "src/main.rs"],
+    ] {
+        let entries = invalid
+            .into_iter()
+            .map(|path| (path.into(), ProjectEntry::file(Vec::new())))
+            .collect();
+        assert!(ProjectTree::from_inventory(entries).is_err());
+    }
 }
 // Guarantee: docs/guarantees/literate-projects/comparison-permissions-and-evidence-are-independent.md
 #[test]

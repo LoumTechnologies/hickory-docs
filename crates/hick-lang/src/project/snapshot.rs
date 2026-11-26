@@ -37,18 +37,21 @@ impl ProjectSnapshot {
         }
     }
     pub fn restore(&self) -> Result<ProjectTree, String> {
-        let mut tree = ProjectTree::default();
-        for (path, e) in &self.entries {
-            tree.insert(
-                path,
-                ProjectEntry {
-                    bytes: e.bytes.clone().into(),
-                    kind: e.kind,
-                    executable: e.executable,
-                    origins: e.origins.clone(),
-                },
-            )?;
-        }
-        Ok(tree)
+        ProjectTree::from_inventory(
+            self.entries
+                .iter()
+                .map(|(path, entry)| {
+                    (
+                        path.clone(),
+                        ProjectEntry {
+                            bytes: entry.bytes.clone().into(),
+                            kind: entry.kind,
+                            executable: entry.executable,
+                            origins: entry.origins.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 }

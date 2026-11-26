@@ -66,10 +66,45 @@ The tutorial builds this part in [the construction step](../../../../../01-langu
 <a id="f-a485394d6759-impl-ProjectTree"></a>
 ### `impl-ProjectTree`
 
+An inventory arrives as a complete set. Index it by folded paths so entries
+under the same directory sit together. Adjacent entries expose disagreements
+about the directory's spelling. Look up each parent explicitly, since a
+distinct name can sort between a file and a path beneath it. Reject duplicate
+physical entries before publishing the tree. Incremental edits still check
+their destination against the current tree.
+
 Validate the portable path, origin range lengths and directory collisions before inserting an entry. Comparison reports missing, extra and changed entries in sorted path order; an unchanged candidate must have none of those differences.
 
 <storycode:copy id="f-a485394d6759-impl-ProjectTree">
 impl ProjectTree {
+    pub fn from_inventory(entries: Vec<(String, ProjectEntry)>) -> Result<Self, String> {
+        let mut folded = BTreeMap::new();
+        for (path, entry) in &entries {
+            Self::validate_entry(path, entry)?;
+            if let Some(existing) = folded.insert(path.to_ascii_lowercase(), path.as_str()) {
+                validate_path_collision(existing, path)?;
+                return Err(format!("duplicate project path: {path}"));
+            }
+        }
+        let mut prior = None;
+        for (key, &path) in &folded {
+            if let Some(prior) = prior {
+                validate_path_collision(prior, path)?;
+            }
+            for (end, _) in key.match_indices('/') {
+                if let Some(parent) = folded.get(&key[..end]) {
+                    validate_path_collision(parent, path)?;
+                }
+            }
+            prior = Some(path);
+        }
+        Ok(Self {
+            entries: entries
+                .into_iter()
+                .map(|(path, entry)| (path, Arc::new(entry)))
+                .collect(),
+        })
+    }
     pub fn entries(&self) -> &BTreeMap<String, Arc<ProjectEntry>> {
         &self.entries
     }
@@ -77,6 +112,14 @@ impl ProjectTree {
         self.entries.get(path)
     }
     pub fn insert(&mut self, path: &str, entry: ProjectEntry) -> Result<(), String> {
+        Self::validate_entry(path, &entry)?;
+        for existing in self.entries.keys() {
+            validate_path_collision(existing, path)?;
+        }
+        self.entries.insert(path.to_owned(), Arc::new(entry));
+        Ok(())
+    }
+    fn validate_entry(path: &str, entry: &ProjectEntry) -> Result<(), String> {
         validate_project_path(path)?;
         for origin in &entry.origins {
             if origin.output.0 > origin.output.1
@@ -87,10 +130,6 @@ impl ProjectTree {
                 return Err(format!("invalid byte provenance range for {path}"));
             }
         }
-        for existing in self.entries.keys() {
-            validate_path_collision(existing, path)?;
-        }
-        self.entries.insert(path.to_owned(), Arc::new(entry));
         Ok(())
     }
     pub fn remove(&mut self, path: &str) -> Result<Arc<ProjectEntry>, String> {

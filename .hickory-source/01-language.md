@@ -97,6 +97,8 @@ add an unexpected path and clear the executable bit. The assertion must name all
 three differences. Invalid portable paths and case collisions must also refuse.
 Use shared directory components to check casing conflicts even when the
 filenames differ. A sibling whose name merely starts the same is valid.
+At the inventory boundary, a distinct sibling can sort between a file and
+its descendant. Both orders of discovery must reject that collision.
 
 <a id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths"></a>
 <book:copy id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths">
@@ -142,6 +144,25 @@ fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
     assert!(nested.insert("src", second.clone()).is_err());
     nested.insert("src/main.rs.bak", second.clone()).unwrap();
     nested.insert("src-old/main.rs", second).unwrap();
+    let snapshot = nested
+        .entries()
+        .iter()
+        .rev()
+        .map(|(path, entry)| (path.clone(), entry.as_ref().clone()))
+        .collect();
+    assert_eq!(ProjectTree::from_inventory(snapshot).unwrap(), nested);
+    for invalid in [
+        vec!["src", "src-old", "src/main.rs"],
+        vec!["src/main.rs", "src-old", "src"],
+        vec!["src/main.rs", "Src/other.rs"],
+        vec!["src/main.rs", "src/main.rs"],
+    ] {
+        let entries = invalid
+            .into_iter()
+            .map(|path| (path.into(), ProjectEntry::file(Vec::new())))
+            .collect();
+        assert!(ProjectTree::from_inventory(entries).is_err());
+    }
 }
 </book:copy>
 

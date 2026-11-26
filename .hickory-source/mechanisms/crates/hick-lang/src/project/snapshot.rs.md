@@ -41,6 +41,10 @@ struct SnapshotEntry {
 <a id="f-0c552f23bf83-impl-ProjectSnapshot"></a>
 ### `impl-ProjectSnapshot`
 
+Restore through the same complete-inventory check as a disk capture. Byte
+ownership, portable paths and metadata must all be valid before the restored
+tree can support a recorded changeset.
+
 <storycode:copy id="f-0c552f23bf83-impl-ProjectSnapshot">
 impl ProjectSnapshot {
     pub fn capture(tree: &ProjectTree) -> Self {
@@ -63,19 +67,22 @@ impl ProjectSnapshot {
         }
     }
     pub fn restore(&self) -> Result<ProjectTree, String> {
-        let mut tree = ProjectTree::default();
-        for (path, e) in &self.entries {
-            tree.insert(
-                path,
-                ProjectEntry {
-                    bytes: e.bytes.clone().into(),
-                    kind: e.kind,
-                    executable: e.executable,
-                    origins: e.origins.clone(),
-                },
-            )?;
-        }
-        Ok(tree)
+        ProjectTree::from_inventory(
+            self.entries
+                .iter()
+                .map(|(path, entry)| {
+                    (
+                        path.clone(),
+                        ProjectEntry {
+                            bytes: entry.bytes.clone().into(),
+                            kind: entry.kind,
+                            executable: entry.executable,
+                            origins: entry.origins.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 }
 </storycode:copy>
