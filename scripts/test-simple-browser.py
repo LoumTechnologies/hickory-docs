@@ -942,7 +942,8 @@ def acceptance(driver, folder):
     driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
 
 def agent_acceptance(driver, folder):
-    # Real retained session + real HTTP refusal: no live provider is invoked.
+    # Hydrate a Python conversation before continuing through the real send route.
+    # The unavailable model keeps this check independent of provider access.
     text = "# Explain this\n\n```python\nprint('café 😀')\n```"
     driver.act("open", path="source.md")
     state = driver.act("agent-documents", text=text)
@@ -1331,6 +1332,7 @@ if __name__ == "__main__":
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
 <hick:user id="u1" turn="agent-history" provider="codex-subscription" model="test"># Previous question</hick:user>
+<hick:context kind="python-runtime">{"backend":"python","turn":"agent-history","context":null,"prior_turns":[]}</hick:context>
 <hick:assistant># Previous answer</hick:assistant>
 <hick:context kind="acp-turn-status">{"turn":"agent-history","status":"ok"}</hick:context>
 </hick:session>
