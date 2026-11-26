@@ -70,6 +70,7 @@ external HTTP links through the system browser. The new-window address launches
 the native workspace chooser in a separate process, so the chooser can outlive
 the original workspace. A close request passes through the editor's before-unload guard. Keep the native window free of toolbars so the
 shared editor can use its usual file tree, menus and anchored controls.
+Set the native caption when constructing the window so it is visible during loading.
 
 <ui:copy id="linux-simple-workspace-window">
 #include <KAboutData>
@@ -154,7 +155,7 @@ public:
         : profile(profile), workspace(workspace)
     {
         setAttribute(Qt::WA_DeleteOnClose);
-        setWindowTitle(tr("Hickory Simple"));
+        setWindowTitle(tr("Hickory Docs"));
         setWindowIcon(QIcon::fromTheme(QStringLiteral("accessories-text-editor")));
         resize(1120, 760);
 

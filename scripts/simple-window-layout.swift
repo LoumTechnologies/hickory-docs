@@ -15,6 +15,21 @@ func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
 }
+func isComparisonEditorURL(_ url: URL) -> Bool {
+    url.scheme == "http" && url.host == "127.0.0.1" && url.path == "/simple.html"
+}
+func showsComparisonEditor(_ element: AXUIElement) -> Bool {
+    if let document = attribute(element, kAXDocumentAttribute) as? String,
+       let url = URL(string: document), isComparisonEditorURL(url) {
+        return true
+    }
+    if attribute(element, kAXRoleAttribute) as? String == "AXWebArea" {
+        guard let url = attribute(element, kAXURLAttribute) as? URL else { return false }
+        return isComparisonEditorURL(url)
+    }
+    let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
+    return children.contains(where: showsComparisonEditor)
+}
 func matchingWindows(_ kind: String) -> [AXUIElement] {
     var result: [AXUIElement] = []
     for app in NSWorkspace.shared.runningApplications {
@@ -32,7 +47,7 @@ func matchingWindows(_ kind: String) -> [AXUIElement] {
         AXUIElementSetMessagingTimeout(application, 1)
         for window in attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? [] {
             let title = attribute(window, kAXTitleAttribute) as? String ?? ""
-            if kind == "browser" && !title.contains("Hickory Simple") { continue }
+            if kind == "browser" && !(title.contains("Hickory Docs") && showsComparisonEditor(window)) { continue }
             if kind == "iOS" && !(title.contains("iPhone") || title.contains("iPad")) { continue }
             if kind == "Android" && (title.isEmpty || title.contains("Extended Controls")) { continue }
             result.append(window)
@@ -53,6 +68,9 @@ func position(_ window: AXUIElement, in rectangle: CGRect, kind: String) {
 }
 
 if CommandLine.arguments.contains("--self-test") {
+    precondition(isComparisonEditorURL(URL(string: "http://127.0.0.1:4321/simple.html?path=project.md")!))
+    precondition(!isComparisonEditorURL(URL(string: "http://127.0.0.1:4321/")!))
+    precondition(!isComparisonEditorURL(URL(string: "https://example.com/simple.html")!))
     let frames = grid(CGRect(x: 100, y: 20, width: 1024, height: 768), desktopTop: 900)
     precondition(frames.count == 4)
     precondition(frames[0].origin == CGPoint(x: 108, y: 120))
@@ -60,7 +78,7 @@ if CommandLine.arguments.contains("--self-test") {
     precondition(frames[3].maxX <= 1124 && frames[3].maxY <= 880)
     let shifted = grid(CGRect(x: -1400, y: -100, width: 1400, height: 900), desktopTop: 900)
     precondition(shifted[0].minX == -1392 && shifted[0].minY == 108)
-    print("Window layout geometry passed, including shifted displays and top-left conversion.")
+    print("Window layout geometry and comparison URL checks passed.")
     exit(0)
 }
 guard let hostText = CommandLine.arguments.dropFirst().first, let host = Int32(hostText), host > 1 else {

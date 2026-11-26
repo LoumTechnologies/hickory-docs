@@ -80,7 +80,7 @@ public:
         : profile(profile), workspace(workspace)
     {
         setAttribute(Qt::WA_DeleteOnClose);
-        setWindowTitle(tr("Hickory Simple"));
+        setWindowTitle(tr("Hickory Docs"));
         setWindowIcon(QIcon::fromTheme(QStringLiteral("accessories-text-editor")));
         resize(1120, 760);
 

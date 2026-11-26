@@ -7,6 +7,8 @@ retain their original limits; they do not narrow the required outcomes below.
 
 ## IDE parity required by the maintainer
 
+Simple workspace windows and browser tabs use the title **Hickory Docs**.
+
 A launch without a selected workspace offers a welcome screen. On a desktop
 with a bundled host, **Open Folder…** starts a local workspace for the selected
 folder. **Connect to a Workspace Server…** reveals the address field on every

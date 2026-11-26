@@ -426,6 +426,7 @@ internal sealed class WorkspaceApplication : ApplicationContext
 <ui:file path="apps/windows-simple/WorkspaceApplication.cs"><ui:paste select="#windows-window-lifetime"/></ui:file>
 
 The form fills its client area with the shared editor. Keep workspace navigation inside its loopback page, send explicitly opened external HTTP links to the default browser, and admit clipboard reads through a native prompt. Before closing, ask the editor to evaluate its usual unsaved-changes guard, then use a WinForms confirmation when required.
+Set the native caption before WebView2 begins loading the workspace.
 
 <ui:copy id="windows-editor-surface">
 using System.Diagnostics;
@@ -445,7 +446,7 @@ internal sealed class WorkspaceWindow : Form
 
     public WorkspaceWindow()
     {
-        Text = "Hickory Simple";
+        Text = "Hickory Docs";
         ClientSize = new Size(1120, 760);
         Controls.Add(status);
         Controls.Add(Editor);

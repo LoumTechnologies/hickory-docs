@@ -15,7 +15,7 @@ internal sealed class WorkspaceWindow : Form
 
     public WorkspaceWindow()
     {
-        Text = "Hickory Simple";
+        Text = "Hickory Docs";
         ClientSize = new Size(1120, 760);
         Controls.Add(status);
         Controls.Add(Editor);

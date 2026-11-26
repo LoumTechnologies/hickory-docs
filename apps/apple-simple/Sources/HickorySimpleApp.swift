@@ -17,7 +17,7 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     #endif
     var body: some Scene {
         #if os(macOS)
-        WindowGroup("Hickory Simple", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
+        WindowGroup("Hickory Docs", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
             SimpleWindowRoot(launch: launch).frame(minWidth: 480, minHeight: 320)
                 .onAppear {
                     // A regular startup may originate from the command line.
@@ -47,7 +47,7 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
             }
         }
         #else
-        WindowGroup(id: "workspace", for: SimpleWindowLaunch.self) { $launch in
+        WindowGroup("Hickory Docs", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
             SimpleWindowRoot(launch: launch)
         }
         #endif
