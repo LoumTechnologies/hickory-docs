@@ -370,6 +370,20 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     private fun findFileNode(path: String, tree: List<FileNode>): FileNode? =
         tree.firstNotNullOfOrNull { if (it.path == path) it else findFileNode(path, it.children) }
 
+    fun workspaceFolder(path: String): List<FileNode>? =
+        if (path.isEmpty()) rootFiles else findFileNode(path, rootFiles)?.takeIf { it.dir }?.children
+
+    fun openWorkspaceFolder(path: String) {
+        if (engine == null || windowConnectionLost) return
+        val folder = workspaceFolder(path) ?: run {
+            status = "This folder is no longer listed. Choose another folder."
+            return
+        }
+        directoryScope = path
+        files = folder
+        show("files")
+    }
+
     private fun scopedFiles(tree:List<FileNode>):List<FileNode>{
         if(directoryScope.isEmpty())return tree
         return findFileNode(directoryScope, tree)?.takeIf { it.dir }?.children ?: emptyList()
@@ -953,9 +967,6 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val command = fileCommand ?: return
         val server = engine ?: run { status = "Connect to a workspace server first."; return }
         val path = filePath; val source = currentBuffer; val sourceTab=active;fileCommand = null
-        fun find(nodes: List<FileNode>): FileNode? {
-            for (node in nodes) { if (node.path == path) return node; find(node.children)?.let { return it } }; return null
-        }
         if (command == "Save As") {
             if (source == null || source.saving || path.isEmpty()) return
             if (path == source.file.path) {
@@ -972,11 +983,10 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { status = "${failure.message} Original edits are retained. Inspect the destination and Local history before another Save As; an uncertain request is not automatically retried." }
             finally { source.saving = false }
-        } else if (command == "Open Directory" && path.isEmpty()) { directoryScope="";refresh(); show("files") }
-        else {
-            val file = find(files)
-            if (file == null || file.dir != (command == "Open Directory")) { status = "Path not found. Refresh and choose a path in this workspace."; return }
-            if (file.dir) { directoryScope=file.path;files = file.children; show("files") } else open(file)
+        } else {
+            val file = findFileNode(path, files)?.takeUnless { it.dir }
+            if (file == null) { status = "Path not found. Refresh and choose a path in this workspace."; return }
+            open(file)
         }
     }
     suspend fun saveAll() {

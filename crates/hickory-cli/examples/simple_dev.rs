@@ -600,7 +600,10 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
     println!("Opening {}", bundle.display());
     // Execute the bundled binary directly so Session owns the native app's lifetime.
     let mut app = Command::new(&executable);
+    // The Swift editor needs only the API. Let a new window launch an
+    // independent local workspace even when this preview has no web bundle.
     app.env("HICKORY_API_ORIGIN", api)
+        .env("HICKORY_SIMPLE_WORKSPACE_HOST", std::env::current_exe()?)
         .env("HICKORY_SIMPLE_HOST_PID", std::process::id().to_string());
     if let Some(file) = file {
         app.env("HICKORY_OPEN_FILE", file);

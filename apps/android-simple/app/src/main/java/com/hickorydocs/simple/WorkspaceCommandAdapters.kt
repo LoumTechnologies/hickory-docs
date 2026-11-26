@@ -1,7 +1,7 @@
 package com.hickorydocs.simple
 fun Workspace.commands(descriptors:List<CommandDescriptor>,ui:Map<String,()->Unit> = emptyMap()):List<WorkspaceCommand> {
     val handlers=mutableMapOf<String,()->Unit>(
-        "file.open" to {chooseFileCommand("Open File")},"file.directory" to {chooseFileCommand("Open Directory")},"file.new" to {newTab()},
+        "file.open" to {chooseFileCommand("Open File")},"file.new" to {newTab()},
         "file.save" to {runCommand {save()}},"file.saveAs" to {chooseFileCommand("Save As")},"file.saveAll" to {runCommand {saveAll()}},"file.refresh" to {runCommand {refresh()}},"file.close" to {active?.let {close(it)};Unit},
         "shell.search" to {showEverywhere=true},"edit.find" to {currentBuffer?.showFind=true;Unit},"workspace.find" to {showWorkspaceSearch=true},
         "source.history" to {runCommand{sourceHistory.open(this)}},

@@ -2,7 +2,7 @@ import Foundation
 extension Workspace {
     func commands(ui:[String:()->Void]=[:])->[WorkspaceCommand] {
         var handlers:[String:()->Void]=[
-            "file.open":{self.chooseFileCommand("Open File")},"file.directory":{self.chooseFileCommand("Open Directory")},"file.new":{self.newTab()},
+            "file.open":{self.chooseFileCommand("Open File")},"file.new":{self.newTab()},
             "file.save":{Task {await self.save()}},"file.saveAs":{self.chooseFileCommand("Save As")},"file.saveAll":{Task {await self.saveAll()}},"file.refresh":{Task {await self.refresh()}},"file.close":{if let tab=self.activeTab {self.close(tab)}},
             "shell.search":{self.showEverywhere=true},"edit.find":{self.currentBuffer?.showFind=true},"workspace.find":{self.showWorkspaceSearch=true},
             "agent.proposals":{Task{await self.agentProposals.open(self)}},

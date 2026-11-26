@@ -10,9 +10,11 @@ retain their original limits; they do not narrow the required outcomes below.
 Simple workspace windows and browser tabs use the title **Hickory Docs**.
 
 A launch without a selected workspace offers a welcome screen. On a desktop
-with a bundled host, **Open Folder…** starts a local workspace for the selected
-folder. **Connect to a Workspace Server…** reveals the address field on every
-frontend. iOS, Android and the browser use an existing host. The browser,
+with a bundled host, **Open Directory…** opens the platform folder picker and
+starts a local workspace for the selected directory. In the browser and on
+mobile, **Open Workspace** opens the known host when one is available.
+**Connect to a Workspace Server…** reveals an address field for choosing a
+server. iOS, Android and the browser use an existing host. The browser,
 KDE and WinForms use the editor served at that host's origin. File and
 preconfigured workspace launches go directly to the requested workspace.
 A readable startup preview stays available while workspace authority loads.
@@ -3028,7 +3030,10 @@ Opening text does not wait for rendering, provenance, debugging or language serv
 
 A plain save includes its original content hash. A literate save includes its original source as both room and disk expectation. Failed saves retain edits. A successful reply marks only the submitted snapshot saved; typing during that request remains dirty. Save and agent mutations are never automatically replayed by these frontends after transport failure.
 
-The File menu exposes Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. Paths refer to the connected workspace; an empty directory path restores its root. New Tab uses Ctrl+N / Cmd+N in the browser and desktop simple UIs and retains unnamed text until Save As gives it an unused path. Save As refuses existing destinations and keeps the original edits on failure. Save All saves named writable documents and requests a destination for unnamed drafts. Refresh observes files without replacing open buffers. New Window shows the disconnected Welcome screen with workspace choices. It has no open folder, file tree, documents or agent history. A Simple UI window must claim the workspace before opening it. A second window that tries to open the same workspace stays disconnected and explains where to continue. Closing the connected window releases the workspace for another window.
+The File menu exposes Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. Open File paths refer to the connected workspace. Open Directory uses the
+native folder picker on bundled desktops. Browser and mobile clients browse the
+connected server's folder tree and can select the workspace root or a subfolder.
+Canceling leaves the displayed folder and editor buffers in place. New Tab uses Ctrl+N / Cmd+N in the browser and desktop simple UIs and retains unnamed text until Save As gives it an unused path. Save As refuses existing destinations and keeps the original edits on failure. Save All saves named writable documents and requests a destination for unnamed drafts. Refresh observes files without replacing open buffers. New Window shows the disconnected Welcome screen with workspace choices. It has no open folder, file tree, documents or agent history. A Simple UI window must claim the workspace before opening it. A second window that tries to open the same workspace stays disconnected and explains where to continue. Closing the connected window releases the workspace for another window.
 
 Tab detects indentation from nonblank leading whitespace in an initial sample (up to 200 lines and 16,384 characters): predominant tabs remain literal tabs; spaces use the common indentation width, falling back to four spaces when there is no usable evidence. At a partial space indent, Tab advances to the next stop. No parser or language server is required. Right-gutter actions have recognizable pictograms and accessible names. A draggable right divider adds icon columns. Actions wrap into available rows until the next populated action row; they never displace that row. If those slots run out, reserve one for ⋯. It opens a compact floating grid containing only the excess icons. An icon may open its own detail panel; those details are never the overflow contents.
 

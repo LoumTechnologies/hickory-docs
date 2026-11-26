@@ -72,6 +72,10 @@ the original workspace. A close request passes through the editor's before-unloa
 shared editor can use its usual file tree, menus and anchored controls.
 Set the native caption when constructing the window so it is visible during loading.
 
+The shared editor advertises the directory command through a user-initiated popup
+to a single same-origin action. Keep the picker with Qt and pass the chosen
+folder directly to a new local process, preserving the originating workspace.
+
 <ui:copy id="linux-simple-workspace-window">
 #include <KAboutData>
 #include <KMainWindow>
@@ -101,6 +105,8 @@ Set the native caption when constructing the window so it is visible during load
 #include <QWebEnginePage>
 #include <QWebEnginePermission>
 #include <QWebEngineProfile>
+#include <QWebEngineScript>
+#include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 
 #include <memory>
@@ -128,11 +134,22 @@ void openExternalLink(const QUrl &url)
     }
 }
 
+QString pickDirectory(QWidget *owner)
+{
+    return QFileDialog::getExistingDirectory(owner, QObject::tr("Open Directory"));
+}
+
 class WorkspacePage final : public QWebEnginePage {
 public:
     WorkspacePage(QWebEngineProfile &profile, const QUrl &workspace, QObject *parent)
         : QWebEnginePage(&profile, parent), workspace(workspace)
     {
+        QWebEngineScript pickerCapability;
+        pickerCapability.setInjectionPoint(QWebEngineScript::DocumentCreation);
+        pickerCapability.setWorldId(QWebEngineScript::MainWorld);
+        pickerCapability.setSourceCode(QStringLiteral(
+            "Object.defineProperty(window, 'hickoryDesktopFolderPicker', { value: true });"));
+        scripts().insert(pickerCapability);
     }
 
 protected:
@@ -171,7 +188,15 @@ public:
             if (!request.isUserInitiated())
                 return;
             const auto url = request.requestedUrl();
-            if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
+            if (workspacePage(url, this->workspace) && url.query() == QStringLiteral("open-directory") && !url.hasFragment()) {
+                QTimer::singleShot(0, this, [this] {
+                    const auto folder = pickDirectory(this);
+                    if (!folder.isEmpty() && !QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                            {QStringLiteral("--port"), QStringLiteral("0"), QStringLiteral("--"), folder})) {
+                        QMessageBox::warning(this, tr("Could not open directory"), tr("Try File → Open Directory again."));
+                    }
+                });
+            } else if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
                 if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--blank-window")})) {
                     QMessageBox::warning(this, tr("Could not open another window"), tr("Try File → New Window again."));
                 }
@@ -295,11 +320,11 @@ bool chooseWorkspace(QString &folder, QUrl &server, bool allowServer)
     font.setPointSizeF(font.pointSizeF() * 1.5);
     title->setFont(font);
     layout->addWidget(title);
-    auto *openFolder = new QPushButton(QObject::tr("Open Folder…"), &welcome);
+    auto *openFolder = new QPushButton(QObject::tr("Open Directory…"), &welcome);
     openFolder->setDefault(true);
     layout->addWidget(openFolder);
     QObject::connect(openFolder, &QPushButton::clicked, &welcome, [&] {
-        folder = QFileDialog::getExistingDirectory(&welcome, QObject::tr("Open Folder"), QDir::currentPath());
+        folder = pickDirectory(&welcome);
         if (!folder.isEmpty()) welcome.accept();
     });
     if (allowServer) {
@@ -513,6 +538,11 @@ including event and terminal WebSockets. Exact Host and Origin checks protect
 the privileged workspace surface from cross-origin requests and host-name
 rebinding. The native app sends no path from the editor directly to the OS.
 
+A packaged browser-based desktop supplies its compiled editor assets. The
+native macOS development preview needs only the engine API, so it can omit
+assets and launch an independent host for a picked folder. Both modes use the
+same loopback request checks and close the host when its owning pipe closes.
+
 <ui:copy id="linux-simple-host">
 use super::interrupted;
 use anyhow::{Context, Result, ensure};
@@ -547,10 +577,12 @@ async fn local_request(request: Request, next: Next, authority: &str, origin: &s
 }
 
 pub(super) async fn run(args: &[String]) -> Result<()> {
-    let [workspace, assets, port] = args else {
-        anyhow::bail!(
-            "Usage: hickory-simple-host --workspace-host WORKSPACE COMPILED_ASSETS LOOPBACK_PORT"
-        );
+    let (workspace, assets, port) = match args {
+        [workspace, assets, port] => (workspace, Some(assets), port),
+        [workspace, port] => (workspace, None, port),
+        _ => anyhow::bail!(
+            "Usage: hickory-simple-host --workspace-host WORKSPACE [COMPILED_ASSETS] LOOPBACK_PORT"
+        ),
     };
     let root = Path::new(workspace)
         .canonicalize()
@@ -560,14 +592,19 @@ pub(super) async fn run(args: &[String]) -> Result<()> {
         "Choose a workspace folder: {}",
         root.display()
     );
-    let assets = Path::new(assets)
-        .canonicalize()
-        .context("Editor assets are missing. Rebuild or reinstall Hickory Simple.")?;
-    ensure!(
-        assets.join("simple.html").is_file(),
-        "Editor assets are incomplete in {}. Rebuild or reinstall Hickory Simple.",
-        assets.display()
-    );
+    let assets = assets
+        .map(|path| -> Result<_> {
+            let assets = Path::new(path)
+                .canonicalize()
+                .context("Editor assets are missing. Rebuild or reinstall Hickory Simple.")?;
+            ensure!(
+                assets.join("simple.html").is_file(),
+                "Editor assets are incomplete in {}. Rebuild or reinstall Hickory Simple.",
+                assets.display()
+            );
+            Ok(assets)
+        })
+        .transpose()?;
     let port: u16 = port
         .parse()
         .context("Use a loopback port between 0 and 65535.")?;
@@ -605,13 +642,16 @@ pub(super) async fn run(args: &[String]) -> Result<()> {
         result = interrupted() => return result,
     };
     let guard = connection.guard();
-    let router = engine::client_router(connection, None, token, None)
-        .fallback_service(ServeDir::new(assets))
-        .layer(middleware::from_fn(move |request, next| {
-            let authority = authority.clone();
-            let origin = origin.clone();
-            async move { local_request(request, next, &authority, &origin).await }
-        }));
+    let router = engine::client_router(connection, None, token, None);
+    let router = match assets {
+        Some(assets) => router.fallback_service(ServeDir::new(assets)),
+        None => router,
+    };
+    let router = router.layer(middleware::from_fn(move |request, next| {
+        let authority = authority.clone();
+        let origin = origin.clone();
+        async move { local_request(request, next, &authority, &origin).await }
+    }));
     let result = async {
         println!("HICKORY_SIMPLE_PORT {}", address.port());
         std::io::stdout().flush()?;

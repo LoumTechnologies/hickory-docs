@@ -26,6 +26,8 @@
 #include <QWebEnginePage>
 #include <QWebEnginePermission>
 #include <QWebEngineProfile>
+#include <QWebEngineScript>
+#include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 
 #include <memory>
@@ -53,11 +55,22 @@ void openExternalLink(const QUrl &url)
     }
 }
 
+QString pickDirectory(QWidget *owner)
+{
+    return QFileDialog::getExistingDirectory(owner, QObject::tr("Open Directory"));
+}
+
 class WorkspacePage final : public QWebEnginePage {
 public:
     WorkspacePage(QWebEngineProfile &profile, const QUrl &workspace, QObject *parent)
         : QWebEnginePage(&profile, parent), workspace(workspace)
     {
+        QWebEngineScript pickerCapability;
+        pickerCapability.setInjectionPoint(QWebEngineScript::DocumentCreation);
+        pickerCapability.setWorldId(QWebEngineScript::MainWorld);
+        pickerCapability.setSourceCode(QStringLiteral(
+            "Object.defineProperty(window, 'hickoryDesktopFolderPicker', { value: true });"));
+        scripts().insert(pickerCapability);
     }
 
 protected:
@@ -96,7 +109,15 @@ public:
             if (!request.isUserInitiated())
                 return;
             const auto url = request.requestedUrl();
-            if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
+            if (workspacePage(url, this->workspace) && url.query() == QStringLiteral("open-directory") && !url.hasFragment()) {
+                QTimer::singleShot(0, this, [this] {
+                    const auto folder = pickDirectory(this);
+                    if (!folder.isEmpty() && !QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                            {QStringLiteral("--port"), QStringLiteral("0"), QStringLiteral("--"), folder})) {
+                        QMessageBox::warning(this, tr("Could not open directory"), tr("Try File → Open Directory again."));
+                    }
+                });
+            } else if (workspacePage(url, this->workspace) && QUrlQuery(url).hasQueryItem(QStringLiteral("blank-window"))) {
                 if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--blank-window")})) {
                     QMessageBox::warning(this, tr("Could not open another window"), tr("Try File → New Window again."));
                 }
@@ -202,11 +223,11 @@ bool chooseWorkspace(QString &folder, QUrl &server, bool allowServer)
     font.setPointSizeF(font.pointSizeF() * 1.5);
     title->setFont(font);
     layout->addWidget(title);
-    auto *openFolder = new QPushButton(QObject::tr("Open Folder…"), &welcome);
+    auto *openFolder = new QPushButton(QObject::tr("Open Directory…"), &welcome);
     openFolder->setDefault(true);
     layout->addWidget(openFolder);
     QObject::connect(openFolder, &QPushButton::clicked, &welcome, [&] {
-        folder = QFileDialog::getExistingDirectory(&welcome, QObject::tr("Open Folder"), QDir::currentPath());
+        folder = pickDirectory(&welcome);
         if (!folder.isEmpty()) welcome.accept();
     });
     if (allowServer) {

@@ -33,6 +33,9 @@ The welcome dialog keeps the address prerequisite on the Connect button. A
 disabled WinForms button cannot handle its own mouse movement, so the button
 row anchors the explanatory tooltip to the same bounds.
 
+The welcome button and the editor's directory command share the WinForms folder
+picker. A canceled picker yields no launch target.
+
 <ui:copy id="windows-workspace-target">
 namespace HickorySimple;
 
@@ -119,7 +122,7 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
 
     private static (string? Folder, Uri? Server) ShowWelcome(bool allowServer)
     {
-        var folder = new TaskDialogButton("Open Folder…");
+        var folder = new TaskDialogButton("Open Directory…");
         var server = new TaskDialogButton("Connect to a Workspace Server…");
         var page = new TaskDialogPage
         {
@@ -136,8 +139,8 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
             var choice = TaskDialog.ShowDialog(page);
             if (choice == folder)
             {
-                using var picker = new FolderBrowserDialog { Description = "Open Folder" };
-                if (picker.ShowDialog() == DialogResult.OK) return (picker.SelectedPath, null);
+                var path = PickFolder();
+                if (path is not null) return (path, null);
             }
             else if (choice == server)
             {
@@ -146,6 +149,12 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
             }
             else return (null, null);
         }
+    }
+
+    internal static string? PickFolder(IWin32Window? owner = null)
+    {
+        using var picker = new FolderBrowserDialog { Description = "Open Directory" };
+        return picker.ShowDialog(owner) == DialogResult.OK ? picker.SelectedPath : null;
     }
 
     private static Uri? PromptForServer()
@@ -428,6 +437,11 @@ internal sealed class WorkspaceApplication : ApplicationContext
 The form fills its client area with the shared editor. Keep workspace navigation inside its loopback page, send explicitly opened external HTTP links to the default browser, and admit clipboard reads through a native prompt. Before closing, ask the editor to evaluate its usual unsaved-changes guard, then use a WinForms confirmation when required.
 Set the native caption before WebView2 begins loading the workspace.
 
+A user-initiated popup to the exact workspace action invokes the native picker.
+Start the selected directory in a separate local host so the originating window
+retains its documents. The renderer receives neither the chosen path nor a
+general-purpose host interface.
+
 <ui:copy id="windows-editor-surface">
 using System.Diagnostics;
 using Microsoft.Web.WebView2.Core;
@@ -464,6 +478,9 @@ internal sealed class WorkspaceWindow : Form
         core.Settings.IsWebMessageEnabled = false;
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreDefaultScriptDialogsEnabled = true;
+        await core.AddScriptToExecuteOnDocumentCreatedAsync(
+            "Object.defineProperty(window, 'hickoryDesktopFolderPicker', { value: true });");
+        if (IsDisposed) return;
         core.NavigationStarting += (_, request) =>
         {
             if (IsWorkspacePage(request.Uri, workspace)) return;
@@ -481,6 +498,11 @@ internal sealed class WorkspaceWindow : Form
             }
 
             var address = new Uri(request.Uri);
+            if (address.Query == "?open-directory" && address.Fragment.Length == 0)
+            {
+                BeginInvoke(OpenLocalDirectory);
+                return;
+            }
             if (address.Query == "?blank-window")
             {
                 try
@@ -532,6 +554,24 @@ internal sealed class WorkspaceWindow : Form
                 CoreWebView2ProcessFailedKind.RenderProcessExited)
                 Fail("The editor renderer stopped. Reopen Hickory and use Editor sessions to recover a draft.");
         };
+    }
+
+    private void OpenLocalDirectory()
+    {
+        try
+        {
+            var folder = WorkspaceLaunch.PickFolder(this);
+            if (folder is null) return;
+            var start = new ProcessStartInfo(Application.ExecutablePath);
+            start.ArgumentList.Add("--port");
+            start.ArgumentList.Add("0");
+            start.ArgumentList.Add(folder);
+            Process.Start(start);
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Could not open directory", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private static bool SameOrigin(string candidate, Uri workspace) =>

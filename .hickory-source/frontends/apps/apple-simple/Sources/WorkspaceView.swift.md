@@ -131,6 +131,12 @@ New Window starts at the same workspace chooser as a blank app launch. On an
 iOS device with one system window, present the chooser in a full-screen window
 with its own guarded Close Window command.
 
+Welcome and File share the directory action on macOS. With a bundled host,
+the native open panel chooses a local workspace and the existing session guard
+protects open drafts. A server-only client browses folders from the connected
+tree in a SwiftUI sheet. Browsing changes the candidate folder until Open is
+pressed. Recheck the listed folder and connection before applying the choice.
+
 <ui:copy id="simple-80f4e5a1a0-0">
 import SwiftUI
 import UniformTypeIdentifiers
@@ -152,9 +158,13 @@ struct WorkspaceView: View {
     @State private var connection = false
     @State private var connectionError = ""
     @State private var startupResolved = false
+    @State private var directoryPicker: String?
+    @State private var directoryPickerEpoch: UUID?
+    @State private var suggestedServer: String?
     #if os(macOS)
     @State private var localHost: LocalWorkspaceHost?
     @State private var openingLocalWorkspace = false
+    @State private var choosingLocalWorkspace = false
     #endif
     #if os(iOS)
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
@@ -162,15 +172,19 @@ struct WorkspaceView: View {
     @State private var selectionEdit: MobileSelectionEdit?
     @State private var selectionReplacement = ""
     #endif
-    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":newWindow,"file.connect":showServerConnection])}
+    private var menuCommands:[WorkspaceCommand] {
+        workspace.commands(ui: ["file.window": newWindow, "file.connect": showServerConnection, "file.directory": openDirectory])
+    }
 
     private func newWindow() {
-        let destination = SimpleWindowLaunch()
         #if os(iOS)
+        let destination = SimpleWindowLaunch(suggestedServer: workspace.engine?.origin.absoluteString ?? suggestedServer)
         if !supportsMultipleWindows {
             presentedWindow = destination
             return
         }
+        #else
+        let destination = SimpleWindowLaunch()
         #endif
         openWindow(id: "workspace", value: destination)
     }
@@ -307,13 +321,41 @@ struct WorkspaceView: View {
         .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.cancelFileCommand() } })) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(workspace.fileCommand ?? "File").font(.headline)
-                Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.").font(.caption)
+                Text("Enter a path in the connected workspace. Save As requires an unused path.").font(.caption)
                 TextField("Workspace path", text: $workspace.filePath).textFieldStyle(.roundedBorder)
                 HStack { Button("Cancel") { workspace.cancelFileCommand() }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
             }.padding().frame(minWidth: 320)
         }
         .sheet(isPresented: Binding(get: { workspace.changes.mode != nil }, set: { if !$0 { workspace.changes.close(workspace) } })) { WorkspaceChangesView(workspace:workspace) }
         .sheet(isPresented: $workspace.showWorkspaceSearch, onDismiss: { workspace.search.revision = UUID(); workspace.currentBuffer?.focusSource?() }) { WorkspaceSearchView(workspace: workspace) }
+        .sheet(isPresented: Binding(get: { directoryPicker != nil }, set: { if !$0 { directoryPicker = nil } })) {
+            let folder = directoryPicker ?? ""
+            let entry = workspace.workspaceFile(folder)
+            let folders = (folder.isEmpty ? workspace.rootFiles : entry?.children ?? []).filter(\.dir)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Open Directory").font(.headline).accessibilityAddTraits(.isHeader)
+                Text(folder.isEmpty ? "Workspace root" : folder)
+                Button("Up one folder") {
+                    directoryPicker = String(folder.split(separator: "/").dropLast().joined(separator: "/"))
+                }.disabled(folder.isEmpty)
+                List(folders) { child in Button(child.name) { directoryPicker = child.path } }
+                    .id(NativeSourceKey(folder))
+                if !folder.isEmpty && entry?.dir != true {
+                    Text("This folder is no longer listed. Choose another folder.").font(.caption)
+                }
+                HStack {
+                    Button("Cancel", role: .cancel) { directoryPicker = nil }
+                    Spacer()
+                    Button("Open this folder") {
+                        guard workspace.sourceNavigationEpoch == directoryPickerEpoch else { directoryPicker = nil; return }
+                        workspace.openWorkspaceFolder(folder)
+                        directoryPicker = nil
+                    }.keyboardShortcut(.defaultAction).disabled(!folder.isEmpty && entry?.dir != true)
+                }
+            }.padding().frame(minWidth: 280, idealWidth: 420, minHeight: 280, idealHeight: 420)
+        }
+        .onChange(of: epoch) { _, _ in directoryPicker = nil }
+        .onChange(of: workspace.windowConnectionLost) { _, _ in directoryPicker = nil }
         .sheet(isPresented: $connection) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Connect to a Workspace Server").font(.headline)
@@ -338,6 +380,7 @@ struct WorkspaceView: View {
             defer { startupResolved = true }
             guard workspace.engine == nil else { return }
             if launch != nil {
+                suggestedServer = launch?.suggestedServer
                 workspace.address = ""
                 return
             }
@@ -352,7 +395,7 @@ struct WorkspaceView: View {
         .onDisappear { workspace.debugger?.closeRecordedFence() }
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
-        .focusedSceneValue(\.simpleOpenLocalFolder, localFolderAction)
+        .focusedSceneValue(\.simpleOpenDirectory, openDirectory)
         .focusedSceneValue(\.simpleNewWindow, newWindow)
         .onOpenURL { url in
             if url.isFileURL { Task { await openLocalWorkspace(url) } }
@@ -368,7 +411,12 @@ struct WorkspaceView: View {
                 Text("Welcome to Hickory Docs").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                 #if os(macOS)
                 if LocalWorkspaceHost.isAvailable {
-                    Button("Open Folder…", action: chooseLocalWorkspace)
+                    Button("Open Directory…", action: openDirectory)
+                        .buttonStyle(.borderedProminent)
+                }
+                #else
+                if suggestedServer != nil {
+                    Button("Open Workspace", action: openDirectory)
                         .buttonStyle(.borderedProminent)
                 }
                 #endif
@@ -380,6 +428,25 @@ struct WorkspaceView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func openDirectory() {
+        guard !connectingWorkspace else { return }
+        #if os(macOS)
+        if LocalWorkspaceHost.isAvailable {
+            chooseLocalWorkspace()
+            return
+        }
+        #endif
+        if workspace.engine != nil, !workspace.windowConnectionLost {
+            directoryPickerEpoch = workspace.sourceNavigationEpoch
+            directoryPicker = workspace.openFolderPath
+        } else if let suggestedServer {
+            workspace.address = suggestedServer
+            Task { await connectWorkspace() }
+        } else {
+            showServerConnection()
+        }
     }
 
     private func showServerConnection() {
@@ -412,20 +479,24 @@ struct WorkspaceView: View {
     }
 
     #if os(macOS)
-    private var localFolderAction: (() -> Void)? {
-        guard LocalWorkspaceHost.isAvailable, !connectingWorkspace else { return nil }
-        return chooseLocalWorkspace
-    }
-
     private func chooseLocalWorkspace() {
+        guard !choosingLocalWorkspace else { return }
+        choosingLocalWorkspace = true
+        let epoch = workspace.sourceNavigationEpoch
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.prompt = "Open Folder"
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
+        panel.prompt = "Open Directory"
+        let select: (NSApplication.ModalResponse) -> Void = { response in
+            choosingLocalWorkspace = false
+            if response == .OK, workspace.sourceNavigationEpoch == epoch, let url = panel.url {
                 Task { await openLocalWorkspace(url) }
             }
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: select)
+        } else {
+            panel.begin(completionHandler: select)
         }
     }
 

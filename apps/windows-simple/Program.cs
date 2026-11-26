@@ -83,7 +83,7 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
 
     private static (string? Folder, Uri? Server) ShowWelcome(bool allowServer)
     {
-        var folder = new TaskDialogButton("Open Folder…");
+        var folder = new TaskDialogButton("Open Directory…");
         var server = new TaskDialogButton("Connect to a Workspace Server…");
         var page = new TaskDialogPage
         {
@@ -100,8 +100,8 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
             var choice = TaskDialog.ShowDialog(page);
             if (choice == folder)
             {
-                using var picker = new FolderBrowserDialog { Description = "Open Folder" };
-                if (picker.ShowDialog() == DialogResult.OK) return (picker.SelectedPath, null);
+                var path = PickFolder();
+                if (path is not null) return (path, null);
             }
             else if (choice == server)
             {
@@ -110,6 +110,12 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port, U
             }
             else return (null, null);
         }
+    }
+
+    internal static string? PickFolder(IWin32Window? owner = null)
+    {
+        using var picker = new FolderBrowserDialog { Description = "Open Directory" };
+        return picker.ShowDialog(owner) == DialogResult.OK ? picker.SelectedPath : null;
     }
 
     private static Uri? PromptForServer()

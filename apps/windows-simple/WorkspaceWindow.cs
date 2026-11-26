@@ -33,6 +33,9 @@ internal sealed class WorkspaceWindow : Form
         core.Settings.IsWebMessageEnabled = false;
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreDefaultScriptDialogsEnabled = true;
+        await core.AddScriptToExecuteOnDocumentCreatedAsync(
+            "Object.defineProperty(window, 'hickoryDesktopFolderPicker', { value: true });");
+        if (IsDisposed) return;
         core.NavigationStarting += (_, request) =>
         {
             if (IsWorkspacePage(request.Uri, workspace)) return;
@@ -50,6 +53,11 @@ internal sealed class WorkspaceWindow : Form
             }
 
             var address = new Uri(request.Uri);
+            if (address.Query == "?open-directory" && address.Fragment.Length == 0)
+            {
+                BeginInvoke(OpenLocalDirectory);
+                return;
+            }
             if (address.Query == "?blank-window")
             {
                 try
@@ -101,6 +109,24 @@ internal sealed class WorkspaceWindow : Form
                 CoreWebView2ProcessFailedKind.RenderProcessExited)
                 Fail("The editor renderer stopped. Reopen Hickory and use Editor sessions to recover a draft.");
         };
+    }
+
+    private void OpenLocalDirectory()
+    {
+        try
+        {
+            var folder = WorkspaceLaunch.PickFolder(this);
+            if (folder is null) return;
+            var start = new ProcessStartInfo(Application.ExecutablePath);
+            start.ArgumentList.Add("--port");
+            start.ArgumentList.Add("0");
+            start.ArgumentList.Add(folder);
+            Process.Start(start);
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Could not open directory", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private static bool SameOrigin(string candidate, Uri workspace) =>

@@ -456,6 +456,21 @@ struct StartupSourceObservation {
         return nil
     }
     func workspaceFile(_ path: String) -> FileNode? { treeEntry(path, in: rootFiles)?.file }
+    var openFolderPath: String {
+        guard let displayedFolder, workspaceFile(displayedFolder.string)?.dir == true else { return "" }
+        return displayedFolder.string
+    }
+    func openWorkspaceFolder(_ path: String) {
+        guard engine != nil, !windowConnectionLost else { return }
+        let folder = workspaceFile(path)
+        guard path.isEmpty || folder?.dir == true else {
+            status = "This folder is no longer listed. Choose another folder."
+            return
+        }
+        displayFolder(folder)
+        showUtility(.files)
+    }
+
     private func displayFolder(_ folder: FileNode?) {
         displayedFolder = folder?.id
         if let folder { files = folder.children ?? [] }
@@ -1303,14 +1318,9 @@ exercise these decisions.
                 source.saving = false
                 if savingAll { await saveAll() }
             } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }
-        } else if command == "Open Directory" && path.isEmpty {
-            displayFolder(nil); await refresh(); showUtility(.files)
-        } else if let entry = treeEntry(path, in: rootFiles), entry.file.dir == (command == "Open Directory") {
-            if entry.file.dir { displayFolder(entry.file); showUtility(.files) }
-            else {
-                if currentBuffer == nil { displayFolder(entry.parent) }
-                await open(entry.file)
-            }
+        } else if let entry = treeEntry(path, in: rootFiles), !entry.file.dir {
+            if currentBuffer == nil { displayFolder(entry.parent) }
+            await open(entry.file)
         } else { status = "Path not found. Refresh and choose a path in this workspace." }
     }
     func saveAll() async {

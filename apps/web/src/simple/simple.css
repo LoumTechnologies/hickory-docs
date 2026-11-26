@@ -17,6 +17,11 @@ main.workspace-welcome { grid-template-rows: 1fr; place-items: center; overflow:
 .workspace-welcome-actions button { padding: 8px 12px; border: 1px solid GrayText; border-radius: 5px; }
 .workspace-welcome-actions button:first-child { background: Highlight; color: HighlightText; border-color: Highlight; }
 .workspace-welcome-actions button:first-child:hover:not(:disabled) { background: color-mix(in srgb, Highlight 88%, CanvasText); }
+.workspace-folder-picker { width: min(420px, calc(100% - 32px)); max-height: calc(100% - 32px); border: 1px solid GrayText; border-radius: 6px; color: CanvasText; background: Canvas; }
+.workspace-folder-picker h2 { margin: 0; font-size: 18px; }
+.workspace-folder-picker p { overflow-wrap: anywhere; }
+.workspace-folder-picker ul { list-style: none; padding: 0; max-height: 35dvh; overflow: auto; }
+.workspace-folder-picker li button { display: block; width: 100%; overflow-wrap: anywhere; }
 nav { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 0 8px; gap: 14px; }
 nav details { position: relative; }
 nav summary { list-style: none; cursor: pointer; padding: 3px; }

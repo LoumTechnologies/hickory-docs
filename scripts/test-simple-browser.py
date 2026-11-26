@@ -1317,6 +1317,10 @@ if __name__ == "__main__":
         table_source = table_source.replace('order = table("Order")', f'from pathlib import Path\nPath({str(folder / "table-producer-ran")!r}).write_text("ran")\norder = table("Order")')
         (folder / "tables.md").write_text(table_source)
         (folder / "notes.txt").write_text("before")
+        if "--workspace-welcome-only" in sys.argv:
+            nested = folder / "src" / "nested"
+            nested.mkdir(parents=True)
+            (nested / "readme.txt").write_text("nested folder")
         (folder / "enter.py").write_text("class C:\n    def f():")
         (folder / "words.txt").write_text("THIS_IS_ONE_WORD HTTPServer42 café😀")
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
@@ -1490,7 +1494,7 @@ raise RuntimeError('wrong assistant fence')
             driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only", "--workspace-welcome-only"]))
             if "--workspace-welcome-only" in sys.argv:
                 welcome_acceptance(driver)
-                print("Browser: neutral welcome, explicit server address, failed retry and recovered file tree passed")
+                print("Browser: direct workspace opening, explicit server address, directory browsing and cancellation passed")
             elif "--new-window-only" in sys.argv:
                 exclusive_new_window_acceptance(driver, folder)
                 print("Browser: disconnected New Window, duplicate workspace refusal, preserved draft and release on close passed")

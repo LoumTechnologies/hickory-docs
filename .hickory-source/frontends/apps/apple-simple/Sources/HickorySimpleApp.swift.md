@@ -28,6 +28,7 @@ import SwiftUI
 
 struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     var id = UUID()
+    var suggestedServer: String? = nil
 }
 
 @main struct HickorySimpleApp: App {
@@ -37,9 +38,16 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     @Environment(\.openWindow) private var openWindow
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
-    @FocusedValue(\.simpleOpenLocalFolder) private var openLocalFolder
+    @FocusedValue(\.simpleOpenDirectory) private var openDirectory
     @FocusedValue(\.simpleNewWindow) private var newWindow
-    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":newWindow ?? {openWindow(id:"workspace", value: SimpleWindowLaunch())},"file.connect":{NotificationCenter.default.post(name:.simpleConnect,object:nil)}])}
+    private var menuCommands:[WorkspaceCommand] {
+        var actions: [String: () -> Void] = [
+            "file.window": newWindow ?? { openWindow(id: "workspace", value: SimpleWindowLaunch()) },
+            "file.connect": { NotificationCenter.default.post(name: .simpleConnect, object: nil) },
+        ]
+        actions["file.directory"] = openDirectory
+        return workspace.commands(ui: actions)
+    }
     #endif
     var body: some Scene {
         #if os(macOS)
@@ -56,9 +64,6 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
                 }
         }.commands {
             CommandGroup(replacing: .newItem) {
-                if let openLocalFolder {
-                    Button("Open Local Folder…", action: openLocalFolder)
-                }
                 ForEach(menuCommands.filter {["file.connect","file.open","file.directory","file.new","file.window"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
             }
             CommandGroup(replacing: .saveItem) {
@@ -82,7 +87,7 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
 }
 private struct SimpleWorkspaceKey: FocusedValueKey { typealias Value = Workspace }
 #if os(macOS)
-private struct SimpleOpenLocalFolderKey: FocusedValueKey { typealias Value = () -> Void }
+private struct SimpleOpenDirectoryKey: FocusedValueKey { typealias Value = () -> Void }
 private struct SimpleNewWindowKey: FocusedValueKey { typealias Value = () -> Void }
 #endif
 extension FocusedValues {
@@ -91,9 +96,9 @@ extension FocusedValues {
         get { self[SimpleNewWindowKey.self] }
         set { self[SimpleNewWindowKey.self] = newValue }
     }
-    var simpleOpenLocalFolder: (() -> Void)? {
-        get { self[SimpleOpenLocalFolderKey.self] }
-        set { self[SimpleOpenLocalFolderKey.self] = newValue }
+    var simpleOpenDirectory: (() -> Void)? {
+        get { self[SimpleOpenDirectoryKey.self] }
+        set { self[SimpleOpenDirectoryKey.self] = newValue }
     }
     #endif
     var simpleWorkspace: Workspace? {
@@ -125,23 +130,32 @@ final class LocalWorkspaceHost {
         return launchLocation
     }
 
-    private static var executable: URL? {
-        Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("hickory-simple-host")
+    private static var launchCommand: (executable: URL, assets: URL?)? {
+        let bundled = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("hickory-simple-host")
+        if let bundled, FileManager.default.isExecutableFile(atPath: bundled.path),
+           let resources = Bundle.main.resourceURL {
+            return (bundled, resources.appendingPathComponent("HickoryWeb"))
+        }
+        if let path = ProcessInfo.processInfo.environment["HICKORY_SIMPLE_WORKSPACE_HOST"],
+           FileManager.default.isExecutableFile(atPath: path) {
+            return (URL(fileURLWithPath: path), nil)
+        }
+        return nil
     }
-    static var isAvailable: Bool {
-        executable.map { FileManager.default.isExecutableFile(atPath: $0.path) } ?? false
-    }
+    static var isAvailable: Bool { launchCommand != nil }
     private let owner = Pipe()
     private let output = Pipe()
     private let process = Process()
 
     init(root: URL) throws {
-        guard Self.isAvailable, let executable = Self.executable,
-              let assets = Bundle.main.resourceURL?.appendingPathComponent("HickoryWeb") else {
+        guard let command = Self.launchCommand else {
             throw EngineError(message: "This build needs a workspace server. Install the packaged Mac app to open local folders.")
         }
-        process.executableURL = executable
-        process.arguments = ["--workspace-host", root.path, assets.path, "0"]
+        process.executableURL = command.executable
+        var arguments = ["--workspace-host", root.path]
+        if let assets = command.assets { arguments.append(assets.path) }
+        arguments.append("0")
+        process.arguments = arguments
         process.standardInput = owner
         process.standardOutput = output
         try process.run()

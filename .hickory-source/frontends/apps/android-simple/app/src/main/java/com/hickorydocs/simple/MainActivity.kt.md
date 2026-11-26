@@ -42,6 +42,11 @@ welcome screen and ask for the address only after that action. An intent with
 a known host still connects immediately, and any readable startup preview
 uses the same editor pane as a confirmed workspace.
 
+Android uses the connected server's folder tree in a Material dialog. Only an
+explicit confirmation changes the displayed Files scope. A new window may
+offer its originating server in Welcome, while connection and ownership still
+require an explicit action and a successful server claim.
+
 <ui:copy id="simple-d8c991adb6-0">
 package com.hickorydocs.simple
 
@@ -94,18 +99,31 @@ class MainActivity : ComponentActivity() {
                 insets.isAppearanceLightNavigationBars = !dark
             }
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                Surface { SimpleWorkspace(workspace) }
+                Surface { SimpleWorkspace(workspace, intent.getStringExtra("hickory_suggested_origin")) }
             }
         }
     }
 }
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable fun SimpleWorkspace(workspace: Workspace) {
+@Composable fun SimpleWorkspace(workspace: Workspace, suggestedServer: String? = null) {
     ObserveSimpleAgent(workspace)
     var connection by remember { mutableStateOf(false) }
     var connectionError by remember { mutableStateOf("") }
     val showServerConnection = { connectionError = ""; connection = true }
     val scope = rememberCoroutineScope()
+    var directoryPicker by remember(workspace.engine, workspace.windowConnectionLost) { mutableStateOf<String?>(null) }
+    val openDirectory: () -> Unit = {
+        if (!workspace.connecting) {
+            if (workspace.engine != null && !workspace.windowConnectionLost) {
+                directoryPicker = workspace.directoryScope.takeIf { workspace.workspaceFolder(it) != null }.orEmpty()
+            } else if (suggestedServer != null) {
+                workspace.address = suggestedServer
+                scope.launch { workspace.connect() }
+            } else {
+                showServerConnection()
+            }
+        }
+    }
     val workspaceFocus = LocalFocusManager.current
     val moveOpen = workspace.changes.mode == "entryMove"
     LaunchedEffect(moveOpen) {
@@ -116,8 +134,10 @@ class MainActivity : ComponentActivity() {
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
     val commands = workspace.commands(descriptors, mapOf(
         "file.connect" to showServerConnection,
+        "file.directory" to openDirectory,
         "file.window" to {
             context.startActivity(Intent(context, MainActivity::class.java)
+                .putExtra("hickory_suggested_origin", workspace.engine?.origin?.toString() ?: suggestedServer)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK))
         },
     ))
@@ -193,6 +213,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Text("Welcome to Hickory Docs", style = MaterialTheme.typography.headlineMedium,
                             modifier = Modifier.semantics { heading() })
+                        if (suggestedServer != null) Button(onClick = openDirectory) { Text("Open Workspace") }
                         Button(onClick = showServerConnection) { Text("Connect to a Workspace Server…") }
                         if (workspace.status.isNotEmpty()) Text(workspace.status, fontSize = 12.sp)
                     }
@@ -200,8 +221,38 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    directoryPicker?.let { folder ->
+        val children = workspace.workspaceFolder(folder)
+        AlertDialog(
+            onDismissRequest = { directoryPicker = null },
+            title = { Text("Open Directory") },
+            text = {
+                Column {
+                    Text(folder.ifEmpty { "Workspace root" })
+                    TextButton(enabled = folder.isNotEmpty(), onClick = { directoryPicker = folder.substringBeforeLast('/', "") }) {
+                        Text("Up one folder")
+                    }
+                    key(folder) {
+                        Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                            children.orEmpty().filter { it.dir }.forEach { child ->
+                                TextButton(onClick = { directoryPicker = child.path }) { Text(child.name) }
+                            }
+                        }
+                    }
+                    if (children == null) Text("This folder is no longer listed. Choose another folder.")
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = children != null, onClick = {
+                    workspace.openWorkspaceFolder(folder)
+                    directoryPicker = null
+                }) { Text("Open this folder") }
+            },
+            dismissButton = { TextButton(onClick = { directoryPicker = null }) { Text("Cancel") } },
+        )
+    }
     if (workspace.fileCommand != null) AlertDialog(onDismissRequest = { workspace.fileCommand = null; workspace.savingAll = false }, title = { Text(workspace.fileCommand ?: "File") }, text = {
-        Column { Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.", fontSize = 12.sp)
+        Column { Text("Enter a path in the connected workspace. Save As requires an unused path.", fontSize = 12.sp)
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
     if(workspace.showCoverage) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SimpleCoverageView(workspace)}}

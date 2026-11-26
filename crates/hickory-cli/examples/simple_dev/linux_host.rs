@@ -31,10 +31,12 @@ async fn local_request(request: Request, next: Next, authority: &str, origin: &s
 }
 
 pub(super) async fn run(args: &[String]) -> Result<()> {
-    let [workspace, assets, port] = args else {
-        anyhow::bail!(
-            "Usage: hickory-simple-host --workspace-host WORKSPACE COMPILED_ASSETS LOOPBACK_PORT"
-        );
+    let (workspace, assets, port) = match args {
+        [workspace, assets, port] => (workspace, Some(assets), port),
+        [workspace, port] => (workspace, None, port),
+        _ => anyhow::bail!(
+            "Usage: hickory-simple-host --workspace-host WORKSPACE [COMPILED_ASSETS] LOOPBACK_PORT"
+        ),
     };
     let root = Path::new(workspace)
         .canonicalize()
@@ -44,14 +46,19 @@ pub(super) async fn run(args: &[String]) -> Result<()> {
         "Choose a workspace folder: {}",
         root.display()
     );
-    let assets = Path::new(assets)
-        .canonicalize()
-        .context("Editor assets are missing. Rebuild or reinstall Hickory Simple.")?;
-    ensure!(
-        assets.join("simple.html").is_file(),
-        "Editor assets are incomplete in {}. Rebuild or reinstall Hickory Simple.",
-        assets.display()
-    );
+    let assets = assets
+        .map(|path| -> Result<_> {
+            let assets = Path::new(path)
+                .canonicalize()
+                .context("Editor assets are missing. Rebuild or reinstall Hickory Simple.")?;
+            ensure!(
+                assets.join("simple.html").is_file(),
+                "Editor assets are incomplete in {}. Rebuild or reinstall Hickory Simple.",
+                assets.display()
+            );
+            Ok(assets)
+        })
+        .transpose()?;
     let port: u16 = port
         .parse()
         .context("Use a loopback port between 0 and 65535.")?;
@@ -89,13 +96,16 @@ pub(super) async fn run(args: &[String]) -> Result<()> {
         result = interrupted() => return result,
     };
     let guard = connection.guard();
-    let router = engine::client_router(connection, None, token, None)
-        .fallback_service(ServeDir::new(assets))
-        .layer(middleware::from_fn(move |request, next| {
-            let authority = authority.clone();
-            let origin = origin.clone();
-            async move { local_request(request, next, &authority, &origin).await }
-        }));
+    let router = engine::client_router(connection, None, token, None);
+    let router = match assets {
+        Some(assets) => router.fallback_service(ServeDir::new(assets)),
+        None => router,
+    };
+    let router = router.layer(middleware::from_fn(move |request, next| {
+        let authority = authority.clone();
+        let origin = origin.clone();
+        async move { local_request(request, next, &authority, &origin).await }
+    }));
     let result = async {
         println!("HICKORY_SIMPLE_PORT {}", address.port());
         std::io::stdout().flush()?;

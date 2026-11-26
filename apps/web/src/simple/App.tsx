@@ -144,7 +144,7 @@ export function App() {
   }, []);
 
   return <>
-    {mounted && <div hidden={connection !== "opened"} inert={connection !== "opened"}>
+    {mounted && <div hidden={connection !== "opened"} ref={element => { if (element) element.inert = connection !== "opened"; }}>
       <WorkspaceApp connected={connection === "opened"} />
     </div>}
     {connection === "opening" && <main className="workspace-welcome"><p role="status">Opening workspace…</p></main>}
@@ -161,6 +161,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const [focused, updateFocused] = useState("document-group");
   const [terminal] = useState(() => new TerminalSession());
   const [filesFolder, setFilesFolder] = useState("");
+  const [directoryPicker, setDirectoryPicker] = useState<string | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
   const [analysis] = useState(() => new WorkspaceAnalysisModel());
@@ -193,6 +194,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const overlayWorkspace = () => JSON.stringify([buffers.workspace || workspaceIdentity.current, buffers.workspaceId]);
   const overlayScope = overlayWorkspace();
+  useEffect(() => { setDirectoryPicker(null); }, [connected, overlayScope]);
   // Learning initial workspace authority attaches capabilities to the existing
   // composers. Only a confirmed workspace change replaces their sessions.
   const agentOwner = useRef<{root: string; id: string; session: AgentSession} | null>(null);
@@ -286,14 +288,17 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   function showContainingFolder(path: string) {
     setFilesFolder(path.slice(0, Math.max(0, path.lastIndexOf("/"))));
   }
-  async function openPath(directory = false) {
-    const path = window.prompt(directory ? "Open Directory — path in this workspace (empty for root)" : "Open File — path in this workspace");
+  async function openPath() {
+    const path = window.prompt("Open File — path in this workspace");
     if (path === null) return;
-    if (directory && !path) { setFilesFolder(""); await loadFiles(); openTab("files"); return; }
     const node = findPath(path);
-    if (!node || node.dir !== directory) { setNotice("Path not found. Refresh and choose a path in this workspace."); return; }
-    if (directory) { setFilesFolder(node.path); openTab("files"); }
-    else { showContainingFolder(node.path); await openFileVisit(node); }
+    if (!node || node.dir) { setNotice("Path not found. Refresh and choose a path in this workspace."); return; }
+    showContainingFolder(node.path);
+    await openFileVisit(node);
+  }
+  function openDirectory() {
+    if (!connected || openDesktopDirectory()) return;
+    setDirectoryPicker(findPath(filesFolder)?.dir ? filesFolder : "");
   }
   async function saveAs(source = buffer) {
     if (!source || source.saving) return;
@@ -709,7 +714,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const context:CommandContext={separateFiles:!!separateFilesPane,...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly&&!buffer.resourceDeleted,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
-    "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(new URL("/simple.html?blank-window", location.href), "_blank", "noopener");},
+    "file.open":()=>{void openPath();},"file.directory":openDirectory,"file.new":newTab,"file.window":()=>{window.open(new URL("/simple.html?blank-window", location.href), "_blank", "noopener");},
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{const recheck = buffer?.startupWorkspace === undefined; void loadFiles().then(() => { if (recheck) return refreshCurrentSource(); });},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.fixAll":()=>requestWorkspaceChange("fixAll"),"symbol.sourceActions":()=>requestWorkspaceChange("sourceActions"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.moveEntry":()=>requestWorkspaceChange("entryMove"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
@@ -785,6 +790,17 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
         if(target.text!==source||hash!==point.hash.toLowerCase())throw new Error("Source changed. Refresh candidates before navigating.");
       }})) setShowTests(false);
     }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
+    {connected && directoryPicker !== null && <DirectoryPicker
+      folder={directoryPicker}
+      children={directoryPicker ? findPath(directoryPicker)?.children ?? [] : workspaceFiles}
+      available={directoryPicker === "" || findPath(directoryPicker)?.dir === true}
+      browse={setDirectoryPicker}
+      cancel={() => { setDirectoryPicker(null); focusCurrent(); }}
+      open={() => {
+        setDirectoryPicker(null);
+        if (overlayCurrent()) { setFilesFolder(directoryPicker); openTab("files"); }
+      }}
+    />}
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch key={`workspace-search:${overlayScope}`} workspaceCurrent={overlayCurrent} visible={showWorkspaceSearch} close={restoreFocus => { setShowWorkspaceSearch(false); if (restoreFocus && buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles}
@@ -823,6 +839,35 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     <GitReviewView key={`git-review:${overlayScope}`} workspace={overlayScope} buffers={buffers} history={changeHistory} alive={overlayCurrent} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(!overlayCurrent())throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
+function openDesktopDirectory() {
+  if (!("hickoryDesktopFolderPicker" in window)) return false;
+  window.open(new URL("/simple.html?open-directory", location.href), "_blank", "noopener");
+  return true;
+}
+
+function DirectoryPicker({ folder, children, available, browse, cancel, open }: {
+  folder: string; children: FileNode[]; available: boolean;
+  browse: (folder: string) => void; cancel: () => void; open: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (!dialog.current?.open) dialog.current?.showModal(); }, []);
+  const folders = children.filter(node => node.dir);
+  return <dialog ref={dialog} className="workspace-folder-picker" aria-label="Open Directory"
+    onCancel={event => { event.preventDefault(); dialog.current?.close(); cancel(); }}>
+    <h2>Open Directory</h2>
+    <p>{folder || "Workspace root"}</p>
+    <button type="button" disabled={!folder} onClick={() => browse(folder.slice(0, Math.max(0, folder.lastIndexOf("/"))))}>Up one folder</button>
+    <ul key={folder} aria-label="Folders">{folders.map(node =>
+      <li key={node.path}><button type="button" onClick={() => browse(node.path)}>{node.name}</button></li>
+    )}</ul>
+    {!available && <p role="status">This folder is no longer listed. Choose another folder.</p>}
+    <div className="workspace-welcome-actions">
+      <button type="button" disabled={!available} onClick={() => { dialog.current?.close(); open(); }}>Open this folder</button>
+      <button type="button" onClick={() => { dialog.current?.close(); cancel(); }}>Cancel</button>
+    </div>
+  </dialog>;
+}
+
 function WorkspaceWelcome({ retry, initialError = "" }: { retry: () => Promise<string | null>; initialError?: string }) {
   const [connecting, setConnecting] = useState(false);
   const [address, setAddress] = useState("");
@@ -865,6 +910,9 @@ function WorkspaceWelcome({ retry, initialError = "" }: { retry: () => Promise<s
         <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => { setConnecting(false); setError(""); }}>Back</button>
       </div>
     </form> : <div className="workspace-welcome-actions">
+      <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => {
+        if (!openDesktopDirectory()) void retryCurrent();
+      }}>{"hickoryDesktopFolderPicker" in window ? "Open Directory…" : "Open Workspace"}</button>
       <button type="button" disabled={busy} data-tip={pendingReason} aria-description={pendingReason} onClick={() => { setConnecting(true); setError(""); }}>Connect to a Workspace Server…</button>
     </div>}
     {(error || initialError) && <p role="alert">{error || initialError}</p>}

@@ -45,7 +45,7 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
 On macOS, `just local-install` builds and installs **Hickory Simple.app**.
-Choose **Open Folder…** on the welcome screen, or run
+Choose **Open Directory…** on the welcome screen, or run
 `hick open /absolute/path` with the CLI installed separately. The bundle
 starts its own loopback workspace host for the selected folder or file.
 
@@ -248,7 +248,7 @@ Full native WYSIWYG, backend capability menus, provenance, additional file opera
 
 ## File commands and indentation, 2026-11-10
 
-The File menus expose Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. Open paths belong to the connected workspace; use an empty directory path to restore its root. New Tab retains an unnamed draft. Save As creates an unused destination, preserves edits on failure, and keeps edits typed during a save. Save All requests paths for unnamed drafts. Refresh leaves existing editor buffers intact.
+The File menus expose Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. On macOS, KDE and Windows, Open Directory uses the OS folder picker when the desktop host is bundled. In a browser or mobile client, it browses the connected server's folders. Use **Up one folder** to return to **Workspace root**, then choose **Open this folder** to display it in Files. New Tab retains an unnamed draft. Save As creates an unused destination, preserves edits on failure, and keeps edits typed during a save. Save All requests paths for unnamed drafts. Refresh leaves existing editor buffers intact.
 
 Tab detects two-space, four-space and literal-tab indentation without waiting for language services, advances partial indentation to the next stop, and indents selected lines. Native Return retains leading indentation. Literal tabs display at four-column stops. Native debugger operations have pictograms; ellipsis opens the line's floating action menu.
 

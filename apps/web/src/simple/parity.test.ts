@@ -1176,17 +1176,31 @@ describe("simple semantic navigation", () => {
     // Contract: .hickory-source/frontends/contract.md
     vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "src", path: "src", dir: true, children: [{ name: "a.py", path: "src/a.py", dir: false }] }, { name: "other.py", path: "other.py", dir: false }] });
     vi.mocked(api.file).mockResolvedValueOnce({ path: "other.py", language: "python", content: "value = 1", hash: "base" });
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("src");
+    // jsdom omits the browser dialog methods. Playwright also exercises the real modal.
+    const prototype = HTMLDialogElement.prototype;
+    const showModal = Object.getOwnPropertyDescriptor(prototype, "showModal");
+    const close = Object.getOwnPropertyDescriptor(prototype, "close");
+    Object.defineProperty(prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.open = true; } });
+    Object.defineProperty(prototype, "close", { configurable: true, value(this: HTMLDialogElement) { this.open = false; } });
     const screen = render(createElement(App));
     try {
       await screen.findByRole("button", { name: "other.py" });
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
       fireEvent.click(screen.getByRole("button", { name: "Open Directory" }));
+      const picker = within(screen.getByRole("dialog", { name: "Open Directory" }));
+      fireEvent.click(picker.getByRole("button", { name: "src" }));
+      fireEvent.click(picker.getByRole("button", { name: "Open this folder" }));
       await waitFor(() => expect(screen.queryByRole("button", { name: "other.py" })).toBeNull());
       act(() => openLocation("other.py", 1, 2));
       await waitFor(() => expect(screen.container.querySelector('.cm-content[aria-label="other.py"]')).toBeTruthy());
       expect(api.file).toHaveBeenCalledWith("other.py");
-    } finally { screen.unmount(); prompt.mockRestore(); }
+    } finally {
+      screen.unmount();
+      if (showModal) Object.defineProperty(prototype, "showModal", showModal);
+      else Reflect.deleteProperty(prototype, "showModal");
+      if (close) Object.defineProperty(prototype, "close", close);
+      else Reflect.deleteProperty(prototype, "close");
+    }
   });
   it("retains departure carets, prunes forward branches and bounds navigation history", () => {
     // Contract: .hickory-source/frontends/contract.md
