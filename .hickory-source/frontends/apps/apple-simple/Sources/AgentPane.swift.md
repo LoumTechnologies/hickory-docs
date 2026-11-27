@@ -3,6 +3,11 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Retain the same message buffer when the host updates its text. Native editor
+caches then retain selection and viewport; the independent draft is untouched.
+The host owns the replacement baseline, so an answer update never becomes a
+local unsaved edit.
+
 Every answer uses LanguageEditor, including plain Markdown and provisional text.
 The generated conversation buffer keeps the reading immutable. Recorded fence
 actions still require session ownership of an accepted exact answer, so showing
@@ -205,7 +210,13 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     var prompt: String { get { draft.text } set { draft.text = newValue } }
     @ObservationIgnored private var documents: [String: DocumentBuffer] = [:]
     func document(_ id: String, _ text: String) -> DocumentBuffer {
-        if let held = documents[id], exactUTF8(held.text,text) { return held }
+        if let held = documents[id] {
+            if !exactUTF8(held.text, text) {
+                held.base = text
+                held.text = text
+            }
+            return held
+        }
         let path = "hick-agent-message:///\(id).md"
         let buffer = DocumentBuffer(file: FileNode(name: id, path: path, dir: false, generated_by: "conversation"), text: FileText(path: path, content: text, hash: ""))
         documents[id] = buffer

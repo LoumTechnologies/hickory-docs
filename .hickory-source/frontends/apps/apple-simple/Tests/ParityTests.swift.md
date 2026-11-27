@@ -3,6 +3,10 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+The answer replacement witness keeps buffer identity, selection and the unsent
+response while host-owned text advances. It checks model state; native viewport
+acceptance still needs the platform editor.
+
 The language-cache witnesses retain colors on unchanged Unicode text, exercise a real AppKit edit/undo and the refresh task with a closed channel, and reject stale completion writes. A second paint of the same source with no semantic tokens must keep its local syntax colors. The opt-in live-provider witness opens a literate buffer after a plain Python buffer already received tokens on the same connection, then checks mapped colors and completion. Mobile gestures still need device acceptance.
 
 The gutter witness lays out real AppKit text, including wrapped text and empty final fragments, and checks the logical rows used to draw numbers. It does not verify UIKit or Compose rendering.
@@ -1570,6 +1574,20 @@ final class ParityTests: XCTestCase {
         XCTAssertGreaterThan(buffer.visibleDebugLines[1].y - buffer.visibleDebugLines[0].y, buffer.visibleDebugLines[0].height * 2)
     }
     #endif
+    @MainActor func testAgentAnswerReplacementRetainsTheReadingAndDraft() {
+        let session = AgentSession()
+        session.prompt = "Unsent response"
+        let answer = session.document("turn-agent", "Initial answer")
+        answer.selection = NSRange(location: 3, length: 2)
+        let updated = session.document("turn-agent", "Initial answer with more detail")
+        XCTAssertTrue(updated === answer)
+        XCTAssertEqual(updated.selection, NSRange(location: 3, length: 2))
+        XCTAssertEqual(updated.text, "Initial answer with more detail")
+        XCTAssertEqual(updated.base, updated.text)
+        XCTAssertTrue(updated.readOnly)
+        XCTAssertFalse(updated.dirty)
+        XCTAssertEqual(session.prompt, "Unsent response")
+    }
     @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {
         let session = AgentSession()
         session.messageForks = true

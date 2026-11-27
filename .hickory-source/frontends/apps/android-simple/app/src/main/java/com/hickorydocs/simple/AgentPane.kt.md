@@ -3,6 +3,11 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Retain each message buffer and TextFieldState across host text updates. Clamp
+the existing selection only when a shorter replacement requires it; the buffer
+continues to own its scroll position. Advance the baseline with the host text
+without touching the separate response draft or its undo history.
+
 Plain Markdown and provisional answers use the same AgentDocument as recorded
 code-bearing messages. The read-only buffer protects native editor and rich-widget
 edits. A running answer has no fenceReading: only the accepted exact record can
@@ -207,7 +212,17 @@ class AgentSession {
         internal set
     fun document(id: String, text: String): DocumentBuffer {
         val held = documents[id]
-        if (held != null && held.text == text) return held
+        if (held != null) {
+            if (held.text != text) {
+                val selection = held.state.selection
+                held.base = text
+                held.state.edit {
+                    replace(0, length, text)
+                    this.selection = androidx.compose.ui.text.TextRange(selection.start.coerceAtMost(text.length), selection.end.coerceAtMost(text.length))
+                }
+            }
+            return held
+        }
         val path = "conversation/$id.md"
         return DocumentBuffer(FileNode(id, path, false, emptyList(), null, "conversation"), FileText(text, "")).also { documents[id] = it }
     }

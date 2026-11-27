@@ -10,6 +10,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 
 class ParityTest {
+    @Test fun answerReplacementRetainsTheReadingAndDraft() {
+        val session = AgentSession()
+        session.prompt = "Unsent response"
+        val answer = session.document("turn-agent", "Initial answer")
+        answer.state.edit { selection = androidx.compose.ui.text.TextRange(3, 5) }
+        val state = answer.state
+        val scroll = answer.sourceScroll
+        val updated = session.document("turn-agent", "Initial answer with more detail")
+        assertSame(answer, updated)
+        assertSame(state, updated.state)
+        assertSame(scroll, updated.sourceScroll)
+        assertEquals(androidx.compose.ui.text.TextRange(3, 5), state.selection)
+        assertEquals("Initial answer with more detail", updated.text)
+        assertFalse(updated.dirty)
+        assertTrue(updated.readOnly)
+        session.document("turn-agent", "Hi")
+        assertEquals(androidx.compose.ui.text.TextRange(2, 2), state.selection)
+        assertEquals("Unsent response", session.prompt)
+    }
+
     @Test(timeout = 16000)
     fun startupAndRefreshReadCurrentBytesWithoutReplacingTheEditor() = kotlinx.coroutines.runBlocking {
         val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)

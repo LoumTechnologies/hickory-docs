@@ -189,7 +189,17 @@ class AgentSession {
         internal set
     fun document(id: String, text: String): DocumentBuffer {
         val held = documents[id]
-        if (held != null && held.text == text) return held
+        if (held != null) {
+            if (held.text != text) {
+                val selection = held.state.selection
+                held.base = text
+                held.state.edit {
+                    replace(0, length, text)
+                    this.selection = androidx.compose.ui.text.TextRange(selection.start.coerceAtMost(text.length), selection.end.coerceAtMost(text.length))
+                }
+            }
+            return held
+        }
         val path = "conversation/$id.md"
         return DocumentBuffer(FileNode(id, path, false, emptyList(), null, "conversation"), FileText(text, "")).also { documents[id] = it }
     }

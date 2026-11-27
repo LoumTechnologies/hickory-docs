@@ -156,7 +156,13 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     var prompt: String { get { draft.text } set { draft.text = newValue } }
     @ObservationIgnored private var documents: [String: DocumentBuffer] = [:]
     func document(_ id: String, _ text: String) -> DocumentBuffer {
-        if let held = documents[id], exactUTF8(held.text,text) { return held }
+        if let held = documents[id] {
+            if !exactUTF8(held.text, text) {
+                held.base = text
+                held.text = text
+            }
+            return held
+        }
         let path = "hick-agent-message:///\(id).md"
         let buffer = DocumentBuffer(file: FileNode(name: id, path: path, dir: false, generated_by: "conversation"), text: FileText(path: path, content: text, hash: ""))
         documents[id] = buffer

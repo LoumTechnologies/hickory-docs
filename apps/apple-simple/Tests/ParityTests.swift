@@ -1531,6 +1531,20 @@ final class ParityTests: XCTestCase {
         XCTAssertGreaterThan(buffer.visibleDebugLines[1].y - buffer.visibleDebugLines[0].y, buffer.visibleDebugLines[0].height * 2)
     }
     #endif
+    @MainActor func testAgentAnswerReplacementRetainsTheReadingAndDraft() {
+        let session = AgentSession()
+        session.prompt = "Unsent response"
+        let answer = session.document("turn-agent", "Initial answer")
+        answer.selection = NSRange(location: 3, length: 2)
+        let updated = session.document("turn-agent", "Initial answer with more detail")
+        XCTAssertTrue(updated === answer)
+        XCTAssertEqual(updated.selection, NSRange(location: 3, length: 2))
+        XCTAssertEqual(updated.text, "Initial answer with more detail")
+        XCTAssertEqual(updated.base, updated.text)
+        XCTAssertTrue(updated.readOnly)
+        XCTAssertFalse(updated.dirty)
+        XCTAssertEqual(session.prompt, "Unsent response")
+    }
     @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {
         let session = AgentSession()
         session.messageForks = true
