@@ -23,7 +23,7 @@ import { useWorkspaceDebugger, type DebugSession } from "../debug/useDebugger";
 import { debugUTF8, type DebugSourceReading } from "../debug/SourceGuards";
 import type { AgentTotals, AgentTurn, AgentUsage } from "../api/agentTypes";
 import type { TerminalSession } from "../api/types";
-import { simplePatchHunks } from "../lib/diff";
+import { computeEdits, simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
 import type { ReviewRecordedPatch } from "./AgentProposalAdapter";
 const toolLabels = new Map<string, [operation: string, fields?: string[]]>([
@@ -213,7 +213,7 @@ export class AgentSession {
     } else if (buffer.text !== text) {
       buffer.text = buffer.base = text; buffer.publish();
       const view = editorForBuffer(buffer)?.view;
-      if (view) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]));
+      if (view) view.dispatch(authoredChanges(view.state, computeEdits(authoredSource(view.state), text).map(edit => ({from:edit.start,to:edit.end,insert:edit.text}))));
     }
     return buffer;
   }

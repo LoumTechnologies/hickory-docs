@@ -1783,7 +1783,8 @@ describe("simple literate subscription agent", () => {
       act(() => answer.dispatch({selection:{anchor:3}}));
       act(() => draft.dispatch({changes:{from:draft.state.doc.length,insert:'!'}}));
       status.mockReturnValue('ready');
-      act(() => session.setTurns([{...turn, status:'ok', answer:'Readable answer'}]));
+      act(() => session.setTurns([{...turn, status:'ok', answer:'Readable answer with more detail'}]));
+      expect(answer.state.doc.toString()).toBe('Readable answer with more detail');
       expect(editor('readable-agent')).toBe(answer);
       expect(answer.state.selection.main.head).toBe(3);
       expect(editor('draft')).toBe(draft);

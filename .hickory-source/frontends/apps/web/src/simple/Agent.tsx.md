@@ -8,7 +8,9 @@ The workspace owns the session so moving or hiding its tab retains the literate 
 Prompts, provisional answers and accepted answers use the same Document surface as
 files and the response draft. Mount readable text immediately; parser readiness
 only adds capabilities to that editor. Keep the answer buffer and editor identity
-when a running turn becomes recorded, so selection and scroll survive. Provisional
+when a running turn becomes recorded, so selection and scroll survive. Apply
+minimal authored edits when its text advances; replacing the whole buffer would
+collapse a selection in the unchanged prefix. Provisional
 answers remain immutable and gain recorded fence actions only after the host has
 accepted their exact source. Plain Markdown follows this same path, so adding a
 code fence does not replace the reading surface.
@@ -60,7 +62,7 @@ import { useWorkspaceDebugger, type DebugSession } from "../debug/useDebugger";
 import { debugUTF8, type DebugSourceReading } from "../debug/SourceGuards";
 import type { AgentTotals, AgentTurn, AgentUsage } from "../api/agentTypes";
 import type { TerminalSession } from "../api/types";
-import { simplePatchHunks } from "../lib/diff";
+import { computeEdits, simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
 import type { ReviewRecordedPatch } from "./AgentProposalAdapter";
 </ui:copy>
@@ -272,7 +274,7 @@ export class AgentSession {
     } else if (buffer.text !== text) {
       buffer.text = buffer.base = text; buffer.publish();
       const view = editorForBuffer(buffer)?.view;
-      if (view) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]));
+      if (view) view.dispatch(authoredChanges(view.state, computeEdits(authoredSource(view.state), text).map(edit => ({from:edit.start,to:edit.end,insert:edit.text}))));
     }
     return buffer;
   }
