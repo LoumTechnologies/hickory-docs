@@ -966,7 +966,7 @@ struct AgentPane: View {
             Divider()
             VStack(alignment: .leading, spacing: 4) {
                 if let edit = session.branchEdit { Text("Edit \(edit.user ? "user" : "assistant") message · The original stays unchanged.").font(.caption) }
-                NativeEditor(buffer: session.draft, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
+                LanguageEditor(buffer: session.draft, debugger: nil, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
                 HStack {
                     Spacer()
                     if session.canStop {

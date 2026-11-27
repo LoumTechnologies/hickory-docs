@@ -2915,6 +2915,7 @@ struct LanguageEditor: View {
     var recordedRunEngine: Engine? = nil
     var recordedPatchReview: ((Int) -> Void)? = nil
     var presentRecordedInspection: ((NativeDebugInspector) -> Void)? = nil
+    var submitMessage: (() -> Void)? = nil
     private var breakpointMarkup: InlineDebugContext? {
         guard debugger != nil, recordedDebug?.current() != false,
               exactUTF8(buffer.inlineMarkup.source, buffer.text) else { return nil }
@@ -2987,7 +2988,7 @@ struct LanguageEditor: View {
                 }.clipped()
             }.frame(width: 24)
             lineNumbers
-            NativeEditor(buffer: buffer, readOnly: buffer.readOnly).overlay {
+            NativeEditor(buffer: buffer, readOnly: buffer.readOnly, submitMessage: submitMessage).overlay {
                 // Paint stopped execution independently of selection and text styling.
                 // The source guard retires positional facts as soon as displayed bytes change.
                 Canvas { context, size in

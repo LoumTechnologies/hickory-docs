@@ -8,6 +8,10 @@ caches then retain selection and viewport; the independent draft is untouched.
 The host owns the replacement baseline, so an answer update never becomes a
 local unsaved edit.
 
+The writable composer also uses LanguageEditor, forwarding its explicit Send
+callback into the native input surface. Keep its draft buffer identity so adding
+the document gutters does not replace undo or focus ownership.
+
 Every answer uses LanguageEditor, including plain Markdown and provisional text.
 The generated conversation buffer keeps the reading immutable. Recorded fence
 actions still require session ownership of an accepted exact answer, so showing
@@ -1058,7 +1062,7 @@ struct AgentPane: View {
             Divider()
             VStack(alignment: .leading, spacing: 4) {
                 if let edit = session.branchEdit { Text("Edit \(edit.user ? "user" : "assistant") message · The original stays unchanged.").font(.caption) }
-                NativeEditor(buffer: session.draft, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
+                LanguageEditor(buffer: session.draft, debugger: nil, submitMessage: { Task { await send() } }).id(session.draft.id).frame(height: 92).accessibilityLabel("Message")
                 HStack {
                     Spacer()
                     if session.canStop {
