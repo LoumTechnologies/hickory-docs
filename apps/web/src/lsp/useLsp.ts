@@ -72,7 +72,10 @@ export function resetWorkspaceLsp(): void {
  * virtual file.
  */
 export function useWorkspaceLsp(path: string, text: string): LspSession {
-  const client = useMemo(() => workspaceLspClient(), []);
+  // Transient editors and views borrowing a workspace-owned session pass no path.
+  // They should never open their own workspace connection just to render text.
+  const enabled = path !== "";
+  const client = useMemo(() => enabled ? workspaceLspClient() : null, [enabled]);
   return useLspOver(client, path, text);
 }
 

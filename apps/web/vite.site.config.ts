@@ -16,19 +16,15 @@ function revision(): string {
   catch { return ""; }
 }
 
-/// Emit the entry as `index.html`.
-///
-/// Vite names an HTML output after its input, so a `site.html` entry produces
-/// `dist-site/site.html` — and a static host serves `index.html` at `/`, so
-/// the deployed domain would 404 at its own front door. The entry is not
-/// simply *called* `index.html` because the development server uses that name to open the Simple editor.
+// Publish the read-only Simple Browser entry at the static host's root.
+// Keep index.html in the source tree as the live workspace entry.
 function emitAsIndex(): Plugin {
   return {
     name: "hickory:emit-as-index",
     enforce: "post",
     generateBundle(_options, bundle) {
       for (const [fileName, chunk] of Object.entries(bundle)) {
-        if (fileName === "site.html") {
+        if (fileName === "home.html") {
           delete bundle[fileName];
           chunk.fileName = "index.html";
           bundle["index.html"] = chunk;
@@ -47,7 +43,7 @@ export default defineConfig({
     outDir: "dist-site",
     emptyOutDir: true,
     rollupOptions: {
-      input: { source: resolve(import.meta.dirname, "source.html"), ci: resolve(import.meta.dirname, "ci.html"), snapshot: resolve(import.meta.dirname, "snapshot.html"), site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
+      input: { home: resolve(import.meta.dirname, "home.html"), source: resolve(import.meta.dirname, "source.html"), ci: resolve(import.meta.dirname, "ci.html"), snapshot: resolve(import.meta.dirname, "snapshot.html"), site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
         embed: resolve(import.meta.dirname, "embed.html"), iframe: resolve(import.meta.dirname, "iframe.html"),
       }) },
     },

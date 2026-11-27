@@ -1,14 +1,14 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# The homepage opens with a live, paused debugger
+# The public debugger demo opens paused
 
 For: Prospective users checking what the homepage demonstrates and promises.
 
-Given a developer visiting the homepage, when its static assets load, then
+Given a developer visiting the public demo page at `/site.html`, when its static assets load, then
 one short Markdown document opens with a real browser debug session paused
 at its return statement. The breakpoint, selected frame, highlighted line
 and variables come from executing that document's code.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+The [read-only Simple Browser document](../read-only-homepage/contract.md) now opens at the site root. The paused debugger and engineer tour are available from its demo link.
 
 ## Read the detailed requirements
 
@@ -17,7 +17,7 @@ The existing requirement is retained. Its original detail is below; implementati
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/landing/homepage-opens-paused.md.md). The paragraph ledger records their exact ranges and dispositions.
 
-Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
+The interactive behavior stays on the public demo page. The original homepage placement is recorded below.
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 

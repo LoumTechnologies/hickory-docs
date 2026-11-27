@@ -1897,6 +1897,10 @@ publish its failure. The focused `--delayed-capabilities-only` and
 `--agent-only` browser replays abort the stylesheet after editing and check
 that the failure leaves the editor, history and draft in place.
 
+In the published Simple Browser reader, the host supplies a URL resolver. Its
+links navigate in the browser. Live editors still resolve links against the
+workspace, with the same source-position checks.
+
 <ui:copy id="simple-inline-browser-owners">
 import { Component, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -1913,12 +1917,16 @@ const inlineUnavailable = "Inline rendering unavailable. Continue editing source
 
 // The owners live above pane layout. Moving a cached editor cannot unmount a
 // table's uncommitted cell editor or lose a rendered widget's own local state.
-export function RichOwners({ buffers, recorded = false }: { buffers: Buffers; recorded?: boolean }) {
+type BrowserLink = (target: string) => string | null;
+
+export function RichOwners({ buffers, recorded = false, browserLink }: {
+  buffers: Buffers; recorded?: boolean; browserLink?: BrowserLink;
+}) {
   const [, refresh] = useState(0);
   useEffect(() => { const update = () => refresh(value => value + 1); window.addEventListener(SIMPLE_EDITOR_ATTACHED, update); update(); return () => window.removeEventListener(SIMPLE_EDITOR_ATTACHED, update); }, []);
   return <>{[...buffers.values.values()].map(buffer => {
     const cached = editorForBuffer(buffer);
-    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} keepPatchSource={recorded && buffer.readonly} /></RichBoundary> : null;
+    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} keepPatchSource={recorded && buffer.readonly} browserLink={browserLink} /></RichBoundary> : null;
   })}</>;
 }
 class RichBoundary extends Component<{ buffer: Buffer; view: EditorView; children: React.ReactNode }, { failed: boolean }> {
@@ -1967,7 +1975,9 @@ function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: Rea
 }
 `}</style>{children}</>, root);
 }
-function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: EditorView; keepPatchSource: boolean }) {
+function RichOwner({ buffer, view, keepPatchSource, browserLink }: {
+  buffer: Buffer; view: EditorView; keepPatchSource: boolean; browserLink?: BrowserLink;
+}) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [modules, setModules] = useState<Awaited<ReturnType<typeof load>> | null>(null);
@@ -1988,7 +1998,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => simpleMathSpans(libs, state)),
-        libs.links.mdLinks({
+        browserLink ? libs.publicLinks.publishedProseLinks(browserLink) : libs.links.mdLinks({
           docPath: () => buffer.file.path,
           skip: state => [...libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks),
             ...libs.markdown.fencedCodeRanges(state.doc.toString())].sort(([a], [b]) => a - b),
@@ -2017,7 +2027,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       if (!disposed && editorForBuffer(buffer)?.view === view) buffer.setInlineRenderNotice(inlineUnavailable);
     });
     return () => { disposed = true; stopWaiting?.(); off?.(); const cached = editorForBuffer(buffer); if (cached?.view === view) { cached.richAttached = false; view.dispatch({ effects: cached.prose.reconfigure([]) }); } };
-  }, [buffer, view, keepPatchSource, buffer.text.length > 200_000]);
+  }, [buffer, view, keepPatchSource, browserLink, buffer.text.length > 200_000]);
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => view.requestMeasure()); slots.forEach(slot => observer.observe(slot.el)); return () => observer.disconnect();
@@ -2080,11 +2090,11 @@ async function load() {
   const parser = await import("../editor/hickLang");
   await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
-  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown] = await Promise.all([
+  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown, publicLinks] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),
-    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"), import("../editor/mdLinks"), import("../editor/markdownStyling"),
+    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"), import("../editor/mdLinks"), import("../editor/markdownStyling"), import("../embed/sourceLinks"),
   ]);
-  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown };
+  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss, links, markdown, publicLinks };
 }
 </ui:copy>
 

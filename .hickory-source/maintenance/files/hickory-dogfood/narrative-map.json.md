@@ -141673,6 +141673,22 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "symbol": "test-stable-identities",
       "basis": "explained-behavior",
       "original_range": null
+    },
+    {
+      "id": "site-home-reader",
+      "output": "apps/web/src/simple/main.site.tsx",
+      "page": ".hickory-source/guarantees/landing/read-only-homepage/contract.md",
+      "symbol": "Mount the public read-only Simple Browser document",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "f-31019d3567c7-homepage-reader",
+      "output": "apps/web/e2e/browserEmbedding.spec.ts",
+      "page": ".hickory-source/mechanisms/apps/web/e2e/browserEmbedding.spec.ts.md",
+      "symbol": "Open the published introduction",
+      "basis": "explained-behavior",
+      "original_range": null
     }
   ],
   "explanation_gaps": {

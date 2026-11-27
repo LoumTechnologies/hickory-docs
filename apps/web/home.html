@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Hickory Docs</title>
+    <meta name="description" content="Explore Hickory Docs, an IDE for literate Markdown." />
+    <style>
+      main.site-home {
+        grid-template: minmax(0, 1fr) / clamp(76px, 21vw, 200px) minmax(0, 1fr);
+      }
+      .site-home > aside { border-inline-end: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); }
+      .site-home .tabs span { padding: 5px 8px; }
+      .site-home .file-tree [aria-current] { background: color-mix(in srgb, Highlight 15%, Canvas); padding: 4px; }
+      .site-home .editor-cm-host .cm-content { max-width: 84ch; }
+      .site-home .editor-cm-host .cm-scroller { line-height: 1.55; }
+      .site-home .source-prose-link { color: LinkText; }
+    </style>
+  </head>
+  <body>
+    <div id="root"><p role="status">Opening home.md…</p></div>
+    <script type="module" src="/src/simple/main.site.tsx"></script>
+  </body>
+</html>

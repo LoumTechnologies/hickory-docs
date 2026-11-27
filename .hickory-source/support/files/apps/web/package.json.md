@@ -16,7 +16,7 @@ Captured SHA-256: `5cc9914d2e8e68b7c95fd5750a496ad677c34def92ea1564a2752caccf239
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:site": "vite --open /site.html",
+    "dev:site": "vite --open /home.html",
     "build": "tsc -b && vite build --config vite.simple.config.ts",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",

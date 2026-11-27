@@ -13260,7 +13260,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/landing/homepage-opens-paused.md",
       "page": ".hickory-source/guarantees/landing/homepage-opens-paused/contract.md",
       "domain": "landing",
-      "title": "The homepage opens with a live, paused debugger",
+      "title": "The public debugger demo opens paused",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -13270,7 +13270,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "unresolved_references": [],
       "flags": [],
       "tests": [],
-      "decision": "Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.",
+      "decision": "The interactive example moved to the public demo page. The site root now opens the read-only Simple Browser document.",
       "reason": null,
       "owned": [],
       "annotations": [],
@@ -20337,6 +20337,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-31019d3567c7-expression_statement",
         "f-31019d3567c7-for_in_statement",
         "f-31019d3567c7-expression_statement-2",
+        "f-31019d3567c7-homepage-reader",
         "f-31019d3567c7-expression_statement-3",
         "f-31019d3567c7-expression_statement-4",
         "f-31019d3567c7-expression_statement-5",
@@ -68039,6 +68040,23 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "configuration",
       "sha256": "cc970d86e19a8edd2624bb67c05169c2ed30251fb0902cd2972c5cdd382c5f7f"
+    },
+    "apps/web/home.html": {
+      "source": ".hickory-source/guarantees/landing/read-only-homepage/contract.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/web/src/simple/main.site.tsx": {
+      "source": ".hickory-source/guarantees/landing/read-only-homepage/contract.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "site-home-reader"
+      ],
+      "narrative_owner": "landing:read-only-homepage"
     }
   },
   "evidence_records": [

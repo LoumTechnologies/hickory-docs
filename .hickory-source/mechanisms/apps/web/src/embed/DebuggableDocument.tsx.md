@@ -45,6 +45,11 @@ export interface DebuggableDocumentProps extends DocumentEmbedProps {
 <a id="f-b948f7ea7230-DebuggableDocument"></a>
 ### `DebuggableDocument`
 
+The debugger owns the transition between runs. When a visitor edits the demo
+and restarts, the old run is replaced once the new launch has prepared its
+source. The [demo browser witness](../../e2e/browserEmbedding.spec.ts.md#f-31019d3567c7-expression_statement-3)
+checks that the original run pauses and Restart executes the edited source.
+
 <storycode:copy id="f-b948f7ea7230-DebuggableDocument">
 export function DebuggableDocument(props: DebuggableDocumentProps) {
   const runtimeHistory = useBrowserRuns(props.path);
@@ -100,7 +105,10 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   useEffect(() => {
     view?.dispatch({ effects: debugStateEffects(stale ? { ...debug, breakpoints: [], pausedLine: null, frames: [], variables: [], watches: [] } : debug) });
   }, [view, debug, stale]);
-  const start = () => { debug.stop(); setOutput(""); debug.start(); };
+  // Start replaces its owned session after preparing the new source. A
+  // separate Stop can acknowledge the old session during that preparation
+  // and retire the new launch before it reaches the browser worker.
+  const start = () => { setOutput(""); debug.start(); };
   const [session, setSession] = useState<string | null>(null);
   useEffect(() => backend?.client.on((event) => {
     if (event.event === "started") setSession(event.session);

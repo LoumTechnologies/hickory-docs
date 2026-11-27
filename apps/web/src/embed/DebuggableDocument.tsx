@@ -77,7 +77,10 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   useEffect(() => {
     view?.dispatch({ effects: debugStateEffects(stale ? { ...debug, breakpoints: [], pausedLine: null, frames: [], variables: [], watches: [] } : debug) });
   }, [view, debug, stale]);
-  const start = () => { debug.stop(); setOutput(""); debug.start(); };
+  // Start replaces its owned session after preparing the new source. A
+  // separate Stop can acknowledge the old session during that preparation
+  // and retire the new launch before it reaches the browser worker.
+  const start = () => { setOutput(""); debug.start(); };
   const [session, setSession] = useState<string | null>(null);
   useEffect(() => backend?.client.on((event) => {
     if (event.event === "started") setSession(event.session);

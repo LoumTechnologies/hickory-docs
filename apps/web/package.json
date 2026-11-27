@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:site": "vite --open /site.html",
+    "dev:site": "vite --open /home.html",
     "build": "tsc -b && vite build --config vite.simple.config.ts",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",

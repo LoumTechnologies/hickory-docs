@@ -29,8 +29,12 @@ export function sourceHref(target: string, path: string, index: LinkIndex): stri
   } catch { return null; }
 }
 
-/** Decorate prose only. The source string and its byte provenance remain unchanged. */
 export function sourceLinks(path: string, index: LinkIndex): Extension {
+  return publishedProseLinks(target => sourceHref(target, path, index));
+}
+
+/** Give public readers native links without editing source or navigating literal code. */
+export function publishedProseLinks(resolveHref: (target: string) => string | null): Extension {
   const field = StateField.define<DecorationSet>({
     create(state) {
       const source = state.doc.toString();
@@ -51,7 +55,7 @@ export function sourceLinks(path: string, index: LinkIndex): Extension {
         const open = marks.find(mark => source.slice(mark.from, mark.to) === "[");
         const close = marks.find(mark => source.slice(mark.from, mark.to) === "]");
         if (!url || !open || !close || close.from <= open.to) return;
-        const href = sourceHref(source.slice(url.from, url.to), path, index);
+        const href = resolveHref(source.slice(url.from, url.to));
         if (!href) return;
         ranges.push(Decoration.replace({}).range(node.from, open.to));
         ranges.push(Decoration.mark({ tagName: "a", class: "source-prose-link", attributes: { href } }).range(open.to, close.from));

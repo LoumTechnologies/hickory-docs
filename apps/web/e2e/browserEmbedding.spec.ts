@@ -109,8 +109,43 @@ test("errors, unsupported syntax, stale source and immediate Stop", async ({ pag
   await expect(page.locator(".hickory-browser-debug")).toHaveAttribute("data-status", "idle");
 });
 
-test("homepage loads genuinely paused, edits with a visible caret and restarts", async ({ page }) => {
-  const unexpected = await noEngine(page); await page.goto("/");
+test("homepage opens the published Markdown in a read-only Simple Browser editor", async ({ page }) => {
+  const unexpected = await noEngine(page);
+  const source = await readFile(new URL("../../../.hickory-source/guarantees/landing/read-only-homepage/home.md", import.meta.url), "utf8");
+  const firstLine = source.split(/\r?\n/).find(line => line.trim()) ?? "";
+  const heading = /^# .+/m.test(source);
+
+  let releaseParser = () => {};
+  const parserReady = new Promise<void>(release => { releaseParser = release; });
+  await page.route("**/*.wasm", async route => { await parserReady; await route.continue(); });
+  try {
+    await page.goto("/");
+    const editor = page.getByRole("textbox", { name: "home.md" });
+    await expect(page.getByRole("complementary", { name: "Files" })).toContainText("home.md");
+    await expect(page.getByLabel("Document status")).toHaveText("Read-only");
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    await expect(editor.locator(".cm-line").first()).toHaveText(firstLine);
+    const mounted = await editor.elementHandle();
+    await editor.click();
+    await page.keyboard.type("visitor edit");
+    await expect(editor).not.toContainText("visitor edit");
+
+    releaseParser();
+    if (heading) await expect(editor.locator(".cm-md-h1").first()).toBeVisible();
+    expect(await mounted?.evaluate(element => element === document.querySelector('[aria-label="home.md"].cm-content'))).toBe(true);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    if (source.includes("](/site.html)")) {
+      await editor.getByRole("link").and(editor.locator('a[href$="/site.html"]')).first().click();
+      await expect(page).toHaveURL(/\/site\.html$/);
+    }
+    expect(unexpected).toEqual([]);
+  } finally {
+    releaseParser();
+  }
+});
+
+test("homepage debugger demo loads genuinely paused, edits with a visible caret and restarts", async ({ page }) => {
+  const unexpected = await noEngine(page); await page.goto("/site.html");
   const demo = page.locator("section", { has: page.getByRole("heading", { name: "Try a note. It’s already paused." }) });
   const pane = demo.getByRole("group", { name: "hello.md" });
   await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
@@ -128,9 +163,13 @@ test("homepage loads genuinely paused, edits with a visible caret and restarts",
   await page.keyboard.type("A ");
   await expect(demo.getByRole("status").filter({ hasText: "Running previous revision" })).toBeVisible();
   await demo.getByRole("button", { name: "Restart with edits" }).click();
-  await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
-  await demo.getByRole("button", { name: "Step out", exact: true }).click();
+  // The seeded breakpoint belongs to the original source revision. Restart
+  // executes the edited revision with no inherited breakpoint.
+  await expect(demo.locator(".hickory-browser-debug")).toHaveAttribute("data-status", "finished");
   await expect(demo.getByLabel("Program output")).toHaveText("Hello, developer\n");
+  const latest = demo.getByRole("region", { name: "Runtime run history" }).getByText(/completed · latest captured run/);
+  await expect(latest).toBeVisible();
+  await expect(latest).not.toContainText("source changed (stale)");
   await page.getByLabel("Debug language").selectOption("js");
   await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
   await demo.getByRole("button", { name: "Continue", exact: true }).click();
@@ -376,9 +415,9 @@ test("static assets and debugger work below a deployment prefix with scoped CSP"
 });
 
 // Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
-test("homepage engineer tour executes the counterexample and correction", async ({ page }) => {
+test("homepage demo tour executes the counterexample and correction", async ({ page }) => {
   const unexpected = await noEngine(page);
-  await page.goto("/");
+  await page.goto("/site.html");
   await page.getByRole("button", { name: "AI engineer tour", exact: true }).click();
   const tour = page.getByRole("region", { name: "AI engineer tour" });
   await tour.getByRole("button", { name: "Continue", exact: true }).click();

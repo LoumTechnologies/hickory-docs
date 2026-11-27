@@ -3,7 +3,7 @@
 
 For: Authors editing executable documents and the files those documents produce.
 
-Given the AI engineer tour on the homepage or in the application, the same
+Given the AI engineer tour on the [public demo page](../../landing/homepage-opens-paused/contract.md) or in the application, the same
 scenario identifies meeting evidence, a requirement, a recorded agent mistake,
 a precise objection, a failing counterexample and a corrected implementation.
 Agent proposals are labeled recorded examples. Browser execution uses the product
