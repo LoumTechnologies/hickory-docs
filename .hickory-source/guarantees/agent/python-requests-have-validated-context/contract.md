@@ -201,6 +201,14 @@ class MemoryContext:
 <a id="f-778ee53bd3ed-HostedContext"></a>
 ### `HostedContext`
 
+Each Python construction is registered with the host before the request goes
+out. The host already retains the imported nodes and production receipts. A
+large read can make the next frame exceed 1 MiB if the worker sends that
+history again alongside the selected parts. Send the request with its
+references and let Rust restore the retained records for validation and the
+session's full manifest. The worker's prepared-request record uses the same
+smaller payload.
+
 <storycode:copy id="f-778ee53bd3ed-HostedContext">
 class HostedContext(MemoryContext):
     def __init__(self, broker, bootstrap_references=()):
@@ -253,6 +261,8 @@ class HostedContext(MemoryContext):
             if node['id'] not in self.registered and node['id'] not in self.external:
                 self.broker.call('context.derive', {'idempotency_key': node['id'], 'node': node})
                 self.registered.add(node['id'])
+        bundle['nodes'] = []
+        bundle['productions'] = []
         return bundle
 </storycode:copy>
 
@@ -309,6 +319,11 @@ from hickory_agent_worker.core import Agent, Config
 </storycode:copy>
 <a id="f-c807e1692e39-ContextRuntimeTests"></a>
 ### `ContextRuntimeTests`
+
+The hosted transport witness gives the worker enough retained context to
+overflow a frame containing the full ledger. Both the prepared-request record
+and the inference request must fit, and restoring the registered nodes must
+recover the exact selected Unicode text and its lineage.
 
 <storycode:copy id="f-c807e1692e39-ContextRuntimeTests">
 class ContextRuntimeTests(unittest.TestCase):
@@ -423,6 +438,41 @@ class ContextRuntimeTests(unittest.TestCase):
         self.assertEqual(broker.polls, 1)
         self.assertEqual(len(messages), 1)
         self.assertIn('reread', messages[0]['content'])
+
+    def test_hosted_frames_do_not_resend_the_retained_ledger(self):
+        from io import StringIO
+        from hickory_agent_worker.runtime import Broker
+
+        class Host:
+            def __init__(self):
+                self.nodes = []
+
+            def call(self, method, params):
+                if method == 'context.hello':
+                    return {'cursor': {'branch': 'test'}}
+                if method == 'context.derive':
+                    self.nodes.append(params['node'])
+                    return {}
+                raise AssertionError(method)
+
+        host = Host()
+        context = HostedContext(host)
+        parents = [context.register(str(i) * 260_000)['id'] for i in range(3)]
+        selected = 'é' * 60_000
+        node = context.register(selected, parents)
+        bundle = context.prepare([{'role': 'user', 'content': selected}])
+        wire = Broker(StringIO(), StringIO())
+        reconstructed = validate_bundle(dict(bundle, nodes=host.nodes))
+        part = reconstructed['request']['parts'][0]
+        self.assertEqual(part['text'], selected)
+        self.assertEqual(part['segments'][0]['node'], node['id'])
+        self.assertEqual(reconstructed['nodes'][-1]['parents'], parents)
+        with self.assertRaisesRegex(RuntimeError, 'Oversized worker frame'):
+            wire.send({'id': 1, 'method': 'inference', 'params': {'manifest': reconstructed}})
+        wire.send({'id': 1, 'method': 'record',
+                   'params': {'kind': 'context-prepared', 'data': bundle}})
+        wire.send({'id': 2, 'method': 'inference', 'params': {'manifest': bundle}})
+        self.assertEqual(len(wire.writer.getvalue().splitlines()), 2)
 
 
 </storycode:copy>

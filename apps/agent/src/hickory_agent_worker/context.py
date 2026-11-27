@@ -153,4 +153,6 @@ class HostedContext(MemoryContext):
             if node['id'] not in self.registered and node['id'] not in self.external:
                 self.broker.call('context.derive', {'idempotency_key': node['id'], 'node': node})
                 self.registered.add(node['id'])
+        bundle['nodes'] = []
+        bundle['productions'] = []
         return bundle

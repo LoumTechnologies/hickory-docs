@@ -119,6 +119,41 @@ class ContextRuntimeTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn('reread', messages[0]['content'])
 
+    def test_hosted_frames_do_not_resend_the_retained_ledger(self):
+        from io import StringIO
+        from hickory_agent_worker.runtime import Broker
+
+        class Host:
+            def __init__(self):
+                self.nodes = []
+
+            def call(self, method, params):
+                if method == 'context.hello':
+                    return {'cursor': {'branch': 'test'}}
+                if method == 'context.derive':
+                    self.nodes.append(params['node'])
+                    return {}
+                raise AssertionError(method)
+
+        host = Host()
+        context = HostedContext(host)
+        parents = [context.register(str(i) * 260_000)['id'] for i in range(3)]
+        selected = 'é' * 60_000
+        node = context.register(selected, parents)
+        bundle = context.prepare([{'role': 'user', 'content': selected}])
+        wire = Broker(StringIO(), StringIO())
+        reconstructed = validate_bundle(dict(bundle, nodes=host.nodes))
+        part = reconstructed['request']['parts'][0]
+        self.assertEqual(part['text'], selected)
+        self.assertEqual(part['segments'][0]['node'], node['id'])
+        self.assertEqual(reconstructed['nodes'][-1]['parents'], parents)
+        with self.assertRaisesRegex(RuntimeError, 'Oversized worker frame'):
+            wire.send({'id': 1, 'method': 'inference', 'params': {'manifest': reconstructed}})
+        wire.send({'id': 1, 'method': 'record',
+                   'params': {'kind': 'context-prepared', 'data': bundle}})
+        wire.send({'id': 2, 'method': 'inference', 'params': {'manifest': bundle}})
+        self.assertEqual(len(wire.writer.getvalue().splitlines()), 2)
+
 
 if __name__ == '__main__':
     unittest.main()
