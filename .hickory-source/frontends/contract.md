@@ -80,7 +80,9 @@ Use **Edit → Insert element…** in a writable literate Markdown document to
 choose a Hickory or Markdown element. The form shows the source it will write.
 Confirm to insert the element into the current draft in one undo step. The
 pencil in the right gutter opens the same fields for the element on that line.
-If multiple elements start on one line, the pencil opens a choice. Apply checks
+If multiple elements start on one line, the pencil opens a choice. Scroll the
+picker to reach the full list while the document stays at its current position.
+Apply checks
 that the original editor and source are still current before changing the draft.
 The [element authoring chapter](element-authoring.md) follows the shared form and
 the browser, Apple and Android edit paths.

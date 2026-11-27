@@ -11,7 +11,19 @@
   max-height: calc(100dvh - 24px);
 }
 .element-dialog::backdrop { background: transparent; }
-.element-authoring { box-sizing: border-box; padding: 12px; }
+.element-authoring-native {
+  margin: 0;
+  --element-panel-height: 100dvh;
+}
+.element-authoring {
+  box-sizing: border-box;
+  padding: 12px;
+  max-height: var(--element-panel-height, min(490px, calc(100dvh - 26px)));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.element-authoring[data-choosing="true"] { display: flex; flex-direction: column; }
+.element-authoring[data-choosing="true"] > :not(.element-options) { flex-shrink: 0; }
 .element-authoring header { display: flex; align-items: center; justify-content: space-between; }
 .element-authoring button, .element-authoring input, .element-authoring textarea, .element-authoring select {
   font: inherit;
@@ -41,7 +53,12 @@
   margin: 4px 0 0;
 }
 .element-authoring .element-search { width: 100%; box-sizing: border-box; margin: 10px 0 6px; }
-.element-options { max-height: min(330px, 60dvh); overflow: auto; }
+.element-options {
+  min-height: min(5em, 45dvh);
+  grid-auto-rows: max-content;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .element-options button { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; text-align: left; }
 .element-options small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .element-options span { flex-shrink: 0; }

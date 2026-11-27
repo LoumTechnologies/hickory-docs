@@ -48,6 +48,9 @@ struct StartupSourceObservation {
     }
     var debugInspection=UUID()
     var elementForm: NativeElementIntent?
+    #if os(macOS)
+    @ObservationIgnored weak var elementFormSurface: NSView?
+    #endif
     var elementLines: (revision: UUID, lines: Set<Int>)?
     var elementFormError = ""
     @ObservationIgnored var applyElementDraft: ((NativeSourceEdit, String, NSRange) -> Bool)?

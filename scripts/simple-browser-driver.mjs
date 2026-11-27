@@ -395,6 +395,29 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "element-scroll": {
+          const viewport = page.viewportSize();
+          await page.setViewportSize({ width: viewport.width, height: 300 });
+          try {
+            const scroller = editor(request.path).locator("xpath=ancestor::div[contains(@class,'cm-scroller')][1]");
+            const sourceTop = await scroller.evaluate(node => node.scrollTop);
+            await menu("Edit", "Insert element…");
+            const picker = page.getByRole("dialog", { name: "Insert element", exact: true });
+            const options = picker.getByRole("region", { name: "Available elements" });
+            const last = options.getByRole("button").last();
+            await expect(last).not.toBeInViewport();
+            await options.hover();
+            await page.mouse.wheel(0, 10000);
+            await expect(last).toBeInViewport({ ratio: 0.98 });
+            await page.mouse.wheel(0, 10000);
+            await expect(last).toBeInViewport({ ratio: 0.98 });
+            await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBe(sourceTop);
+            await last.click();
+            await expect(picker.getByRole("heading")).toBeVisible();
+            await picker.getByRole("button", { name: "Close element form" }).click();
+          } finally { await page.setViewportSize(viewport); }
+          break;
+        }
         case "element-insert": {
           await menu("Edit", "Insert element…");
           await page.getByRole("textbox", { name: "Find an element" }).fill(request.query);

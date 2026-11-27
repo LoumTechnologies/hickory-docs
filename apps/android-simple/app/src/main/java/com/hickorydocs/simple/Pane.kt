@@ -872,28 +872,29 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         val last = layout.getLineForOffset(editorDisplayOffset(to, replacements).coerceAtMost(display.length))
         (layout.getLineTop(first) - scroll.value) to (layout.getLineBottom(last) - scroll.value)
     })
-    // Mouse wheels retain their recipient until physical pointer movement;
-    // touch drags keep their native nested-scroll behavior.
-    Box(modifier.pointerInput(buffer) {
-        var pointer: Offset? = null
-        var documentOwns: Boolean? = null
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                val change = event.changes.firstOrNull() ?: continue
-                if (pointer != change.position) { documentOwns = null; pointer = change.position }
-                if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Scroll) {
-                    if (documentOwns == null) documentOwns = nestedWheelRanges.none { change.position.y >= it.first && change.position.y <= it.second }
-                    if (documentOwns == true) {
-                        val delta = change.scrollDelta.y * wheelScale
-                        event.changes.forEach { it.consume() }
-                        scope.launch { scroll.scrollTo((scroll.value + delta).toInt().coerceIn(0, scroll.maxValue)) }
+    Box(modifier) {
+        // Keep the editor's wheel recipient across gestures at the same
+        // pointer position. Floating forms are siblings of this row, so
+        // their WebView gets the wheel without the editor consuming it.
+        Row(Modifier.fillMaxSize().pointerInput(buffer) {
+            var pointer: Offset? = null
+            var documentOwns: Boolean? = null
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull() ?: continue
+                    if (pointer != change.position) { documentOwns = null; pointer = change.position }
+                    if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Scroll) {
+                        if (documentOwns == null) documentOwns = nestedWheelRanges.none { change.position.y >= it.first && change.position.y <= it.second }
+                        if (documentOwns == true) {
+                            val delta = change.scrollDelta.y * wheelScale
+                            event.changes.forEach { it.consume() }
+                            scope.launch { scroll.scrollTo((scroll.value + delta).toInt().coerceIn(0, scroll.maxValue)) }
+                        }
                     }
                 }
             }
-        }
-    }) {
-        Row(Modifier.fillMaxSize()) {
+        }) {
             BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().clipToBounds()) {
                 val density = LocalDensity.current
                 val layout = textLayout

@@ -1310,6 +1310,12 @@ private struct EquationLayout: Equatable {
             if self.wheelPointer != pointer || event.type != .scrollWheel { self.wheelOwner = nil; self.wheelPointer = pointer }
             guard event.type == .scrollWheel, event.window === self.scroll.window,
                   self.scroll.bounds.contains(self.scroll.convert(event.locationInWindow, from: nil)) else { return event }
+            // The floating form overlaps TextKit's frame. Leave its wheel
+            // events to WebKit even if the editor held the stationary pointer.
+            if self.buffer.elementFormContainsWheel(at: event.locationInWindow, in: event.window) {
+                self.wheelOwner = nil
+                return event
+            }
             let hit = self.scroll.hitTest(self.scroll.convert(event.locationInWindow, from: nil))
             let target = (hit as? NSScrollView) ?? hit?.enclosingScrollView ?? self.scroll
             if self.wheelOwner == nil { self.wheelOwner = target }

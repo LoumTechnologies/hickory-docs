@@ -390,7 +390,7 @@ export function ElementAuthoring({ reading, range, targets, close, apply }: Form
   const origin = target ?? range;
   const selected = reading.source.slice(origin.from, origin.to);
 
-  return <section className="element-authoring" aria-label={title}>
+  return <section className="element-authoring" data-choosing={!option} aria-label={title}>
     <header><strong>{title}</strong><button type="button" aria-label="Close element form" onClick={close}>×</button></header>
     {option ? <>
       {(targets?.length !== 1) && <button className="element-back" type="button" onClick={() => { setTarget(undefined); setOption(undefined); setFailure(""); }}>← Choose an element</button>}
@@ -401,7 +401,7 @@ export function ElementAuthoring({ reading, range, targets, close, apply }: Form
       {!editing && <input onKeyDown={event => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing && results.length) { event.preventDefault(); setOption(results[0]); }
       }} className="element-search" aria-label="Find an element" placeholder="Find an element" value={query} onChange={e => setQuery(e.target.value)} autoFocus />}
-      <div className="element-options">
+      <div className="element-options" role="region" aria-label="Available elements" tabIndex={0}>
         {matches.map((item, index) => <button type="button" key={item.id + ":" + index} onClick={() => {
           setTarget(targets?.[index]); setOption(item);
         }}>
@@ -560,6 +560,11 @@ export function elementsByLine(reading: ElementReading): Map<number, ElementTarg
 
 Use mixed line endings, non-default namespaces and opaque attributes to test what the source edit preserves. Exercise the same form and revision-bound bridge used by the native hosts. The [browser witness](scripts/test-simple-browser.py.md) drives the menu and gutter on a live workspace with `python3 scripts/test-simple-browser.py --element-authoring-only`.
 
+The browser witness also wheels through the full list at a short window height
+and checks that the source pane stays still even at the end of the list. The
+[AppKit test](apps/apple-simple/Tests/ParityTests.swift.md) checks that the editor
+yields wheel input only inside the attached, open form.
+
 The focused browser run confirmed insertion and gutter edits, two isolated
 Undo steps, unchanged editor bounds and unchanged on-disk CRLF bytes. The
 local form bundle loaded and returned an edit in Chromium and WebKit. The
@@ -701,7 +706,9 @@ it("binds native gutter readings and submissions to the document revision and re
 
 ## Keep the controls floating
 
-Keep the palette scrollable within a small floating surface. The editor retains its size and scroll position while the palette is open.
+Size the panel to its host viewport and let the option list take the space below
+the title and search. The list owns wheel and keyboard scrolling, including at its
+ends. A tall form scrolls inside the same panel.
 
 <authoring:copy id="element-authoring-style">
 .element-dialog, .element-authoring {
@@ -717,7 +724,19 @@ Keep the palette scrollable within a small floating surface. The editor retains 
   max-height: calc(100dvh - 24px);
 }
 .element-dialog::backdrop { background: transparent; }
-.element-authoring { box-sizing: border-box; padding: 12px; }
+.element-authoring-native {
+  margin: 0;
+  --element-panel-height: 100dvh;
+}
+.element-authoring {
+  box-sizing: border-box;
+  padding: 12px;
+  max-height: var(--element-panel-height, min(490px, calc(100dvh - 26px)));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.element-authoring[data-choosing="true"] { display: flex; flex-direction: column; }
+.element-authoring[data-choosing="true"] > :not(.element-options) { flex-shrink: 0; }
 .element-authoring header { display: flex; align-items: center; justify-content: space-between; }
 .element-authoring button, .element-authoring input, .element-authoring textarea, .element-authoring select {
   font: inherit;
@@ -747,7 +766,12 @@ Keep the palette scrollable within a small floating surface. The editor retains 
   margin: 4px 0 0;
 }
 .element-authoring .element-search { width: 100%; box-sizing: border-box; margin: 10px 0 6px; }
-.element-options { max-height: min(330px, 60dvh); overflow: auto; }
+.element-options {
+  min-height: min(5em, 45dvh);
+  grid-auto-rows: max-content;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .element-options button { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; text-align: left; }
 .element-options small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .element-options span { flex-shrink: 0; }
@@ -758,6 +782,8 @@ Keep the palette scrollable within a small floating surface. The editor retains 
 
 ## Apply through the browser source editor
 
+The menu reads buffer eligibility. At invocation the command checks that the
+editor is mounted and current, since it attaches separately when a tab opens.
 Capture the originating buffer, source revision and editor intent before the palette moves focus. Apply one isolated undo transaction through the authored-text adapter, which converts UTF-16 positions without changing existing line separators.
 
 <authoring:copy id="element-authoring-browser">
@@ -891,7 +917,7 @@ Both native hosts load this local page with no remote resources. The bridge trea
 <link rel="stylesheet" href="node_modules/element-authoring.css">
 <script defer src="node_modules/element-authoring.js"></script>
 </head>
-<body><main id="elements"></main></body>
+<body class="element-authoring-native"><main id="elements"></main></body>
 </html>
 </authoring:copy>
 
@@ -899,7 +925,9 @@ Both native hosts load this local page with no remote resources. The bridge trea
 
 ## Bind the shared form to the Apple editor
 
-Show the controls in an overlay while the native text editor retains its geometry. Accept a plan only from the local page and only while the original TextKit view, source revision, selection and permission remain current. Apply it through the same undo-aware edit path as other native actions.
+Show the controls in an overlay while the native text editor retains its geometry.
+The AppKit wheel monitor checks the active WebKit surface first because the
+overlay and TextKit can occupy the same window coordinates. Accept a plan only from the local page and only while the original TextKit view, source revision, selection and permission remain current. Apply it through the same undo-aware edit path as other native actions.
 
 <authoring:copy id="element-authoring-apple">
 import SwiftUI
@@ -910,6 +938,14 @@ import WebKit
         !readOnly && !resourceDeleted && !saving &&
             (file.doc_id != nil || ["md", "markdown"].contains((file.path as NSString).pathExtension.lowercased()))
     }
+
+    #if os(macOS)
+    func elementFormContainsWheel(at point: NSPoint, in window: NSWindow?) -> Bool {
+        guard elementForm != nil, let surface = elementFormSurface,
+              let window, surface.window === window else { return false }
+        return surface.bounds.contains(surface.convert(point, from: nil))
+    }
+    #endif
 
     func closeElementForm() {
         elementForm = nil
@@ -1063,6 +1099,9 @@ struct NativeElementIntent {
         let web = WKWebView(frame: .zero, configuration: configuration)
         web.navigationDelegate = self
         view = web
+        #if os(macOS)
+        buffer.elementFormSurface = web
+        #endif
         let owner = Bundle(for: MathCoordinator.self)
         let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
                      URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
@@ -1080,6 +1119,9 @@ struct NativeElementIntent {
     func dismantle(_ view: WKWebView) {
         readTask?.cancel()
         self.view = nil
+        #if os(macOS)
+        if buffer.elementFormSurface === view { buffer.elementFormSurface = nil }
+        #endif
         view.stopLoading()
         view.navigationDelegate = nil
         view.configuration.userContentController.removeScriptMessageHandler(forName: "elements")

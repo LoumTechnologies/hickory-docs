@@ -868,7 +868,7 @@ its cursor position or save state.
       {commandMenu("File")}
     </div></details><details><summary>Edit</summary><div className="menu">
       {commandMenu("Edit")}
-      <button type="button" disabled={!elementParserReady || !canAuthorElements(buffer) || !editorForBuffer(buffer)?.view.dom.isConnected}
+      <button type="button" disabled={!elementParserReady || !canAuthorElements(buffer)}
         onClick={() => { if (buffer && !insertDocumentElement(buffer)) setNotice("Choose a single selection in the editable document, then reopen Insert element."); }}>Insert element…</button>
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">

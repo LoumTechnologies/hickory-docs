@@ -47,6 +47,28 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    #if os(macOS)
+    @MainActor func testElementFormOwnsWheelInsideItsWindow() {
+        // Contract: .hickory-source/frontends/contract.md
+        let file = FileNode(name: "note.md", path: "note.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "# Note", hash: "base"))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let surface = NSView(frame: NSRect(x: 240, y: 16, width: 350, height: 360))
+        window.contentView?.addSubview(surface)
+        buffer.elementFormSurface = surface
+        let inside = surface.convert(NSPoint(x: 80, y: 80), to: nil)
+        let outside = surface.convert(NSPoint(x: -20, y: 80), to: nil)
+        XCTAssertFalse(buffer.elementFormContainsWheel(at: inside, in: window))
+        buffer.elementForm = NativeElementIntent(buffer: buffer, editor: UUID(), range: NSRange(location: 0, length: 0), line: nil)
+        XCTAssertTrue(buffer.elementFormContainsWheel(at: inside, in: window))
+        XCTAssertFalse(buffer.elementFormContainsWheel(at: outside, in: window))
+        XCTAssertFalse(buffer.elementFormContainsWheel(at: inside, in: nil))
+        surface.removeFromSuperview()
+        XCTAssertFalse(buffer.elementFormContainsWheel(at: inside, in: window))
+    }
+    #endif
+
     func testWorkspaceAnalysisScopeCountsUnknownAndGeneratedSources() {
         // Contract: .hickory-source/frontends/contract.md
         let a=FileNode(name:"a.py",path:"src/a.py",dir:false,language:"python")

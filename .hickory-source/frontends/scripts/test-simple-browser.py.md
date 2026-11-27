@@ -1364,6 +1364,8 @@ def embedded_acceptance(driver, folder):
 
 # Contract: .hickory-source/frontends/contract.md
 def element_authoring_acceptance(driver, folder):
+    driver.act("open", path="scroll.md")
+    driver.act("element-scroll", path="scroll.md")
     path = "element-authoring.md"
     source = "# Before\r\n\r\nPlain prose.\r\n"
     driver.act("open", path=path)

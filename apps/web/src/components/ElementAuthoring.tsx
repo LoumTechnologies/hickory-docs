@@ -29,7 +29,7 @@ export function ElementAuthoring({ reading, range, targets, close, apply }: Form
   const origin = target ?? range;
   const selected = reading.source.slice(origin.from, origin.to);
 
-  return <section className="element-authoring" aria-label={title}>
+  return <section className="element-authoring" data-choosing={!option} aria-label={title}>
     <header><strong>{title}</strong><button type="button" aria-label="Close element form" onClick={close}>×</button></header>
     {option ? <>
       {(targets?.length !== 1) && <button className="element-back" type="button" onClick={() => { setTarget(undefined); setOption(undefined); setFailure(""); }}>← Choose an element</button>}
@@ -40,7 +40,7 @@ export function ElementAuthoring({ reading, range, targets, close, apply }: Form
       {!editing && <input onKeyDown={event => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing && results.length) { event.preventDefault(); setOption(results[0]); }
       }} className="element-search" aria-label="Find an element" placeholder="Find an element" value={query} onChange={e => setQuery(e.target.value)} autoFocus />}
-      <div className="element-options">
+      <div className="element-options" role="region" aria-label="Available elements" tabIndex={0}>
         {matches.map((item, index) => <button type="button" key={item.id + ":" + index} onClick={() => {
           setTarget(targets?.[index]); setOption(item);
         }}>

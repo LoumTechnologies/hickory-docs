@@ -7,6 +7,14 @@ import WebKit
             (file.doc_id != nil || ["md", "markdown"].contains((file.path as NSString).pathExtension.lowercased()))
     }
 
+    #if os(macOS)
+    func elementFormContainsWheel(at point: NSPoint, in window: NSWindow?) -> Bool {
+        guard elementForm != nil, let surface = elementFormSurface,
+              let window, surface.window === window else { return false }
+        return surface.bounds.contains(surface.convert(point, from: nil))
+    }
+    #endif
+
     func closeElementForm() {
         elementForm = nil
         focusSource?()
@@ -159,6 +167,9 @@ struct NativeElementIntent {
         let web = WKWebView(frame: .zero, configuration: configuration)
         web.navigationDelegate = self
         view = web
+        #if os(macOS)
+        buffer.elementFormSurface = web
+        #endif
         let owner = Bundle(for: MathCoordinator.self)
         let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
                      URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
@@ -176,6 +187,9 @@ struct NativeElementIntent {
     func dismantle(_ view: WKWebView) {
         readTask?.cancel()
         self.view = nil
+        #if os(macOS)
+        if buffer.elementFormSurface === view { buffer.elementFormSurface = nil }
+        #endif
         view.stopLoading()
         view.navigationDelegate = nil
         view.configuration.userContentController.removeScriptMessageHandler(forName: "elements")
