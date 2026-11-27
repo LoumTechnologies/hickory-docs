@@ -5,7 +5,13 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The workspace owns the session so moving or hiding its tab retains the literate draft and in-flight send. Explicit subscription choices always use the Hickory Python backend; the backend refuses missing runtime or sign-in rather than selecting an API provider. Durable history refreshes independently and stops when unmounted.
 
-Render prompts and answers through the installed Markdown parser. Walk its syntax tree into a small allowlist of React elements so nested emphasis and headings follow Markdown boundaries, while code stays literal. Unknown constructs remain text; raw HTML never executes. Rendering only observes the retained messages.
+Prompts, provisional answers and accepted answers use the same Document surface as
+files and the response draft. Mount readable text immediately; parser readiness
+only adds capabilities to that editor. Keep the answer buffer and editor identity
+when a running turn becomes recorded, so selection and scroll survive. Provisional
+answers remain immutable and gain recorded fence actions only after the host has
+accepted their exact source. Plain Markdown follows this same path, so adding a
+code fence does not replace the reading surface.
 
 A composer’s source replacement uses the shared authored edit builder, preserving explicit CRLF and mixed separators along with the existing editor history. Read checks compare exact authored content rather than normalized display text.
 
@@ -30,12 +36,10 @@ Format tool payloads only for reading: preserve raw input/result and JSON lexeme
 
 <ui:copy id="simple-981c695688-0">
 import {authoredSource,authoredChanges,normalizedSource} from './SourceText';
-import { createElement, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Compartment, StateEffect, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { markdownLanguage } from "@codemirror/lang-markdown";
-import type { SyntaxNode } from "@lezer/common";
 import { Buffer, Buffers } from "./buffers";
 import type {AgentEditorContext} from "../api/agentTypes";
 import { projectionEstimate } from "../lib/contextProjection";
@@ -59,39 +63,6 @@ import type { TerminalSession } from "../api/types";
 import { simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
 import type { ReviewRecordedPatch } from "./AgentProposalAdapter";
-export function MarkdownMessage({ text }: { text: string }) {
-  const render = (node: SyntaxNode): ReactNode => {
-    const literal = text.slice(node.from, node.to);
-    if (node.name === "FencedCode" || node.name === "CodeBlock") {
-      const body = node.getChildren("CodeText").map(child => text.slice(child.from, child.to)).join("\n");
-      return <pre key={node.from}><code>{body}</code></pre>;
-    }
-    if (node.name === "InlineCode") {
-      const marks = node.getChildren("CodeMark");
-      let body = text.slice(marks[0].to, marks.at(-1)!.from).replace(/\n/g, " ");
-      if (/^ .* $/.test(body) && /[^ ]/.test(body)) body = body.slice(1, -1);
-      return <code key={node.from}>{body}</code>;
-    }
-    if (node.name === "Escape") return literal.slice(1);
-    const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name);
-    const tags: Record<string, string> = { Paragraph: "p", StrongEmphasis: "strong", Emphasis: "em",
-      BulletList: "ul", OrderedList: "ol", ListItem: "li", Blockquote: "blockquote" };
-    const tag = heading ? `h${heading[1]}` : tags[node.name];
-    // Unhandled syntax, including HTML and links, remains readable literal text.
-    // Only known tags enter the DOM; message text never becomes HTML or a URL.
-    if (!tag && node.name !== "Document") return literal;
-    const children: ReactNode[] = [];
-    let offset = node.from;
-    for (let child = node.firstChild; child; child = child.nextSibling) {
-      if (child.from > offset) children.push(text.slice(offset, child.from));
-      if (!["HeaderMark", "EmphasisMark", "ListMark", "QuoteMark"].includes(child.name)) children.push(render(child));
-      offset = child.to;
-    }
-    if (offset < node.to) children.push(text.slice(offset, node.to));
-    return tag ? createElement(tag, { key: node.from }, ...children) : children;
-  };
-  return <div className="message markdown-message">{render(markdownLanguage.parser.parse(text).topNode)}</div>;
-}
 </ui:copy>
 
 ## Retain documents across pane moves and sends
@@ -670,7 +641,6 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch, newConver
   session: AgentSession; reviewProposals?: () => void; reviewRecordedPatch?: ReviewRecordedPatch;
 }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
-  const parser = useHickLangStatus();
   const conversation = useRef<HTMLDivElement>(null);
   const following = useRef(session.following);
   const { transcript, prompt, error } = session;
@@ -714,9 +684,7 @@ actions.
                 style={{ maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 onClick={event => setReview({ turn: turn.id, preview: { ...preview }, anchor: event.currentTarget })}>Review {preview.path ?? preview.name}</button>)}
             </div>}
-            {answer && (streaming || parser !== "ready" || !answer.includes('xmlns:') && !answer.includes('<hick') && !proseCodeFences(parseHickDoc(answer), answer).length
-              ? <MarkdownMessage text={answer} />
-              : <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />)}
+            {answer && <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={!streaming && turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />}
             {session.messageForks && turn.answer != null && (!turn.backend || turn.backend === "python") && <button onClick={() => newConversation ? newConversation(turn.id, "assistant") : session.select(turn.id, "assistant")}>Branch from assistant message</button>}
           </section>}
         </article>;

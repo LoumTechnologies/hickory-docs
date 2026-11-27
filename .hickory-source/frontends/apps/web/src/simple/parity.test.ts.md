@@ -5,7 +5,7 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Read the exact same layout scenarios as Swift. These are focused model witnesses, not evidence that native drag gestures or accessibility work on a device.
 
-The Markdown witnesses check actual rendered emphasis, literal code and HTML safety, then edit and undo inside the retained document editor. A plain-file counterexample protects ordinary source text from accidental prose formatting. These component checks do not establish native rendering.
+The Markdown witnesses edit and undo inside the retained document editor. The agent lifecycle witness keeps immutable user and assistant editors and the editable draft mounted as parsing and turn acceptance advance. A plain-file counterexample protects ordinary source text from accidental prose formatting. These component checks do not establish native rendering.
 
 The folding witnesses exercise the dedicated left plus/minus gutter and CodeMirror fold state, preserving the document and undo history. Indentation discovery is local and uses UTF-16 positions, including tabs and Unicode. These are component checks, not native gesture evidence.
 
@@ -41,7 +41,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
-import { Agent, AgentHistory, AgentHistoryPane, AgentSession, MarkdownMessage, agentTranscript, formattedToolJSON } from "./Agent";
+import { Agent, AgentHistory, AgentHistoryPane, AgentSession, agentTranscript, formattedToolJSON } from "./Agent";
 import { WorkspaceApp as App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
 import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
@@ -646,19 +646,6 @@ The controlled JSON-RPC provider below supplies semantic colors and a completion
 
 <ui:copy id="simple-language-attachment-witness">
 describe("simple Markdown formatting", () => {
-  it("renders nested emphasis and headings while leaving code and HTML literal", () => {
-    const screen = render(createElement(MarkdownMessage, { text: "# Title **bold**\n\n***both*** and a_b_c and \`**code**\`\n\n~~~\n# literal **code**\n~~~\n\n<script>alert(1)</script>" }));
-    try {
-      expect(screen.getByRole("heading", { level: 1 }).querySelector("strong")?.textContent).toBe("bold");
-      expect(screen.container.querySelector("em strong")?.textContent).toBe("both");
-      expect(screen.container.querySelector("code")?.textContent).toBe("**code**");
-      expect(screen.container.querySelector("pre code")?.textContent).toBe("# literal **code**");
-      expect(screen.container.querySelector("pre strong")).toBeNull();
-      expect(screen.container.querySelector("script")).toBeNull();
-      expect(screen.container.textContent).toContain("<script>alert(1)</script>");
-      expect(screen.container.textContent).toContain("a_b_c");
-    } finally { screen.unmount(); }
-  });
   it("styles visible Markdown and preserves source, selection and undo when typing", async () => {
     const source = "# Title\n\n**bold** and *italic*\n\n~~~\n**literal**\n~~~";
     const buffer = new Buffer({ path: "notes.md", name: "notes.md", dir: false }, source, "hash", () => {});
@@ -1776,15 +1763,33 @@ describe("simple literate subscription agent", () => {
       expect(screen.container.querySelector('[aria-label="conversation/draft.md"]')).toBe(draft);
     } finally { screen.unmount(); }
   });
-  it("keeps agent answers readable while the Hickory parser is loading", () => {
+  it("retains the immutable answer editor through parser loading and turn acceptance", () => {
     const status = vi.spyOn(hickParser, 'useHickLangStatus').mockReturnValue('loading');
     const session = new AgentSession();
-    session.setTurns([{id:'readable',parent_id:null,prompt:'Question',answer:'## Readable answer\n\n- Keep this visible.',status:'ok',error:null,created_at:'',provider:'',model:'',usage:null}]);
+    const turn = {id:'readable',parent_id:null,prompt:'Question',answer:null,status:'running',error:null,created_at:'',provider:'',model:'',usage:null};
+    session.setTurns([turn]);
+    session.activity.set(turn.id, {answer:'Readable answer', tools:[]});
+    session.prompt = 'Keep my draft';
     const screen = render(createElement(Agent, {session}));
+    const editor = (path: string) => EditorView.findFromDOM(screen.container.querySelector(`[aria-label="conversation/${path}.md"]`)!.closest('.cm-editor')!)!;
     try {
-      expect(screen.getByRole('heading', {name:'Readable answer'})).toBeTruthy();
-      expect(screen.getByText('Keep this visible.')).toBeTruthy();
-      expect(screen.container.querySelector('.agent-composer .cm-editor')).toBeTruthy();
+      const answer = editor('readable-agent'), user = editor('readable-user'), draft = editor('draft');
+      expect(answer.state.doc.toString()).toBe('Readable answer');
+      for (const view of [answer, user]) {
+        expect(view.state.readOnly).toBe(true);
+        act(() => view.dispatch({changes:{from:0,insert:'Forbidden'}}));
+        expect(view.state.doc.toString()).not.toContain('Forbidden');
+      }
+      act(() => answer.dispatch({selection:{anchor:3}}));
+      act(() => draft.dispatch({changes:{from:draft.state.doc.length,insert:'!'}}));
+      status.mockReturnValue('ready');
+      act(() => session.setTurns([{...turn, status:'ok', answer:'Readable answer'}]));
+      expect(editor('readable-agent')).toBe(answer);
+      expect(answer.state.selection.main.head).toBe(3);
+      expect(editor('draft')).toBe(draft);
+      expect(session.prompt).toBe('Keep my draft!');
+      act(() => { undo(draft); });
+      expect(session.prompt).toBe('Keep my draft');
     } finally { screen.unmount(); status.mockRestore(); }
   });
   it("sends with Shift Enter, leaves Enter as a newline and reports only conversation usage", async () => {

@@ -1,10 +1,8 @@
 import {authoredSource,authoredChanges,normalizedSource} from './SourceText';
-import { createElement, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Compartment, StateEffect, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { markdownLanguage } from "@codemirror/lang-markdown";
-import type { SyntaxNode } from "@lezer/common";
 import { Buffer, Buffers } from "./buffers";
 import type {AgentEditorContext} from "../api/agentTypes";
 import { projectionEstimate } from "../lib/contextProjection";
@@ -28,39 +26,6 @@ import type { TerminalSession } from "../api/types";
 import { simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
 import type { ReviewRecordedPatch } from "./AgentProposalAdapter";
-export function MarkdownMessage({ text }: { text: string }) {
-  const render = (node: SyntaxNode): ReactNode => {
-    const literal = text.slice(node.from, node.to);
-    if (node.name === "FencedCode" || node.name === "CodeBlock") {
-      const body = node.getChildren("CodeText").map(child => text.slice(child.from, child.to)).join("\n");
-      return <pre key={node.from}><code>{body}</code></pre>;
-    }
-    if (node.name === "InlineCode") {
-      const marks = node.getChildren("CodeMark");
-      let body = text.slice(marks[0].to, marks.at(-1)!.from).replace(/\n/g, " ");
-      if (/^ .* $/.test(body) && /[^ ]/.test(body)) body = body.slice(1, -1);
-      return <code key={node.from}>{body}</code>;
-    }
-    if (node.name === "Escape") return literal.slice(1);
-    const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name);
-    const tags: Record<string, string> = { Paragraph: "p", StrongEmphasis: "strong", Emphasis: "em",
-      BulletList: "ul", OrderedList: "ol", ListItem: "li", Blockquote: "blockquote" };
-    const tag = heading ? `h${heading[1]}` : tags[node.name];
-    // Unhandled syntax, including HTML and links, remains readable literal text.
-    // Only known tags enter the DOM; message text never becomes HTML or a URL.
-    if (!tag && node.name !== "Document") return literal;
-    const children: ReactNode[] = [];
-    let offset = node.from;
-    for (let child = node.firstChild; child; child = child.nextSibling) {
-      if (child.from > offset) children.push(text.slice(offset, child.from));
-      if (!["HeaderMark", "EmphasisMark", "ListMark", "QuoteMark"].includes(child.name)) children.push(render(child));
-      offset = child.to;
-    }
-    if (offset < node.to) children.push(text.slice(offset, node.to));
-    return tag ? createElement(tag, { key: node.from }, ...children) : children;
-  };
-  return <div className="message markdown-message">{render(markdownLanguage.parser.parse(text).topNode)}</div>;
-}
 const toolLabels = new Map<string, [operation: string, fields?: string[]]>([
   ["read_file", ["Read file", ["path"]]],
   ["read_doc", ["Read source", ["upstream", "doc"]]],
@@ -576,7 +541,6 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch, newConver
   session: AgentSession; reviewProposals?: () => void; reviewRecordedPatch?: ReviewRecordedPatch;
 }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
-  const parser = useHickLangStatus();
   const conversation = useRef<HTMLDivElement>(null);
   const following = useRef(session.following);
   const { transcript, prompt, error } = session;
@@ -612,9 +576,7 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch, newConver
                 style={{ maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 onClick={event => setReview({ turn: turn.id, preview: { ...preview }, anchor: event.currentTarget })}>Review {preview.path ?? preview.name}</button>)}
             </div>}
-            {answer && (streaming || parser !== "ready" || !answer.includes('xmlns:') && !answer.includes('<hick') && !proseCodeFences(parseHickDoc(answer), answer).length
-              ? <MarkdownMessage text={answer} />
-              : <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />)}
+            {answer && <RecordedMessage turn={turn.id} side="assistant" reviewRecordedPatch={reviewRecordedPatch} recorded={!streaming && turn.answer != null} buffer={session.document(`${turn.id}-agent`, answer)} />}
             {session.messageForks && turn.answer != null && (!turn.backend || turn.backend === "python") && <button onClick={() => newConversation ? newConversation(turn.id, "assistant") : session.select(turn.id, "assistant")}>Branch from assistant message</button>}
           </section>}
         </article>;
