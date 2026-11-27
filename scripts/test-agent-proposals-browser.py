@@ -58,6 +58,7 @@ def controlled_tool(origin,calls,result,captured,edit):
 def trace_appkit_send(origin, evidence, *, observe=None):
     upstream = urllib.parse.urlsplit(origin)
     lock = threading.Lock()
+    owned_turn = None
     hop = {"connection", "host", "transfer-encoding", "content-length", "keep-alive", "upgrade"}
 
     def trace(row):
@@ -65,7 +66,7 @@ def trace_appkit_send(origin, evidence, *, observe=None):
             output.write(json.dumps(row) + "\n")
 
     class Relay(BaseHTTPRequestHandler):
-        def forward_window_claim(self):
+        def forward_workspace_socket(self):
             self.close_connection = True
             try:
                 with socket.create_connection((upstream.hostname, upstream.port), timeout=5) as peer:
@@ -73,7 +74,7 @@ def trace_appkit_send(origin, evidence, *, observe=None):
                                ("Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version")
                                if name in self.headers}
                     headers["Host"] = upstream.netloc
-                    request = "GET /api/simple-window HTTP/1.1\r\n"
+                    request = f"GET {self.path} HTTP/1.1\r\n"
                     request += "".join(f"{name}: {value}\r\n" for name, value in headers.items())
                     peer.sendall((request + "\r\n").encode("ascii"))
                     while True:
@@ -87,10 +88,10 @@ def trace_appkit_send(origin, evidence, *, observe=None):
                 return
 
         def forward(self):
-            # Native UI witnesses must reserve the same engine workspace.
-            # The fixture's HTTP body recorder cannot represent a socket lifetime.
-            if self.path == "/api/simple-window" and self.headers.get("Upgrade", "").lower() == "websocket":
-                self.forward_window_claim()
+            nonlocal owned_turn
+            workspace_socket = self.path in {"/api/simple-window", "/api/ws?doc=workspace"}
+            if workspace_socket and self.headers.get("Upgrade", "").lower() == "websocket":
+                self.forward_workspace_socket()
                 return
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 <= size <= 256 * 1024:
@@ -98,6 +99,15 @@ def trace_appkit_send(origin, evidence, *, observe=None):
                 return
             data = self.rfile.read(size)
             path = urllib.parse.urlsplit(self.path).path
+            with lock:
+                capture_turn = owned_turn
+            read_capture = capture_turn is not None and self.command == "GET" and self.path == "/api/docs/workspace/agent/python?view=pending"
+            reply_capture = capture_turn is not None and self.command == "POST" and path == "/api/docs/workspace/agent/python/review"
+            upstream_path = self.path
+            if read_capture:
+                upstream_path = "/api/docs/workspace/agent/acp"
+            elif reply_capture and set(json.loads(data)) == {"capture_request", "context"}:
+                upstream_path = "/api/docs/workspace/agent/acp/edits"
             selected = self.command == "POST" and path == "/api/docs/workspace/agent"
             report = self.command == "POST" and path == "/api/agent-proposals/report"
             original = json.loads(data) if selected or report else None
@@ -107,17 +117,23 @@ def trace_appkit_send(origin, evidence, *, observe=None):
                     trace({"method": self.command, "path": self.path, "refused": True})
                     self.send_error(400, "Only the exact owned native Send fixture is routed")
                     return
-                # The only change to the app's request prevents subscription use.
+                # Keep the app's prompt and context when selecting the local fixture.
                 forwarded = {**original, "backend": "owned-proposal"}
                 data = json.dumps(forwarded).encode()
             connection = HTTPConnection(upstream.hostname, upstream.port, timeout=30)
             try:
                 headers = {key:value for key,value in self.headers.items() if key.lower() not in hop}
-                connection.request(self.command, self.path, body=data if data else None, headers=headers)
+                connection.request(self.command, upstream_path, body=data if data else None, headers=headers)
                 response = connection.getresponse()
                 row = {"method": self.command, "path": self.path, "status": response.status}
                 streamed = "text/event-stream" in (response.getheader("Content-Type") or "")
                 body = None if streamed else response.read()
+                if read_capture and response.status == 200:
+                    edits = json.loads(body)["edits"]
+                    body = json.dumps({"turn": capture_turn, "edits": edits}).encode()
+                if selected and response.status == 202:
+                    with lock:
+                        owned_turn = json.loads(body)["session_id"]
                 if path == "/api/files" and body is not None:
                     tree = json.loads(body)
                     row["tree_root"] = tree.get("root_path") if isinstance(tree, dict) else "invalid response"
