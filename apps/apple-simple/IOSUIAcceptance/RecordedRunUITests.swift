@@ -1,6 +1,21 @@
 import XCTest
 
 final class RecordedRunUITests: XCTestCase {
+    @MainActor private func openRecordedConversation(_ title: String, in app: XCUIApplication) throws -> XCUIElement {
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        let matches = app.buttons.matching(identifier: "Agent History")
+        let history = try XCTUnwrap(matches.allElementsBoundByIndex.first(where: \.isHittable), app.debugDescription)
+        history.tap()
+        let row = app.buttons[title].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), app.debugDescription)
+        row.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        return conversation
+    }
+
     @MainActor func testViewTogglePreservesEditorAndItsDraft() throws {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
@@ -88,12 +103,7 @@ final class RecordedRunUITests: XCTestCase {
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
 
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let conversation = try openRecordedConversation("Question before code.", in: app)
 
         let cases = [("user", "user", "print(value + 1)", "value = 41", "42"),
                      ("assistant", "agent", "print(value + 1)", "value = 52", "53")]
@@ -106,8 +116,8 @@ final class RecordedRunUITests: XCTestCase {
             for _ in 0..<5 where !run.isHittable && !overflow.isHittable {
                 if !editor.exists { _ = editor.waitForExistence(timeout: 3) }
                 if run.isHittable || overflow.isHittable { break }
-                let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
-                let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.28))
+                let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.28 : 0.78))
+                let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.78 : 0.28))
                 start.press(forDuration: 0.04, thenDragTo: end)
             }
             XCTAssertTrue(editor.exists, "Recorded \(side) source is unavailable")
@@ -157,12 +167,8 @@ final class RecordedRunUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let title = side == "user" ? "<hick:input>" : "Inspect the retained construction"
+        let conversation = try openRecordedConversation(title, in: app)
         let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
         let editor = card.textViews["hick-agent-message:///declared-construction-\(buffer).md"].firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
@@ -266,7 +272,9 @@ extension RecordedRunUITests {
         XCTAssertTrue(composer.waitForExistence(timeout: 12))
         composer.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
-        composer.typeText(prompt)
+        composer.typeText(prompt + "\nnext")
+        XCTAssertEqual(composer.value as? String, prompt + "\nnext")
+        composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
         let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", prompt), object: composer)
         XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 10), .completed)
         let send = app.buttons["Send"].firstMatch
@@ -282,6 +290,9 @@ extension RecordedRunUITests {
         XCTAssertTrue(archived.waitForExistence(timeout: 20), "The exact native message was not visible in the recorded user card")
         NSLog("HickoryUIKitParity native-proposal-send-archived-exact-message")
 
+        // The user card appears on admission. Wait for the turn to finish
+        // before taking the proposal catalogue snapshot.
+        XCTAssertTrue(send.waitForExistence(timeout: 20))
         menu("View", "Agent proposal review")
         let review = app.staticTexts["Agent proposal review"].firstMatch
         XCTAssertTrue(review.waitForExistence(timeout: 12))
@@ -583,12 +594,7 @@ extension RecordedRunUITests {
         let app = XCUIApplication()
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let conversation = try openRecordedConversation("Question before code.", in: app)
 
         let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
         let editor = card.textViews["hick-agent-message:///recorded-fence-host-\(buffer).md"].firstMatch
@@ -604,8 +610,8 @@ extension RecordedRunUITests {
             return overflow.exists ? overflow : run
         }
         for _ in 0..<7 where !firstAction(3).isHittable || !firstAction(8).isHittable {
-            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
-            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.37))
+            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.37 : 0.78))
+            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.78 : 0.37))
             if firstAction(3).isHittable && firstAction(8).isHittable { break }
             start.press(forDuration: 0.04, thenDragTo: end)
         }

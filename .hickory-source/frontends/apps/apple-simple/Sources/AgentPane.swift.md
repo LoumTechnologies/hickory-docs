@@ -325,6 +325,9 @@ Use the same gutter for ordinary recorded code fences, with their immutable
 Agent turn and message-side identity supplied separately from the buffer path.
 Running assistant text and error text have no recorded answer authority. The
 composer keeps its own buffer and editing history across capability changes.
+The composer owns Shift+Enter so marked text stays with the input method.
+Send also checks the native composition state because a button can invoke
+the same operation. A late acknowledgment leaves an active composition alone.
 On iPhone, the keyboard can consume the conversation viewport. Once Send is
 acknowledged, release the composer's native focus only when clearing the same
 submitted draft revision. A newer draft keeps its focus. If the user already
@@ -1073,7 +1076,6 @@ struct AgentPane: View {
                         Button { Task { await send() } } label: {
                             Image(systemName: session.branchEdit?.user == false ? "checkmark" : "arrow.up").frame(width: 24, height: 24)
                         }.accessibilityLabel(session.branchEdit?.user == false ? "Save assistant branch" : "Send")
-                            .keyboardShortcut(.return, modifiers: .shift)
                             .help(session.branchEdit?.user == false ? "Save assistant branch (⇧↩)" : "Send (⇧↩)")
                             .disabled(reason: sendDisabled)
                     }
@@ -1194,7 +1196,8 @@ without changing the open conversation or its activity subscription.
             .accessibilityLabel(side == .user ? "Recorded user message" : "Recorded assistant message")
     }
     private func send() async {
-        guard let engine, workspaceCurrent(), sendDisabled == nil else { return }
+        guard let engine, workspaceCurrent(), sendDisabled == nil,
+              session.draft.sourceEditorState?()?.composing != true else { return }
         if let edit = session.branchEdit, !edit.user {
             let text = session.prompt
             session.sending = true; session.mutation += 1
@@ -1230,7 +1233,8 @@ without changing the open conversation or its activity subscription.
             session.selection = .init(id: started.session_id); session.openedTip = started.session_id; session.branchEdit = nil
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running", parent_id: parent, parent_is_user: fork))
             session.replayEarlyEvents(for: started.session_id)
-            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
+            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted)
+                && session.draft.sourceEditorState?()?.composing != true {
                 session.prompt = ""
                 #if os(iOS)
                 session.draft.releaseSourceFocus?()

@@ -1543,7 +1543,7 @@ extension UIKitParityAcceptanceTests {
 }
 
 extension UIKitParityAcceptanceTests {
-    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentTurn) {
+    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentSession, AgentTurn) {
         let environment = ProcessInfo.processInfo.environment
         let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
         let root = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_ROOT"])
@@ -1552,13 +1552,17 @@ extension UIKitParityAcceptanceTests {
         guard await workspace.connect(), exactUTF8(workspace.sourceRootAddress, root) else {
             throw EngineError(message: "Refuse an unrelated recorded-message workspace · " + workspace.status)
         }
-        workspace.showUtility(.agent)
+        workspace.showUtility(.agentHistory)
         let mounted = try MountedIOSWorkspace(workspace: workspace)
         do {
             try await mounted.wait("The retained Agent turn did not mount") {
                 workspace.agent.turns.contains { $0.id == id && $0.status == "ok" && $0.answer != nil }
             }
-            return (mounted, try XCTUnwrap(workspace.agent.turns.first { $0.id == id }))
+            let turn = try XCTUnwrap(workspace.agent.turns.first { $0.id == id })
+            workspace.openConversation(id)
+            let agent = try XCTUnwrap(workspace.agentSession(workspace.activeTab))
+            XCTAssertEqual(agent.tip, id)
+            return (mounted, agent, turn)
         } catch {
             mounted.close()
             throw error
@@ -1566,10 +1570,51 @@ extension UIKitParityAcceptanceTests {
     }
 
     func testMountedRecordedCodeFencesPauseStepWatchAndContinue() async throws {
-        let (mounted, turn) = try await mountRecordedTurn("recorded-fence-host")
+        let (mounted, agent, turn) = try await mountRecordedTurn("recorded-fence-host")
         defer { mounted.close() }
-        let workspace = mounted.workspace, agent = workspace.agent
+        let workspace = mounted.workspace
         let debug = try XCTUnwrap(workspace.debugger)
+        let composer = try await mounted.editor(agent.draft)
+        XCTAssertTrue(composer.isEditable)
+        XCTAssertTrue(composer.becomeFirstResponder())
+        composer.insertText("First line")
+        composer.insertText("\n")
+        composer.insertText("Second line")
+        XCTAssertEqual(agent.prompt, "First line\nSecond line")
+        let returnCommands = composer.keyCommands?.filter { $0.input == "\r" } ?? []
+        XCTAssertTrue(returnCommands.contains { $0.modifierFlags.isEmpty && $0.action == NSSelectorFromString("insertComposerNewline") })
+        XCTAssertTrue(returnCommands.contains { $0.modifierFlags == .shift && $0.action == NSSelectorFromString("sendMessage") })
+        XCTAssertTrue(composer.resignFirstResponder())
+        do {
+            let path = "conversation/keyboard-witness.md"
+            let draft = DocumentBuffer(file: FileNode(name: "Keyboard witness", path: path, dir: false),
+                                       text: FileText(path: path, content: "Unsent message", hash: ""))
+            var submitted: [String] = []
+            let controls = UIHostingController(rootView: LanguageEditor(buffer: draft, debugger: nil,
+                submitMessage: { submitted.append(draft.text) }))
+            mounted.host.addChild(controls)
+            controls.view.frame = CGRect(x: 0, y: 100, width: 300, height: 100)
+            mounted.host.view.addSubview(controls.view)
+            controls.didMove(toParent: mounted.host)
+            defer {
+                controls.willMove(toParent: nil)
+                controls.view.removeFromSuperview()
+                controls.removeFromParent()
+            }
+            let control = try await mounted.editor(draft)
+            XCTAssertTrue(control.becomeFirstResponder())
+            let shortcut = try XCTUnwrap(control.keyCommands?.first {
+                $0.input == "\r" && $0.modifierFlags == .shift && $0.action == NSSelectorFromString("sendMessage")
+            })
+            let action = try XCTUnwrap(shortcut.action)
+            XCTAssertTrue(UIApplication.shared.sendAction(action, to: control, from: shortcut, for: nil))
+            XCTAssertEqual(submitted, ["Unsent message"])
+            control.setMarkedText("未", selectedRange: NSRange(location: 1, length: 0))
+            XCTAssertNotNil(control.markedTextRange)
+            XCTAssertTrue(UIApplication.shared.sendAction(action, to: control, from: shortcut, for: nil))
+            XCTAssertEqual(submitted, ["Unsent message"])
+            XCTAssertTrue(control.resignFirstResponder())
+        }
         var sent: [[String: Any]] = []
         debug.observeRequestForTest = { sent.append($0) }
         let messages = [(RecordedMessageSide.user, turn.prompt, "42"),
@@ -1579,6 +1624,16 @@ extension UIKitParityAcceptanceTests {
             let editor = try await mounted.editor(buffer)
             let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
             XCTAssertFalse(editor.isEditable)
+            editor.selectedRange = NSRange(location: 1, length: 0)
+            editor.deleteBackward()
+            editor.insertText("unexpected edit")
+            editor.setMarkedText("unexpected candidate", selectedRange: NSRange(location: 0, length: 0))
+            let first = editor.beginningOfDocument
+            let second = try XCTUnwrap(editor.position(from: first, offset: 1))
+            let range = try XCTUnwrap(editor.textRange(from: first, to: second))
+            editor.replace(range, withText: "unexpected replacement")
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertTrue(exactUTF8(buffer.text, text))
             try await mounted.wait("Recorded code fence did not become available") {
                 buffer.inlineMarkup.debug.recorded[2] != nil
             }
@@ -1618,9 +1673,9 @@ extension UIKitParityAcceptanceTests {
     }
 
     func testMountedRecordedPatchesReviewApplyAndUndo() async throws {
-        let (mounted, turn) = try await mountRecordedTurn("recorded-patch")
+        let (mounted, agent, turn) = try await mountRecordedTurn("recorded-patch")
         defer { mounted.close() }
-        let workspace = mounted.workspace, agent = workspace.agent, review = workspace.agentProposals
+        let workspace = mounted.workspace, review = workspace.agentProposals
         let engine = try XCTUnwrap(workspace.engine)
         let messages = [
             (RecordedMessageSide.user, turn.prompt, "author.md", "value = 1", "value = 41"),

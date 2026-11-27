@@ -977,7 +977,6 @@ struct AgentPane: View {
                         Button { Task { await send() } } label: {
                             Image(systemName: session.branchEdit?.user == false ? "checkmark" : "arrow.up").frame(width: 24, height: 24)
                         }.accessibilityLabel(session.branchEdit?.user == false ? "Save assistant branch" : "Send")
-                            .keyboardShortcut(.return, modifiers: .shift)
                             .help(session.branchEdit?.user == false ? "Save assistant branch (⇧↩)" : "Send (⇧↩)")
                             .disabled(reason: sendDisabled)
                     }
@@ -1082,7 +1081,8 @@ struct AgentPane: View {
             .accessibilityLabel(side == .user ? "Recorded user message" : "Recorded assistant message")
     }
     private func send() async {
-        guard let engine, workspaceCurrent(), sendDisabled == nil else { return }
+        guard let engine, workspaceCurrent(), sendDisabled == nil,
+              session.draft.sourceEditorState?()?.composing != true else { return }
         if let edit = session.branchEdit, !edit.user {
             let text = session.prompt
             session.sending = true; session.mutation += 1
@@ -1118,7 +1118,8 @@ struct AgentPane: View {
             session.selection = .init(id: started.session_id); session.openedTip = started.session_id; session.branchEdit = nil
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running", parent_id: parent, parent_is_user: fork))
             session.replayEarlyEvents(for: started.session_id)
-            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
+            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted)
+                && session.draft.sourceEditorState?()?.composing != true {
                 session.prompt = ""
                 #if os(iOS)
                 session.draft.releaseSourceFocus?()

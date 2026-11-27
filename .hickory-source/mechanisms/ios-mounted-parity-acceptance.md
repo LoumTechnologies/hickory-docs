@@ -1637,17 +1637,25 @@ extension UIKitParityAcceptanceTests {
 ## Follow an immutable Agent message into Debug or patch review
 
 Each report starts with the durable turn loaded by the real workspace engine and
-waits for the production card's native editor. Debug gives the selected fence
+opens that turn in a conversation tab before waiting for the production card's
+native editor. Opening an empty Agent tab leaves the saved turn in History.
+The mounted composer accepts native newline input. Direct insert, replacement,
+deletion and marked text are refused by both recorded widgets before Debug
+gives the selected fence
 and its sibling different breakpoint intentions. Only the selected fence may
 start, pause and produce output. The patch case reads the complete seal before
 applying, checks the generated consequence of the authored change, and undoes
 the resulting draft batch. The host separately compares every fixture file
 against its original bytes.
 
+Dispatch Shift+Return through UIKit with an isolated submit closure. The
+shortcut invokes the same composer callback used by the Agent pane. A marked
+candidate stays with the input method and leaves the callback untouched.
+
 <ui:copy id="ios-recorded-agent-fences">
 
 extension UIKitParityAcceptanceTests {
-    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentTurn) {
+    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentSession, AgentTurn) {
         let environment = ProcessInfo.processInfo.environment
         let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
         let root = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_ROOT"])
@@ -1656,13 +1664,17 @@ extension UIKitParityAcceptanceTests {
         guard await workspace.connect(), exactUTF8(workspace.sourceRootAddress, root) else {
             throw EngineError(message: "Refuse an unrelated recorded-message workspace · " + workspace.status)
         }
-        workspace.showUtility(.agent)
+        workspace.showUtility(.agentHistory)
         let mounted = try MountedIOSWorkspace(workspace: workspace)
         do {
             try await mounted.wait("The retained Agent turn did not mount") {
                 workspace.agent.turns.contains { $0.id == id && $0.status == "ok" && $0.answer != nil }
             }
-            return (mounted, try XCTUnwrap(workspace.agent.turns.first { $0.id == id }))
+            let turn = try XCTUnwrap(workspace.agent.turns.first { $0.id == id })
+            workspace.openConversation(id)
+            let agent = try XCTUnwrap(workspace.agentSession(workspace.activeTab))
+            XCTAssertEqual(agent.tip, id)
+            return (mounted, agent, turn)
         } catch {
             mounted.close()
             throw error
@@ -1670,10 +1682,51 @@ extension UIKitParityAcceptanceTests {
     }
 
     func testMountedRecordedCodeFencesPauseStepWatchAndContinue() async throws {
-        let (mounted, turn) = try await mountRecordedTurn("recorded-fence-host")
+        let (mounted, agent, turn) = try await mountRecordedTurn("recorded-fence-host")
         defer { mounted.close() }
-        let workspace = mounted.workspace, agent = workspace.agent
+        let workspace = mounted.workspace
         let debug = try XCTUnwrap(workspace.debugger)
+        let composer = try await mounted.editor(agent.draft)
+        XCTAssertTrue(composer.isEditable)
+        XCTAssertTrue(composer.becomeFirstResponder())
+        composer.insertText("First line")
+        composer.insertText("\n")
+        composer.insertText("Second line")
+        XCTAssertEqual(agent.prompt, "First line\nSecond line")
+        let returnCommands = composer.keyCommands?.filter { $0.input == "\r" } ?? []
+        XCTAssertTrue(returnCommands.contains { $0.modifierFlags.isEmpty && $0.action == NSSelectorFromString("insertComposerNewline") })
+        XCTAssertTrue(returnCommands.contains { $0.modifierFlags == .shift && $0.action == NSSelectorFromString("sendMessage") })
+        XCTAssertTrue(composer.resignFirstResponder())
+        do {
+            let path = "conversation/keyboard-witness.md"
+            let draft = DocumentBuffer(file: FileNode(name: "Keyboard witness", path: path, dir: false),
+                                       text: FileText(path: path, content: "Unsent message", hash: ""))
+            var submitted: [String] = []
+            let controls = UIHostingController(rootView: LanguageEditor(buffer: draft, debugger: nil,
+                submitMessage: { submitted.append(draft.text) }))
+            mounted.host.addChild(controls)
+            controls.view.frame = CGRect(x: 0, y: 100, width: 300, height: 100)
+            mounted.host.view.addSubview(controls.view)
+            controls.didMove(toParent: mounted.host)
+            defer {
+                controls.willMove(toParent: nil)
+                controls.view.removeFromSuperview()
+                controls.removeFromParent()
+            }
+            let control = try await mounted.editor(draft)
+            XCTAssertTrue(control.becomeFirstResponder())
+            let shortcut = try XCTUnwrap(control.keyCommands?.first {
+                $0.input == "\r" && $0.modifierFlags == .shift && $0.action == NSSelectorFromString("sendMessage")
+            })
+            let action = try XCTUnwrap(shortcut.action)
+            XCTAssertTrue(UIApplication.shared.sendAction(action, to: control, from: shortcut, for: nil))
+            XCTAssertEqual(submitted, ["Unsent message"])
+            control.setMarkedText("未", selectedRange: NSRange(location: 1, length: 0))
+            XCTAssertNotNil(control.markedTextRange)
+            XCTAssertTrue(UIApplication.shared.sendAction(action, to: control, from: shortcut, for: nil))
+            XCTAssertEqual(submitted, ["Unsent message"])
+            XCTAssertTrue(control.resignFirstResponder())
+        }
         var sent: [[String: Any]] = []
         debug.observeRequestForTest = { sent.append($0) }
         let messages = [(RecordedMessageSide.user, turn.prompt, "42"),
@@ -1683,6 +1736,16 @@ extension UIKitParityAcceptanceTests {
             let editor = try await mounted.editor(buffer)
             let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
             XCTAssertFalse(editor.isEditable)
+            editor.selectedRange = NSRange(location: 1, length: 0)
+            editor.deleteBackward()
+            editor.insertText("unexpected edit")
+            editor.setMarkedText("unexpected candidate", selectedRange: NSRange(location: 0, length: 0))
+            let first = editor.beginningOfDocument
+            let second = try XCTUnwrap(editor.position(from: first, offset: 1))
+            let range = try XCTUnwrap(editor.textRange(from: first, to: second))
+            editor.replace(range, withText: "unexpected replacement")
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertTrue(exactUTF8(buffer.text, text))
             try await mounted.wait("Recorded code fence did not become available") {
                 buffer.inlineMarkup.debug.recorded[2] != nil
             }
@@ -1722,9 +1785,9 @@ extension UIKitParityAcceptanceTests {
     }
 
     func testMountedRecordedPatchesReviewApplyAndUndo() async throws {
-        let (mounted, turn) = try await mountRecordedTurn("recorded-patch")
+        let (mounted, agent, turn) = try await mountRecordedTurn("recorded-patch")
         defer { mounted.close() }
-        let workspace = mounted.workspace, agent = workspace.agent, review = workspace.agentProposals
+        let workspace = mounted.workspace, review = workspace.agentProposals
         let engine = try XCTUnwrap(workspace.engine)
         let messages = [
             (RecordedMessageSide.user, turn.prompt, "author.md", "value = 1", "value = 41"),
@@ -1782,7 +1845,11 @@ extension UIKitParityAcceptanceTests {
 
 ## Run each saved fence through the installed app
 
-The UI test opens Agent from the View menu and taps Run within each recorded message. It checks the completed terminal through WebKit accessibility and compares the text and frame of the same recorded editor after dismissal. The runner independently checks terminal results and the original archive bytes.
+The UI test opens Agent History from the View menu, selects the saved turn, and
+taps Run within each recorded message. It checks the completed terminal through
+WebKit accessibility and compares the text and frame of the same recorded editor
+after dismissal. The runner independently checks terminal results and the
+original archive bytes.
 
 The tab close test uses native keyboard input, the tab's close button and all
 three alert choices. Reopening through Files distinguishes a discarded draft
@@ -1796,6 +1863,21 @@ The editor widens and returns to its original frame with the same draft.
 import XCTest
 
 final class RecordedRunUITests: XCTestCase {
+    @MainActor private func openRecordedConversation(_ title: String, in app: XCUIApplication) throws -> XCUIElement {
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        let matches = app.buttons.matching(identifier: "Agent History")
+        let history = try XCTUnwrap(matches.allElementsBoundByIndex.first(where: \.isHittable), app.debugDescription)
+        history.tap()
+        let row = app.buttons[title].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), app.debugDescription)
+        row.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        return conversation
+    }
+
     @MainActor func testViewTogglePreservesEditorAndItsDraft() throws {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
@@ -1883,12 +1965,7 @@ final class RecordedRunUITests: XCTestCase {
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
 
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let conversation = try openRecordedConversation("Question before code.", in: app)
 
         let cases = [("user", "user", "print(value + 1)", "value = 41", "42"),
                      ("assistant", "agent", "print(value + 1)", "value = 52", "53")]
@@ -1901,8 +1978,8 @@ final class RecordedRunUITests: XCTestCase {
             for _ in 0..<5 where !run.isHittable && !overflow.isHittable {
                 if !editor.exists { _ = editor.waitForExistence(timeout: 3) }
                 if run.isHittable || overflow.isHittable { break }
-                let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
-                let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.28))
+                let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.28 : 0.78))
+                let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.78 : 0.28))
                 start.press(forDuration: 0.04, thenDragTo: end)
             }
             XCTAssertTrue(editor.exists, "Recorded \(side) source is unavailable")
@@ -1952,12 +2029,8 @@ final class RecordedRunUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let title = side == "user" ? "<hick:input>" : "Inspect the retained construction"
+        let conversation = try openRecordedConversation(title, in: app)
         let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
         let editor = card.textViews["hick-agent-message:///declared-construction-\(buffer).md"].firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
@@ -2000,6 +2073,11 @@ final class RecordedRunUITests: XCTestCase {
 ## Send a native message and replay the resulting two-source draft
 
 Open both source files through the app before typing the exact prompt. Send must capture those named sources and their original write guards. Keep the Agent pane open. An acknowledged Send releases the cleared composer’s native focus so the conversation can show the recorded message in place. Read and apply the sealed intention in the presented review, then use Edit menu history to check both source texts and their viewport frames after Undo and Redo. The matching engine trace checks that no source or generated file was published.
+
+Type on both sides of a newline, then remove the extra line before tapping
+Send. The archived user card and the wire observation both check the
+submitted text. The mounted UIKit witness also inspects the separate hardware
+Return commands.
 
 <ui:copy id="ios-native-agent-send-ui-test">
 extension RecordedRunUITests {
@@ -2067,7 +2145,9 @@ extension RecordedRunUITests {
         XCTAssertTrue(composer.waitForExistence(timeout: 12))
         composer.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
-        composer.typeText(prompt)
+        composer.typeText(prompt + "\nnext")
+        XCTAssertEqual(composer.value as? String, prompt + "\nnext")
+        composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
         let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", prompt), object: composer)
         XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 10), .completed)
         let send = app.buttons["Send"].firstMatch
@@ -2083,6 +2163,9 @@ extension RecordedRunUITests {
         XCTAssertTrue(archived.waitForExistence(timeout: 20), "The exact native message was not visible in the recorded user card")
         NSLog("HickoryUIKitParity native-proposal-send-archived-exact-message")
 
+        // The user card appears on admission. Wait for the turn to finish
+        // before taking the proposal catalogue snapshot.
+        XCTAssertTrue(send.waitForExistence(timeout: 20))
         menu("View", "Agent proposal review")
         let review = app.staticTexts["Agent proposal review"].firstMatch
         XCTAssertTrue(review.waitForExistence(timeout: 12))
@@ -2415,12 +2498,7 @@ extension RecordedRunUITests {
         let app = XCUIApplication()
         app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
         app.launch()
-        let view = app.buttons["View"].firstMatch
-        XCTAssertTrue(view.waitForExistence(timeout: 20))
-        view.tap()
-        app.buttons["Agent"].firstMatch.tap()
-        let conversation = app.scrollViews["Conversation"].firstMatch
-        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let conversation = try openRecordedConversation("Question before code.", in: app)
 
         let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
         let editor = card.textViews["hick-agent-message:///recorded-fence-host-\(buffer).md"].firstMatch
@@ -2436,8 +2514,8 @@ extension RecordedRunUITests {
             return overflow.exists ? overflow : run
         }
         for _ in 0..<7 where !firstAction(3).isHittable || !firstAction(8).isHittable {
-            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
-            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.37))
+            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.37 : 0.78))
+            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: side == "user" ? 0.78 : 0.37))
             if firstAction(3).isHittable && firstAction(8).isHittable { break }
             start.press(forDuration: 0.04, thenDragTo: end)
         }
@@ -3390,6 +3468,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             finally:
                 configured.unlink(missing_ok=True)
         finally:
+            if native_send and tool_result.is_file():
+                shutil.copyfile(tool_result, receipt/'proposal-native-send-tool-result.json')
             if python_definition or workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
                 trace = folder/f'{workflow}-provider.jsonl'
                 if trace.exists():

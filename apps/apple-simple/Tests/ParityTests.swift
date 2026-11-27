@@ -1624,6 +1624,12 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(session.prompt, "# Draft\n")
         composer.undoManager?.undo()
         XCTAssertEqual(session.prompt, "# Draft")
+        composer.submitMessage = { submissions.append(session.prompt); submit() }
+        composer.setMarkedText("未", selectedRange: NSRange(location: 1, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(composer.hasMarkedText())
+        try returnKey(.shift)
+        XCTAssertEqual(submissions, ["# Draft\n"])
     }
     #endif
     @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {

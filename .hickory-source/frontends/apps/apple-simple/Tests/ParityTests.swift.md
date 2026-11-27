@@ -8,7 +8,8 @@ response while host-owned text advances. The mounted AppKit witness checks that
 the recorded cards refuse text input and that an advancing answer retains its
 native selection and viewport. The composer uses a separate editor and Undo
 history. The witness sends Enter and Shift+Enter to the native text view to
-distinguish newline insertion from invocation of the pane's submit action.
+distinguish newline insertion from invocation of the pane's submit action,
+then confirms the shortcut leaves marked text with AppKit.
 
 The language-cache witnesses retain colors on unchanged Unicode text, exercise a real AppKit edit/undo and the refresh task with a closed channel, and reject stale completion writes. A second paint of the same source with no semantic tokens must keep its local syntax colors. The opt-in live-provider witness opens a literate buffer after a plain Python buffer already received tokens on the same connection, then checks mapped colors and completion. Mobile gestures still need device acceptance.
 
@@ -1670,6 +1671,12 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(session.prompt, "# Draft\n")
         composer.undoManager?.undo()
         XCTAssertEqual(session.prompt, "# Draft")
+        composer.submitMessage = { submissions.append(session.prompt); submit() }
+        composer.setMarkedText("未", selectedRange: NSRange(location: 1, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(composer.hasMarkedText())
+        try returnKey(.shift)
+        XCTAssertEqual(submissions, ["# Draft\n"])
     }
     #endif
     @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {

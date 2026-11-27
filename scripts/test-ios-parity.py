@@ -739,6 +739,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             finally:
                 configured.unlink(missing_ok=True)
         finally:
+            if native_send and tool_result.is_file():
+                shutil.copyfile(tool_result, receipt/'proposal-native-send-tool-result.json')
             if python_definition or workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
                 trace = folder/f'{workflow}-provider.jsonl'
                 if trace.exists():

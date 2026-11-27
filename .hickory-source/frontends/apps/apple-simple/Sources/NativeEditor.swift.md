@@ -880,6 +880,9 @@ private final class SimpleTextView: UITextView {
         guard markedTextRange == nil else { return super.keyCommands }
         var commands = super.keyCommands ?? []
         if submitMessage != nil {
+            let newline = UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(insertComposerNewline))
+            newline.wantsPriorityOverSystemBehavior = true
+            commands.append(newline)
             let command = UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(sendMessage))
             command.discoverabilityTitle = "Send message"
             command.wantsPriorityOverSystemBehavior = true
@@ -905,6 +908,10 @@ private final class SimpleTextView: UITextView {
             }
         }
         return commands
+    }
+    @objc private func insertComposerNewline() {
+        guard isEditable, markedTextRange == nil else { return }
+        insertText("\n")
     }
     @objc private func sendMessage() { guard markedTextRange == nil else { return }; submitMessage?() }
     @objc private func openCaretLink() {
@@ -954,13 +961,26 @@ private final class SimpleTextView: UITextView {
     }
 
     override func setMarkedText(_ value: String?, selectedRange: NSRange) {
+        guard isEditable else { return }
         performMarkedInput(start: self.selectedRange) {
             super.setMarkedText(value, selectedRange: selectedRange)
         }
     }
 
     override func insertText(_ value: String) {
+        // UIKeyInput can be called directly without consulting the delegate.
+        guard isEditable else { return }
         performMarkedInput { super.insertText(value) }
+    }
+
+    override func deleteBackward() {
+        guard isEditable else { return }
+        super.deleteBackward()
+    }
+
+    override func replace(_ range: UITextRange, withText text: String) {
+        guard isEditable else { return }
+        super.replace(range, withText: text)
     }
 
     override func unmarkText() {
@@ -2302,8 +2322,11 @@ import UIKit
         }
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        // The host may refresh a recorded reading. Text input and its history
+        // have no write authority over the retained bytes.
+        guard textView.isEditable, !buffer.readOnly else { return false }
         if buffer.applyingMulti { return true }
-        if self.text.performingMarkedInput {return !buffer.readOnly && textView.isEditable}
+        if self.text.performingMarkedInput { return true }
         if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if textView.undoManager?.isUndoing != true && textView.undoManager?.isRedoing != true,
            let equation = folding.equations.first(where: { NSIntersectionRange($0.range, range).length > 0 || range.length == 0 && range.location > $0.range.location && NSLocationInRange(range.location, $0.range) }) {
@@ -2324,6 +2347,9 @@ import UIKit
             let plan = smartEnter(textView.text, range: range, path: buffer.file.path, unit: simpleIndent(textView.text), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
             guard !tableSourceEditHitsGrid(plan.range, selection: textView.selectedRange, tables: self.text.tableRanges) else { return false }
             if buffer.snippets.active != nil,buffer.snippets.input(source:textView.text,range:plan.range,text:plan.text,caret:plan.caret) != nil{return false}
+            // Let UIKit insert and record an ordinary Return in its native
+            // history. Only indentation or range changes need a replacement.
+            if plan.range == range, plan.text == text { unfoldAll(); return true }
             if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: textView.text) {
                 textView.selectedRange = NSRange(location: plan.caret, length: 0); buffer.selection = textView.selectedRange
             }

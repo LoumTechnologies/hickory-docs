@@ -120,6 +120,9 @@ Implementation review: not verified. Executed checks and human judgment are reco
 - [apps/web/src/components/ChatDock.test.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-e7bd6d898a44)
 - apps/web/src/editor/folding.test.ts
 - [apps/web/src/views/ConversationEditor.test.tsx](../../../mechanisms/apps/web/src/views/ConversationEditor.tsx.md#output-edc92cd336d7)
+- [macOS Agent editor and buffer witnesses](../../../frontends/apps/apple-simple/Tests/ParityTests.swift.md)
+- [iOS recorded message journeys](../../../mechanisms/ios-mounted-parity-acceptance.md#follow-an-immutable-agent-message-into-debug-or-patch-review)
+- [Android Agent buffer and request witnesses](../../../frontends/apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt.md)
 
 ### Evidence status
 
@@ -164,6 +167,48 @@ Implementation review: not verified. Executed checks and human judgment are reco
   as host text advances. Focused model witnesses were added but not executed:
   this Linux checkout has no Swift toolchain or Gradle 9.3.1. Source/output
   reconstruction and ownership checks passed; those do not prove native behavior.
+- Browser repeat (2026-11-27): the isolated engine passed the Agent history and
+  Send journey, recorded Run and debugpy 1.8.22 on both message sides, and both
+  recorded patch reviews through draft Apply and Undo. The main browser's
+  ConversationEditor and ChatDock passed 52 focused component checks.
+- macOS (2026-11-27): Xcode 27 built the application. The answer-replacement
+  witness and a mounted AppKit Agent pane passed. The native user and assistant
+  views refused insertion. Enter inserted a newline and Shift+Enter invoked
+  submit. With marked text, AppKit kept control of the key. An advancing
+  answer kept the native editor, selection and viewport. The distinct composer
+  kept its draft and could still undo the edit.
+- iOS (2026-11-27): the mounted UIKit tests opened each saved conversation and
+  used the real engine. The composer accepted native newline input. Both
+  recorded views refused direct insertion, replacement, deletion and marked
+  text. Selected fences on both sides paused and stepped in original message
+  coordinates, evaluated a Watch and continued to completion. The guarded
+  patch witness reviewed both sides, checked generated consequences, applied
+  and undid the drafts, and preserved the saved fixture and session bytes.
+  The rendered app also ran both fences from their native gutters and
+  preserved each editor's text and frame. UIKit registered separate Return
+  and Shift+Return commands. Dispatching Shift+Return through UIKit invoked
+  the submit callback and left a marked candidate with the input method.
+  The rendered composer accepted a newline and sent the exact prompt to the
+  isolated engine, which archived the user card.
+- The separate rendered iOS managed-provider journey reached guarded Apply
+  for two source drafts. The relay delivered the live editor capture and the
+  engine accepted the draft application report. The replay stopped when
+  XCTest could not locate **Undo workspace change** in the Edit menu. The
+  mounted recorded-patch tests independently verified draft Undo for both
+  message sides.
+- Android (2026-11-27): Gradle 9.3.1 assembled the debug APK. Five focused
+  parity tests passed for retained message state, draft acknowledgment, exact
+  recorded Run and Debug addressing, and message buffers. The separate guarded
+  patch test verified the user side's draft Apply and refused Apply after the
+  assistant side's authority retired. These checks ran with loopback fixtures.
+- Rendered Android (2026-11-27): the API 36 app opened both recorded editors
+  from History. Native Run actions selected the first fence on each side and
+  produced `42` and `53` with exit code 0 while the session stayed byte-identical.
+  The rebuilt terminal filled the measured preview viewport. The native
+  composer accepted accessibility input and its Send button sent the exact
+  prompt to the owned local engine with HTTP 202. A mounted-activity input
+  witness checked the exact draft after Enter and Undo. Shift+Enter sent the
+  exact draft to the engine. The fixture returned HTTP 409 on that replay.
 - Evidence limits: final explanation quality remains a human judgment. Broad regressions and post-commit status monitoring remain with the maintainer.
 
 </storycode:doc>
