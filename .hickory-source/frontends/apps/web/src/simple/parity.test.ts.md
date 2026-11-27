@@ -1781,6 +1781,9 @@ describe("simple literate subscription agent", () => {
         expect(view.state.doc.toString()).not.toContain('Forbidden');
       }
       act(() => answer.dispatch({selection:{anchor:3}}));
+      act(() => session.setTurns([turn]));
+      expect(answer.state.doc.toString()).toBe('Readable answer');
+      expect(answer.state.selection.main.head).toBe(3);
       act(() => draft.dispatch({changes:{from:draft.state.doc.length,insert:'!'}}));
       status.mockReturnValue('ready');
       act(() => session.setTurns([{...turn, status:'ok', answer:'Readable answer with more detail'}]));

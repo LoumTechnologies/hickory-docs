@@ -163,7 +163,10 @@ export class AgentSession {
       case "token":
         if (activity.phase === "Receiving model output…") return;
         activity.phase = "Receiving model output…"; break;
-      case "response_complete": activity.answer = event.text; break;
+      case "response_complete":
+        activity.answer = event.text;
+        this.document(`${message.run_id}-agent`, event.text);
+        break;
       case "turn_usage": activity.usage = event.total_usage; activity.usd = event.total_cost_usd; break;
       case "tool_started": {
         const label = toolLabel(event.name, event.data);
@@ -223,7 +226,7 @@ export class AgentSession {
     // Rendering an existing message must never dispatch editor transactions.
     for (const turn of turns) {
       this.document(`${turn.id}-user`, turn.prompt);
-      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? "");
+      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? (turn.status === "running" ? this.activity.get(turn.id)?.answer : undefined) ?? "");
     }
     const key = turns.find(turn => turn.id === this.tip)?.session;
     if (!this.branchEdit && key) this.conversationKey = key;

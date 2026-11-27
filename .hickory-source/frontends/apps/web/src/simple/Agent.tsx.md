@@ -10,7 +10,10 @@ files and the response draft. Mount readable text immediately; parser readiness
 only adds capabilities to that editor. Keep the answer buffer and editor identity
 when a running turn becomes recorded, so selection and scroll survive. Apply
 minimal authored edits when its text advances; replacing the whole buffer would
-collapse a selection in the unchanged prefix. Provisional
+collapse a selection in the unchanged prefix. A running history refresh keeps
+the current provisional answer until an accepted answer replaces it; briefly
+rebasing it to empty would lose the reading selection. Rebase completion events
+before publishing so the render only observes already-current editors. Provisional
 answers remain immutable and gain recorded fence actions only after the host has
 accepted their exact source. Plain Markdown follows this same path, so adding a
 code fence does not replace the reading surface.
@@ -224,7 +227,10 @@ export class AgentSession {
       case "token":
         if (activity.phase === "Receiving model output…") return;
         activity.phase = "Receiving model output…"; break;
-      case "response_complete": activity.answer = event.text; break;
+      case "response_complete":
+        activity.answer = event.text;
+        this.document(`${message.run_id}-agent`, event.text);
+        break;
       case "turn_usage": activity.usage = event.total_usage; activity.usd = event.total_cost_usd; break;
       case "tool_started": {
         const label = toolLabel(event.name, event.data);
@@ -284,7 +290,7 @@ export class AgentSession {
     // Rendering an existing message must never dispatch editor transactions.
     for (const turn of turns) {
       this.document(`${turn.id}-user`, turn.prompt);
-      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? "");
+      this.document(`${turn.id}-agent`, turn.answer ?? turn.error ?? (turn.status === "running" ? this.activity.get(turn.id)?.answer : undefined) ?? "");
     }
     const key = turns.find(turn => turn.id === this.tip)?.session;
     if (!this.branchEdit && key) this.conversationKey = key;
