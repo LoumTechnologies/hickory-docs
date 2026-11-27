@@ -17,6 +17,10 @@ struct StartupSourceObservation {
         return result.rows
     }
     var debugInspection=UUID()
+    var elementForm: NativeElementIntent?
+    var elementLines: (revision: UUID, lines: Set<Int>)?
+    var elementFormError = ""
+    @ObservationIgnored var applyElementDraft: ((NativeSourceEdit, String, NSRange) -> Bool)?
     var showSnippetTools=false
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     var file: FileNode

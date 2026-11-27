@@ -423,6 +423,23 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "element-insert": {
+          await menu("Edit", "Insert element…");
+          await page.getByRole("textbox", { name: "Find an element" }).fill(request.query);
+          await page.getByRole("button", { name: request.choice, exact: true }).click();
+          break;
+        }
+        case "element-edit":
+          await selectGutterAction(debugRail().getByRole("button", { name: request.label, exact: true, includeHidden: true }));
+          break;
+        case "element-field":
+          await page.getByRole("dialog").getByRole("textbox", { name: new RegExp(request.label) }).fill(request.text);
+          value = await page.getByRole("dialog").getByLabel("Source preview").textContent();
+          break;
+        case "element-confirm":
+          await page.getByRole("dialog").getByRole("button", { name: request.label, exact: true }).click();
+          await page.getByRole("dialog").waitFor({ state: "detached" });
+          break;
         case "change-open": await menu("Edit", request.command || "Rename symbol"); await page.getByRole("dialog",{name:"Workspace change preview",exact:true}).waitFor(); break;
         case "action-choose": {
           const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});await panel.getByRole("button",{name:request.title,exact:true}).click();await panel.getByRole("button",{name:request.resources?"Save reviewed source resources":"Apply to source drafts",exact:true}).waitFor();value=await panel.innerText();break;

@@ -78,6 +78,8 @@ host. Keep the normal editor mounted for an explicit file or after a workspace
 has loaded, so a failed listing cannot hide the user's source.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { canAuthorElements, insertDocumentElement } from './ElementAuthoring';
+import { useHickLangStatus } from "../editor/hickLang";
 import {isAgentTab} from './layout';
 import {authoredSource,authoredOffset,editorOffset} from './SourceText';
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
@@ -503,6 +505,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
   const active = currentGroup.active;
   const buffer = active ? bufferForTab(active) : undefined;
+  const elementParserReady = useHickLangStatus() === "ready";
   async function refreshCurrentSource() {
     if (!buffer) return;
     const current = () => {
@@ -865,6 +868,8 @@ its cursor position or save state.
       {commandMenu("File")}
     </div></details><details><summary>Edit</summary><div className="menu">
       {commandMenu("Edit")}
+      <button type="button" disabled={!elementParserReady || !canAuthorElements(buffer) || !editorForBuffer(buffer)?.view.dom.isConnected}
+        onClick={() => { if (buffer && !insertDocumentElement(buffer)) setNotice("Choose a single selection in the editable document, then reopen Insert element."); }}>Insert element…</button>
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       {commandMenu("View")}

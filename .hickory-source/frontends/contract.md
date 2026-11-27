@@ -74,6 +74,17 @@ position and document state. Terminal shows its session state. The workspace has
 no global footer. The View menu (Panes on macOS) still carries workspace notices
 and the active document’s position and save state. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
+### Insert and revise document syntax
+
+Use **Edit → Insert element…** in a writable literate Markdown document to
+choose a Hickory or Markdown element. The form shows the source it will write.
+Confirm to insert the element into the current draft in one undo step. The
+pencil in the right gutter opens the same fields for the element on that line.
+If multiple elements start on one line, the pencil opens a choice. Apply checks
+that the original editor and source are still current before changing the draft.
+The [element authoring chapter](element-authoring.md) follows the shared form and
+the browser, Apple and Android edit paths.
+
 ### Start, branch, reopen and organize agent conversations
 
 Use **New conversation** in Agent or Agent History to open an empty composer

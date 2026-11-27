@@ -1362,6 +1362,41 @@ def embedded_acceptance(driver, folder):
     assert state["nested"] == 0 and state["moved"] > 0, state
 
 
+# Contract: .hickory-source/frontends/contract.md
+def element_authoring_acceptance(driver, folder):
+    path = "element-authoring.md"
+    source = "# Before\r\n\r\nPlain prose.\r\n"
+    driver.act("open", path=path)
+    driver.act("editor-position", path=path, anchor=0)
+    geometry = driver.act("editor-rect", path=path)
+
+    driver.act("element-insert", query="copy", choice="Copy Reuse")
+    insert = '<hick:copy id="example">\r\nThe text to reuse.\r\n</hick:copy>\r\n\r\n'
+    assert driver.act("element-field", label="^Id", text="example") == insert
+    assert driver.act("source-text-state", path=path)["source"] == source
+    driver.act("element-confirm", label="Insert")
+    draft = driver.act("source-text-state", path=path)
+    assert draft["source"] == insert + source
+    start = insert.index("The text to reuse.")
+    assert draft["selection"] == [{"anchor": start, "head": start + len("The text to reuse.")}]
+
+    driver.act("element-edit", label="Edit Copy on line 1")
+    assert 'id="revised"' in driver.act("element-field", label="^Id", text="revised")
+    driver.act("element-confirm", label="Apply edit")
+    assert 'id="revised"' in driver.act("source-text-state", path=path)["source"]
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == insert + source
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == source
+
+    driver.act("element-edit", label="Edit Heading on line 1")
+    assert driver.act("element-field", label="^Text$", text="After") == "# After"
+    driver.act("element-confirm", label="Apply edit")
+    assert driver.act("source-text-state", path=path)["source"] == source.replace("Before", "After")
+    assert driver.act("editor-rect", path=path) == geometry
+    assert (folder / path).read_bytes() == source.encode()
+
+
 def inline_features_acceptance(driver, folder):
     # These observations go through real DOM controls and exact workspace bytes.
     for path, kind in [("diagram.md", "diagram"), ("fenced.md", "syntax"), ("patch.md", "patch")]:
@@ -1433,6 +1468,7 @@ if __name__ == "__main__":
         table_source = table_source.replace('order = table("Order")', f'from pathlib import Path\nPath({str(folder / "table-producer-ran")!r}).write_text("ran")\norder = table("Order")')
         (folder / "tables.md").write_text(table_source)
         (folder / "notes.txt").write_text("before")
+        (folder / "element-authoring.md").write_bytes(b"# Before\r\n\r\nPlain prose.\r\n")
         if "--workspace-welcome-only" in sys.argv:
             nested = folder / "src" / "nested"
             nested.mkdir(parents=True)
@@ -1651,6 +1687,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--embedded-only" in sys.argv:
                 embedded_acceptance(driver, folder)
                 print("Browser: compact diagram, gutter source round trip, graph/Mermaid file links and stationary-pointer scrolling passed")
+            elif "--element-authoring-only" in sys.argv:
+                element_authoring_acceptance(driver, folder)
+                print("Browser: source previews, gutter edits, two Undo steps, editor geometry and unchanged disk bytes passed")
             elif "--inline-features-only" in sys.argv:
                 inline_features_acceptance(driver, folder)
                 print("Browser: real inline diagram, fenced syntax colors, heading fold and editable project patch passed")
@@ -1719,6 +1758,7 @@ raise RuntimeError('wrong assistant fence')
                 print("Browser: Markdown headings, bold and italic passed")
             else:
                 markdown_acceptance(driver)
+                element_authoring_acceptance(driver, folder)
                 acceptance(driver, folder)
                 spreadsheet_acceptance(driver, folder, backend)
                 table_dataflow_acceptance(driver, folder, backend)

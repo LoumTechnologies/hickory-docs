@@ -120,7 +120,12 @@ class MainActivity : ComponentActivity() {
                         else -> command
                     }
                 }
-                CommandMenu("Edit", editCommands + multipleSelectionCommands(workspace), overlays = {
+                val elementBuffer = workspace.currentBuffer
+                val insertElement = WorkspaceCommand("editor.insertElement", "Insert element…", "Edit",
+                    if (elementBuffer?.canAuthorElements == true) null else "Open an editable Markdown document.") {
+                    if (elementBuffer?.openElementForm() == false) workspace.status = "Finish typing and choose a single selection before inserting."
+                }
+                CommandMenu("Edit", editCommands + insertElement + multipleSelectionCommands(workspace), overlays = {
                     DropdownMenu(expanded = workspace.showAnalysis, onDismissRequest = { workspace.showAnalysis = false }) {
                         WorkspaceAnalysisView(workspace)
                     }

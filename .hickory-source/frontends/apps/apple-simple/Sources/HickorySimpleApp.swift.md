@@ -72,6 +72,9 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
                 ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:workspace.menuPresentation($0))}
+                Button("Insert element…") { workspace.currentBuffer?.openElementForm() }
+                    .disabled(workspace.currentBuffer?.canAuthorElements != true)
+                    .keyboardShortcut("i", modifiers: .command)
             }
             CommandMenu("Panes") {
                 ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}

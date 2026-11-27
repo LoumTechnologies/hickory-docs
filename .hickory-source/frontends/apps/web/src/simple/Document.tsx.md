@@ -72,6 +72,7 @@ new session to the workspace terminal. Opening and typing in a source buffer
 do not request the catalog.
 
 <ui:copy id="simple-browser-semantic-locations">
+import { useElementAuthoring } from './ElementAuthoring';
 import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert,authoredReplacement} from './SourceText';
 import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,sourceSnippetMenuState,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
@@ -577,6 +578,7 @@ export function Document({ buffer, current, renderTools }: {
   const sourceTestActions=useSourceTestLineActions(buffer,view);
   const coverageActions=useCoverageLineActions(buffer,view);
   const gitComparison=useGitEditorComparison(buffer,view);
+  const authoring = useElementAuthoring(buffer, view, parserReady, current);
   const semanticCurrent = !!view && !!semanticResult && semanticResult.ticket === semanticTicket.current && semanticResult.source === buffer.text && semanticResult.anchor === view.state.selection.main.anchor && semanticResult.head === view.state.selection.main.head;
   return <div className="document-body">
     {gitComparison.panel}
@@ -606,7 +608,7 @@ export function Document({ buffer, current, renderTools }: {
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
-      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions,...gitComparison.actions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? (program, at) => start(program, false, at) : undefined}
+      <DebugLaunchRail actions={[...authoring.actions,...sourceTestActions,...coverageActions,...gitComparison.actions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? (program, at) => start(program, false, at) : undefined}
         onProfiles={debuggable && (!literate || parserReady) ? (program, at) => start(program, true, at) : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}
@@ -621,6 +623,7 @@ export function Document({ buffer, current, renderTools }: {
       onStart={() => start(debug.program ?? undefined)} onStop={debug.stop} onAddWatch={() => { const expression = window.prompt("Expression to watch"); if (expression) debug.addWatch(expression); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />}
     {debugNotice && <div role="alert" className="notice">{debugNotice}</div>}
+    {authoring.dialog}
     {view && renderTools?.(view)}
     {buffer.error && <div role="alert" className="notice">{buffer.error}</div>}
   </div>;

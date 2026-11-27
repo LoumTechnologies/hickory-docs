@@ -639,6 +639,79 @@ export const INSERT_ELEMENTS: readonly InsertElement[] = [
     ],
   },
 
+  // ---- Declared project construction ------------------------------------
+  {
+    id: "project",
+    tag: "project",
+    title: "Project declaration",
+    group: "Document",
+    summary: "Declare the source documents and exclusions for a project.",
+    placement: "block",
+    body: "none",
+    fields: [
+      { name: "sources", label: "Sources", hint: "Space-separated source documents relative to this document.", placeholder: "chapter.md support.md" },
+      { name: "exclude", label: "Exclude", hint: "Space-separated paths outside the output inventory. End directory paths with /.", placeholder: "target/" },
+    ],
+  },
+  {
+    id: "project-route",
+    tag: "project",
+    title: "Project entry route",
+    group: "Document",
+    summary: "Point this document to its project's entry document.",
+    placement: "block",
+    body: "none",
+    fields: [
+      { name: "entry", label: "Entry document", hint: "Path relative to this document.", required: true, placeholder: "../project.md" },
+    ],
+  },
+  {
+    id: "entry",
+    tag: "entry",
+    title: "Literal file entry",
+    group: "Document",
+    summary: "Write literal bytes or a symbolic link in the project output.",
+    placement: "block",
+    body: "block",
+    bodyLabel: "Literal content",
+    fields: [
+      { name: "path", label: "Path", hint: "Path relative to the project output root.", required: true, placeholder: "assets/data.bin" },
+      { name: "kind", label: "Kind", hint: "A symbolic link contains its target path.", choices: ["", "file", "symlink"] },
+      { name: "encoding", label: "Encoding", hint: "Text entries default to UTF-8. Use hex for literal binary bytes.", choices: ["", "utf8", "hex"] },
+      { name: "executable", label: "Executable", hint: "Mark a regular file as executable.", choices: FREEZE },
+      { name: "id", label: "Id", hint: "Name this construction so another can depend on it." },
+      { name: "after", label: "After", hint: "Space-separated construction ids that must precede this one." },
+    ],
+  },
+  {
+    id: "patch",
+    tag: "patch",
+    title: "Project patch",
+    group: "Document",
+    summary: "Apply a unified diff to earlier project output.",
+    placement: "block",
+    body: "block",
+    bodyLabel: "Unified diff",
+    fields: [
+      { name: "id", label: "Id", hint: "Name this patch so another construction can depend on it." },
+      { name: "after", label: "After", hint: "Space-separated ids of the constructions whose output this patch modifies." },
+    ],
+  },
+  {
+    id: "scope",
+    tag: "scope",
+    title: "Atomic construction scope",
+    group: "Document",
+    summary: "Group file entries and patches into one atomic construction.",
+    placement: "block",
+    body: "block",
+    bodyLabel: "Constructions",
+    fields: [
+      { name: "id", label: "Id", hint: "Name this scope so another construction can depend on it.", required: true },
+      { name: "after", label: "After", hint: "Space-separated construction ids that must precede this scope." },
+    ],
+  },
+
   // ---- Documents and prose ----------------------------------------------
   {
     id: "file",

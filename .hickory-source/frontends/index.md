@@ -5,6 +5,7 @@
 <ui:include file="linux.md" />
 <ui:include file="windows.md" />
 <ui:include file="inline-editing.md" />
+<ui:include file="element-authoring.md" />
 <ui:include file="smart-enter.md" />
 
 The Apple SwiftUI app, Android Jetpack Compose app and React browser entry share the workspace engine. The KDE and WinForms desktops host the compiled React workspace in Qt WebEngine and WebView2 respectively. Use the same editor commands and safety boundaries across these surfaces. Files, documents, the workspace agent and terminal are the only pane kinds. Literate documents initially show editable source text; generated outputs remain readable but read-only. Inline DAP debugging now shares the existing engine protocol across the browser, macOS, iOS and Android. Inline presentation now reuses browser rich widgets and native source-attached controls; backend capability menus remain subsequent parity work.

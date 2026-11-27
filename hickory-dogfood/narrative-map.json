@@ -6,6 +6,118 @@
   "relocated_annotated_tests": 184,
   "fragments": [
     {
+      "id": "element-authoring-native-protocol",
+      "output": "apps/web/src/components/ElementAuthoring.tsx",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Bind native messages to their source and request",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-fields",
+      "output": "apps/web/src/components/ElementAuthoring.tsx",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Preview each form before confirmation",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-plan",
+      "output": "apps/web/src/components/ElementAuthoringModel.ts",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Preview the exact transaction",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-gutter-reading",
+      "output": "apps/web/src/components/ElementAuthoringModel.ts",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Distinguish prose from embedded source",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-markdown-reading",
+      "output": "apps/web/src/components/ElementAuthoringModel.ts",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Keep delimiters around Markdown edits",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-hick-reading",
+      "output": "apps/web/src/components/ElementAuthoringModel.ts",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Keep the original Hickory spelling",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-witnesses",
+      "output": "apps/web/src/components/ElementAuthoring.test.tsx",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Check exact source and form behavior",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ElementAuthoring.kt",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Bind the shared form to Compose",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-apple",
+      "output": "apps/apple-simple/Sources/ElementAuthoring.swift",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Bind the shared form to the Apple editor",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-local-page",
+      "output": "apps/apple-simple/Sources/Resources/element-authoring.html",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Load the form from the app bundle",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-browser",
+      "output": "apps/web/src/simple/ElementAuthoring.tsx",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Apply through the browser source editor",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-style",
+      "output": "apps/web/src/components/ElementAuthoring.css",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Keep the controls floating",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-form",
+      "output": "apps/web/src/components/ElementAuthoring.tsx",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Share the searchable menu and form",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "element-authoring-model",
+      "output": "apps/web/src/components/ElementAuthoringModel.ts",
+      "page": ".hickory-source/frontends/element-authoring.md",
+      "symbol": "Read exact element ranges and plan source edits",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
       "id": "dev-engine-build-stamp",
       "output": "crates/hickory-cli/build.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/build.rs.md",

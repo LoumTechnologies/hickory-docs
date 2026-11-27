@@ -1127,6 +1127,9 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         true
                     } else if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
                         buffer.tableSourceVisible = true; buffer.clearFolds(); true
+                    } else if (event.type == KeyEventType.KeyDown && (event.isCtrlPressed || event.isMetaPressed) &&
+                        !event.isAltPressed && !event.isShiftPressed && event.key == Key.I && recorded == null && buffer.openElementForm()) {
+                        true
                     } else if(event.type==KeyEventType.KeyDown&&(event.isCtrlPressed||event.isMetaPressed)&&!event.isAltPressed&&buffer.state.composition==null&&(event.key==Key.Z||event.key==Key.Y)){
                         if(event.key==Key.Y||event.isShiftPressed)buffer.snippets.redoSource() else buffer.snippets.undoSource();true
                     } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Escape&&buffer.state.composition==null&&buffer.snippets.isActive){buffer.snippets.finish();true
@@ -1358,6 +1361,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
         }, confirmButton = { WithDisabledReason(if (buffer.readOnly) "This source is read-only." else null) { available -> TextButton(enabled = available, onClick = { if(!buffer.snippets.inputParallel(buffer.multiText))buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
+        if (recorded == null && buffer.canAuthorElements) NativeElementForm(buffer)
         if (buffer.showFind) NativeFindPanel(buffer, Modifier.simpleReveal().align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }
@@ -1564,7 +1568,10 @@ private class ConstructionDisclosure(val line: Int) {
     val launchLines = debugContext?.launch.orEmpty()
     val equationLines = if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations.map { it.line }.toSet() else emptySet()
     val paused = if (debug.positionSourceMatches(buffer)) debug.line(buffer.file.path) else null
-    fun hasGutterAction(line: Int) = (git != null && (line == 0 || gitRows?.containsKey(line) == true)) || line in breakpointLines || line in commentLines || line in patchLines || line in constructionLines || line in coverageLines ||
+    val elementLines = if (recorded == null && buffer.canAuthorElements) {
+        buffer.elementLines?.takeIf { it.first == revision }?.second.orEmpty()
+    } else emptySet()
+    fun hasGutterAction(line: Int) = line in elementLines || (git != null && (line == 0 || gitRows?.containsKey(line) == true)) || line in breakpointLines || line in commentLines || line in patchLines || line in constructionLines || line in coverageLines ||
         line in testLines || line in launchLines || line == paused || line in equationLines || buffer.receiptsOn(line).isNotEmpty()
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
         detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
@@ -1587,6 +1594,9 @@ private class ConstructionDisclosure(val line: Int) {
                 if (top < 0 || top > height) continue
                 val held = debug.breakpointRows(buffer).firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
+                if (line in elementLines) actions.add(Triple("✎", "Edit element", {
+                    buffer.openElementForm(line, with(density) { top.toDp().value })
+                }))
                 if (line in breakpointLines) {
                     actions.add(Triple(if (held == null) "○" else "●", if (held == null) "Set breakpoint" else "Remove breakpoint", { debug.toggle(buffer, line) }))
                 }

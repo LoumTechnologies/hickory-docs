@@ -1501,7 +1501,7 @@ import json
 import subprocess
 
 
-def bundle_preview(entry, filename):
+def bundle_preview(entry, filename, *options):
     web = ROOT / "apps/web"
     resources = ROOT / "apps/apple-simple/Sources/Resources/node_modules"
     resources.mkdir(parents=True, exist_ok=True)
@@ -1510,7 +1510,7 @@ def bundle_preview(entry, filename):
         subprocess.run([
             str(web / "node_modules/.bin/esbuild"), "--bundle", "--format=iife",
             "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}",
-            "--log-level=warning", "--outfile=" + str(bundle),
+            "--log-level=warning", "--outfile=" + str(bundle), *options,
         ], input=entry, text=True, cwd=web, check=True)
         for output in Path(scratch).iterdir():
             destination = resources / output.name
@@ -1532,6 +1532,18 @@ print("Prepared shared native spreadsheet resources.")
 entry = "import { mountNativeCoverage } from " + json.dumps(str(ROOT / "apps/web/src/coverage/NativeCoverage.tsx")) + ";\n" + "globalThis.hickoryCoverage = mountNativeCoverage(document.getElementById('surface'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.coverage) globalThis.webkit.messageHandlers.coverage.postMessage(JSON.parse(json)); else globalThis.HickoryCoverage?.postMessage(json); });"
 bundle_preview(entry, "coverage.js")
 print("Prepared shared native coverage resources.")
+
+# Bundle the authoring form with the same parser the browser uses. Embedded
+# WASM bytes let the native page stay local with network access disabled.
+entry = (
+    "import { mountNativeElements } from " + json.dumps(str(ROOT / "apps/web/src/components/ElementAuthoring.tsx")) + ";\n"
+    "globalThis.hickoryElements = mountNativeElements(document.getElementById('elements'), message => {"
+    "if (globalThis.webkit?.messageHandlers?.elements) globalThis.webkit.messageHandlers.elements.postMessage(message); "
+    "else globalThis.HickoryElements?.postMessage(JSON.stringify(message)); });"
+)
+bundle_preview(entry, "element-authoring.js", "--loader:.wasm=binary", "--minify",
+               "--define:process.env.NODE_ENV=\"production\"", "--define:import.meta.url=undefined")
+print("Prepared shared native element authoring resources.")
 </ui:copy>
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>

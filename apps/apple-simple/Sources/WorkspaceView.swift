@@ -65,6 +65,8 @@ struct WorkspaceView: View {
                 Menu("Edit") {
                     EditorNavigationSettings()
                     ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:workspace.menuPresentation($0))}
+                    Button("Insert element…") { workspace.currentBuffer?.openElementForm() }
+                        .disabled(workspace.currentBuffer?.canAuthorElements != true)
                     #if os(iOS)
                     if let selections = MobileSelectionEdit(workspace) {
                         Button("Edit selections") {

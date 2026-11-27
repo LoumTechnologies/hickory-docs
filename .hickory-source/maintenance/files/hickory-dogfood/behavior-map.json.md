@@ -60922,6 +60922,100 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-964718fb75-1"
       ]
     },
+    "apps/web/src/components/ElementAuthoringModel.ts": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-model",
+        "element-authoring-hick-reading",
+        "element-authoring-markdown-reading",
+        "element-authoring-gutter-reading",
+        "element-authoring-plan"
+      ]
+    },
+    "apps/web/src/components/ElementAuthoring.tsx": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-form",
+        "element-authoring-fields",
+        "element-authoring-native-protocol"
+      ]
+    },
+    "apps/web/src/components/ElementAuthoring.css": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-style"
+      ]
+    },
+    "apps/web/src/simple/ElementAuthoring.tsx": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/element-authoring.html": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-local-page"
+      ]
+    },
+    "apps/apple-simple/Sources/ElementAuthoring.swift": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ElementAuthoring.kt": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-android"
+      ]
+    },
+    "apps/web/src/components/ElementAuthoring.test.tsx": {
+      "source": ".hickory-source/frontends/element-authoring.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": null,
+      "construction": "fragments",
+      "fragments": [
+        "element-authoring-witnesses"
+      ]
+    },
     "apps/web/src/simple/Document.tsx": {
       "source": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
       "owner": "simple-frontends",

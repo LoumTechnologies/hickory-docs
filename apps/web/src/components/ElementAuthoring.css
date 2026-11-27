@@ -1,0 +1,48 @@
+.element-dialog, .element-authoring {
+  color: CanvasText;
+  background: Canvas;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+.element-dialog {
+  border: 1px solid GrayText;
+  border-radius: 8px;
+  padding: 0;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+.element-dialog::backdrop { background: transparent; }
+.element-authoring { box-sizing: border-box; padding: 12px; }
+.element-authoring header { display: flex; align-items: center; justify-content: space-between; }
+.element-authoring button, .element-authoring input, .element-authoring textarea, .element-authoring select {
+  font: inherit;
+  color: inherit;
+  background: Canvas;
+  border: 1px solid GrayText;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+.element-authoring button:not(:disabled) { cursor: pointer; }
+.element-authoring button:disabled { opacity: .55; }
+.element-authoring form, .element-authoring label, .element-options { display: grid; gap: 5px; }
+.element-authoring form { gap: 10px; margin-top: 8px; }
+.element-authoring h2, .element-authoring p { margin: 0; }
+.element-authoring h2 { font-size: 16px; }
+.element-authoring label small { color: GrayText; }
+.element-authoring .element-back { margin-top: 8px; }
+.element-authoring textarea { resize: vertical; min-height: 4em; font-family: ui-monospace, monospace; }
+.element-authoring pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, monospace;
+  background: color-mix(in srgb, CanvasText 6%, Canvas);
+  padding: 8px;
+  max-height: 12em;
+  overflow: auto;
+  margin: 4px 0 0;
+}
+.element-authoring .element-search { width: 100%; box-sizing: border-box; margin: 10px 0 6px; }
+.element-options { max-height: min(330px, 60dvh); overflow: auto; }
+.element-options button { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; text-align: left; }
+.element-options small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.element-options span { flex-shrink: 0; }
+.element-authoring .element-apply { justify-self: start; background: ButtonFace; }

@@ -145,6 +145,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content, initialSelection = TextRange.Zero)
     val snippets=SourceSnippetController(this)
+    internal var elementForm by mutableStateOf<NativeElementIntent?>(null)
+    internal var elementLines by mutableStateOf<Pair<Long, Set<Int>>?>(null)
     var showSnippetTools by mutableStateOf(false)
     var focusSource: (() -> Unit)? = null
     fun closeFind() { showFind = false; focusSource?.invoke() }

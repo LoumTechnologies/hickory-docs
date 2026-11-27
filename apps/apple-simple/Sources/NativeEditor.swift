@@ -1111,6 +1111,9 @@ private struct EquationLayout: Equatable {
             )
         }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.applyElementDraft = { [weak self] edit, source, selection in
+            self?.applySourceEdits([edit], source: source, resultSelection: selection) == true
+        }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
             return self.canReflectWorkspaceEdits(edits, source: source)
@@ -1822,6 +1825,9 @@ import UIKit
             )
         }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.applyElementDraft = { [weak self] edit, source, selection in
+            self?.applySourceEdits([edit], source: source, resultSelection: selection) == true
+        }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
             return self.canReflectWorkspaceEdits(edits, source: source)
@@ -2788,6 +2794,8 @@ struct LanguageEditor: View {
             } else if buffer.startupObservation != nil {
                 Color.clear.frame(width: railWidth + 4)
             }
+        }.overlay {
+            if recordedDebug == nil && buffer.canAuthorElements { NativeElementForm(buffer: buffer).id(buffer.id) }
         }.onChange(of:buffer.sourceRevision,initial:true){_,_ in debugger?.sourceChanged(buffer);buffer.readTestSources();buffer.readCoverageSource()}
         .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
@@ -2979,6 +2987,8 @@ struct NativeDebugRail: View {
 
     private func actions(_ line: Int,testLines:Set<Int>,coverageLines:[Int:CoverageProjectedLine]) -> [String] {
         var result: [String] = []
+        if recordedDebug == nil, buffer.canAuthorElements, let reading = buffer.elementLines,
+           reading.revision == buffer.sourceEditIdentity, reading.lines.contains(line) { result.append("edit-element") }
         if let row=coverageLines[line]{result.append("coverage:"+row.state)}
         if testLines.contains(line){result.append("tests")}
         if let comparison = buffer.gitComparison, exactUTF8(comparison.path, buffer.file.path),
@@ -3001,11 +3011,13 @@ struct NativeDebugRail: View {
     private func symbol(_ action: String) -> String {
         if action.hasPrefix("coverage:"){return action=="coverage:covered" ? "circle.fill":action=="coverage:uncovered" ? "circle":"circle.lefthalf.filled"}
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
+        if action == "edit-element" { return "pencil" }
         switch action { case "tests":return "checklist";case "git-change":return "plus.forwardslash.minus";case "patch-comment":return "text.bubble";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "stop": return "stop.fill"; default: return "eye" }
     }
     private func actionLabel(_ action:String,line:Int)->String {
         if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
         if action == "git-change" { return "Inspect Git comparison" }
+        if action == "edit-element" { return "Edit element" }
         if action == "patch-comment" { return "Comment on patch line" }
         if action == "over" { return "Step over" }
         if action == "in" { return "Step in" }
@@ -3037,6 +3049,7 @@ struct NativeDebugRail: View {
             if action != "recorded-run" && action != "recorded-construction" { opened = nil }
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
+            case "edit-element": buffer.openElementForm(line: line)
             case "git-change":
                 gitLine = line
             case "patch-comment":

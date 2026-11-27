@@ -82,18 +82,19 @@ function render(
   values: FieldValues,
   body: string,
   extras: Readonly<Record<string, string>> = {},
+  prefix = "hick",
 ): { text: string; bodyAt: number } {
   const known = new Set(element.fields.map((field) => field.name));
   const preserved = Object.entries(extras)
     .filter(([name]) => !known.has(name))
     .map(([name, value]) => attribute(name, value))
     .join("");
-  const open = `<hick:${element.tag}${attributes(element, values)}${preserved}`;
+  const open = `<${prefix}:${element.tag}${attributes(element, values)}${preserved}`;
   if (element.body === "none") {
     const text = `${open} />`;
     return { text, bodyAt: text.length };
   }
-  const close = `</hick:${element.tag}>`;
+  const close = `</${prefix}:${element.tag}>`;
   if (element.body === "inline") {
     return { text: `${open}>${body}${close}`, bodyAt: open.length + 1 };
   }
@@ -195,10 +196,11 @@ export function buildInsertion(
   values: FieldValues,
   context: EditContext,
   bodyOverride?: string,
+  prefix = "hick",
 ): Insertion {
   const body = element.body === "none" ? "" : (bodyOverride ?? defaultBody(element, context.selected));
 
-  const { text: rendered, bodyAt } = render(element, values, body);
+  const { text: rendered, bodyAt } = render(element, values, body, {}, prefix);
 
   let lead = "";
   let trail = "";
@@ -227,15 +229,14 @@ export function buildInsertion(
       : indent + rendered;
 
   const text = lead + placed + trail;
-  // The body lands one indent further along than the bare render says, and
-  // an indented multi-line body pushes every line after the first as well.
-  const shift = indent ? indent.length * (1 + countBreaks(rendered.slice(0, bodyAt))) : 0;
-  const selectFrom = lead.length + shift + bodyAt;
-  return { text, selectFrom, selectTo: selectFrom + body.length };
+  const selectFrom = placedOffset(rendered, bodyAt, indent, lead);
+  return { text, selectFrom, selectTo: body ? placedOffset(rendered, bodyAt + body.length, indent, lead) : selectFrom };
 }
 
-function countBreaks(text: string): number {
-  let n = 0;
-  for (const ch of text) if (ch === "\n") n += 1;
-  return n;
+function placedOffset(rendered: string, offset: number, indent: string, lead: string): number {
+  if (!indent) return lead.length + offset;
+  const lines = rendered.slice(0, offset).split("\n");
+  const indented = lines.slice(0, -1).filter(Boolean).length
+    + Number(rendered[offset - (lines.at(-1)?.length ?? 0)] !== "\n");
+  return lead.length + offset + indent.length * indented;
 }

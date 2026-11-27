@@ -31,6 +31,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
+The [element authoring chapter](../../../frontends/element-authoring.md) follows the current Insert action, the right-gutter edit action and the focused source-preservation witnesses across the editor hosts.
+
 ## Test the behavior: `catalogue_path`
 
 This is the maintained test fragment from `apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs`; its original guarantee annotation selects this narrative owner. Inspect the assertions below before treating the annotation as coverage.
