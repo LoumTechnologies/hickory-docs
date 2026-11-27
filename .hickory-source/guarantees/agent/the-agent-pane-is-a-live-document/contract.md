@@ -147,6 +147,18 @@ Implementation review: not verified. Executed checks and human judgment are reco
   View menu. It verifies history, read-only messages, draft retention through a
   refused provider request, subscription selection and the exact HTTP payload.
   Visual inspection used `target/simple-agent.png`; this is not native acceptance.
+- Recorded-fence browser execution (2026-11-26):
+  `scripts/test-simple-browser.py --recorded-fence-debug-only` passed with the
+  rebuilt engine and target-local debugpy 1.8.22. Both user and assistant records
+  explicitly run the selected fence, stop at a breakpoint in original message
+  coordinates, Step, read a Watch and Continue. The witness compares the entire
+  session bytes after execution and confirms retained editor identity. The flow
+  opens its saved conversation from History; opening Agent alone creates a new one.
+- Recorded-patch browser execution (2026-11-26):
+  `scripts/test-simple-browser.py --recorded-patch-only` passed on user and
+  assistant messages. Review displays authored changes and generated consequences
+  before approval. Apply amends drafts, retains editor identity and supports Undo;
+  all saved files and the recorded session remain byte-identical throughout.
 - Native verification limit (2026-11-26): Apple and Android now route plain and
   provisional answers through their document editors and retain message buffers
   as host text advances. Focused model witnesses were added but not executed:

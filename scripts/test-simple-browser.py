@@ -1077,10 +1077,12 @@ def recorded_patch_acceptance(driver, folder):
              ("agent", "review.txt", "assistant draft", None)]
     saved = {path: (folder / path).read_bytes() for path in ["author.md", "review.txt", "generated.py", "sessions/recorded-patch.md"]}
     for side, target, replacement, consequence in paths:
+        driver.act("source-tab", label="Files")
         driver.act("open", path=target)
         driver.act("remember-editor", path=target)
         original = driver.act("source-text-state", path=target)
-        driver.act("agent")
+        driver.act("conversation-history-view", view="History")
+        driver.act("conversation-history-entry", title="Review this construction.", open=True)
         message = f"conversation/recorded-patch-{side}.md"
         before = driver.act("source-text-state", path=message)
         assert "@@ -" in before["source"], before
@@ -1095,6 +1097,7 @@ def recorded_patch_acceptance(driver, folder):
         assert "Complete proposal applied to drafts" in applied, applied
         driver.act("proposal-close")
         assert driver.act("source-text-state", path=message) == before
+        driver.act("source-tab", label="Files")
         driver.act("open", path=target)
         assert driver.act("editor-is-retained", path=target)
         assert replacement in driver.act("source-text-state", path=target)["source"]
@@ -1170,7 +1173,9 @@ def recorded_fence_debug_acceptance(driver, folder, backend):
     with urlopen(backend + "/api/docs/workspace/agent/turns", timeout=5) as response:
         [turn] = json.load(response)["turns"]
     assert turn["id"] == "recorded-fence-host"
-    driver.act("agent")
+    # Agent opens a new conversation; choose this retained record explicitly.
+    driver.act("conversation-history-view", view="History")
+    driver.act("conversation-history-entry", title="Question before code.", open=True)
     for role, side, result in [("user", "prompt", 41), ("agent", "answer", 52)]:
         source = turn[side]
         opening = next(index for index, line in enumerate(source.splitlines(), 1) if line.endswith("python"))

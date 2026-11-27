@@ -5,6 +5,10 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The acceptance flow launches an isolated real engine on an ephemeral port, then a Vite process and a browser adapter. No agent prompt is sent. Computed browser styles verify Markdown heading size, bold weight and italics on an opened literate document. Run `python3 scripts/test-simple-browser.py --markdown-only` for the focused formatting witness. Chat formatting and HTML safety have component witnesses; this real-engine flow does not claim provider-message coverage. Disk assertions cover successful plain/literate saves and conflict refusal; UI assertions cover moved document undo and moved agent drafts.
 
+The recorded-fence flow selects its saved conversation from Agent History before
+addressing message editors. Opening Agent creates a new conversation; it cannot
+stand in for selecting the record whose source hash the execution must bind.
+
 The focused `--conversation-history-only` flow organizes recorded turns through
 the real engine and sidebar. Favoriting a follow-up stars its original
 conversation. Archiving that conversation keeps its independent branch visible
@@ -1180,10 +1184,12 @@ def recorded_patch_acceptance(driver, folder):
              ("agent", "review.txt", "assistant draft", None)]
     saved = {path: (folder / path).read_bytes() for path in ["author.md", "review.txt", "generated.py", "sessions/recorded-patch.md"]}
     for side, target, replacement, consequence in paths:
+        driver.act("source-tab", label="Files")
         driver.act("open", path=target)
         driver.act("remember-editor", path=target)
         original = driver.act("source-text-state", path=target)
-        driver.act("agent")
+        driver.act("conversation-history-view", view="History")
+        driver.act("conversation-history-entry", title="Review this construction.", open=True)
         message = f"conversation/recorded-patch-{side}.md"
         before = driver.act("source-text-state", path=message)
         assert "@@ -" in before["source"], before
@@ -1198,6 +1204,7 @@ def recorded_patch_acceptance(driver, folder):
         assert "Complete proposal applied to drafts" in applied, applied
         driver.act("proposal-close")
         assert driver.act("source-text-state", path=message) == before
+        driver.act("source-tab", label="Files")
         driver.act("open", path=target)
         assert driver.act("editor-is-retained", path=target)
         assert replacement in driver.act("source-text-state", path=target)["source"]
@@ -1273,7 +1280,9 @@ def recorded_fence_debug_acceptance(driver, folder, backend):
     with urlopen(backend + "/api/docs/workspace/agent/turns", timeout=5) as response:
         [turn] = json.load(response)["turns"]
     assert turn["id"] == "recorded-fence-host"
-    driver.act("agent")
+    # Agent opens a new conversation; choose this retained record explicitly.
+    driver.act("conversation-history-view", view="History")
+    driver.act("conversation-history-entry", title="Question before code.", open=True)
     for role, side, result in [("user", "prompt", 41), ("agent", "answer", 52)]:
         source = turn[side]
         opening = next(index for index, line in enumerate(source.splitlines(), 1) if line.endswith("python"))
