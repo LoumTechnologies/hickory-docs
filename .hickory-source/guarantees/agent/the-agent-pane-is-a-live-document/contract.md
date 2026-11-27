@@ -137,6 +137,21 @@ Implementation review: not verified. Executed checks and human judgment are reco
   Visual review used `/tmp/hickory-agent-pane.png`; aesthetic acceptance remains
   the user's judgment. Node 26 required `NODE_OPTIONS=--no-experimental-webstorage`
   for this repository's jsdom storage setup.
+- Focused execution (2026-11-26): the Simple browser lifecycle component witness
+  passed with parser loading, immutable user and assistant buffers, an advancing
+  answer, retained selection, and independent draft undo. Four focused component
+  checks also passed for send, explicit recorded-fence Debug and construction
+  patch reading; TypeScript checking passed before the later minimal-edit change.
+  The real-engine `scripts/test-simple-browser.py --agent-only` flow passed after
+  rebuilding `engine_client` and scoping the source-position observation to its
+  View menu. It verifies history, read-only messages, draft retention through a
+  refused provider request, subscription selection and the exact HTTP payload.
+  Visual inspection used `target/simple-agent.png`; this is not native acceptance.
+- Native verification limit (2026-11-26): Apple and Android now route plain and
+  provisional answers through their document editors and retain message buffers
+  as host text advances. Focused model witnesses were added but not executed:
+  this Linux checkout has no Swift toolchain or Gradle 9.3.1. Source/output
+  reconstruction and ownership checks passed; those do not prove native behavior.
 - Evidence limits: final explanation quality remains a human judgment. Broad regressions and post-commit status monitoring remain with the maintainer.
 
 </storycode:doc>

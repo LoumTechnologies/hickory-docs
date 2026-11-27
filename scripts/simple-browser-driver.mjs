@@ -1344,7 +1344,7 @@ try {
           await source.press("Home");
           await source.press("ArrowRight");
           await page.locator("nav").getByText("View", { exact: true }).click();
-          const sourcePosition = await page.getByLabel("Editor position", {exact: true}).innerText();
+          const sourcePosition = await page.getByRole("navigation", {name:"Menu"}).getByLabel("Editor position", {exact: true}).innerText();
           await page.locator("nav").getByText("View", { exact: true }).click();
           await menu("View", "Agent History");
           await page.getByRole('region', {name:'Agent History'}).getByRole('button', {name:'# Previous question',exact:true}).click();
@@ -1354,7 +1354,12 @@ try {
           await history.waitFor();
           const before = await history.textContent();
           await history.click(); await page.keyboard.type("cannot edit");
-          const readonly = await history.getAttribute("contenteditable") === "false" && await history.textContent() === before;
+          const answer = editor("conversation/agent-history-agent.md");
+          await answer.waitFor();
+          const answerBefore = await answer.textContent();
+          await answer.click(); await page.keyboard.type("cannot edit answer");
+          const readonly = await history.getAttribute("contenteditable") === "false" && await history.textContent() === before
+            && await answer.getAttribute("contenteditable") === "false" && await answer.textContent() === answerBefore;
           await draft.click(); await page.keyboard.press("End");
           const caret = await draft.evaluate(node => window.getSelection()?.anchorOffset);
           const settings = page.getByRole("button", {name: "Agent settings", exact: true});
