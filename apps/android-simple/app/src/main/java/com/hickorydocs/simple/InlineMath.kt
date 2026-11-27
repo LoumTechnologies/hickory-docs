@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
+private data class MathPreview(val revision: Int, val script: String)
+
 private fun mathPreviewScript(source: String, renderer: String?, revision: Int): String {
     val escaped = JSONObject.quote(source)
     return when (renderer) {
@@ -35,32 +37,35 @@ private fun mathPreviewScript(source: String, renderer: String?, revision: Int):
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val url = request.url
-                    if (request.isForMainFrame && url.scheme == "hickory-diagram" && url.host == "navigate" &&
-                        url.getQueryParameter("revision") == view.getTag(android.R.id.custom)?.toString()) {
+                    val preview = view.tag as? MathPreview
+                    if (preview != null && request.isForMainFrame && url.scheme == "hickory-diagram" && url.host == "navigate" &&
+                        url.getQueryParameter("revision") == preview.revision.toString()) {
                         url.pathSegments.singleOrNull()?.let { activateLink.value?.invoke(it) }
                     }
                     return url.toString() != "file:///android_asset/math.html"
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     if (url == "file:///android_asset/math.html") {
-                        val rendered = view.tag as? String ?: return
-                        view.evaluateJavascript("globalThis.hickoryAndroidDiagram=true;globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
+                        val preview = view.tag as? MathPreview ?: return
+                        view.evaluateJavascript("globalThis.hickoryAndroidDiagram=true;globalThis.setPreviewAppearance(${dark.value});" + preview.script + ";!!document.querySelector('.katex')") {
+                            if (it == "true" && view.tag === preview) ready.value?.invoke()
+                        }
                     }
                 }
             }
-            setTag(android.R.id.custom, 1)
-            tag = mathPreviewScript(source, diagramRenderer, 1)
+            tag = MathPreview(1, mathPreviewScript(source, diagramRenderer, 1))
             loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
         view.evaluateJavascript("globalThis.setPreviewAppearance?.(${dark.value})", null)
-        val current = view.getTag(android.R.id.custom) as? Int ?: 1
-        if (view.tag != mathPreviewScript(source, diagramRenderer, current)) {
-            val revision = current + 1
-            view.setTag(android.R.id.custom, revision)
-            val command = mathPreviewScript(source, diagramRenderer, revision)
-            view.tag = command
-            view.evaluateJavascript("if(globalThis.renderDiagram){" + command + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == command) ready.value?.invoke() }
+        val current = view.tag as? MathPreview ?: return@AndroidView
+        if (current.script != mathPreviewScript(source, diagramRenderer, current.revision)) {
+            val revision = current.revision + 1
+            val preview = MathPreview(revision, mathPreviewScript(source, diagramRenderer, revision))
+            view.tag = preview
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + preview.script + "};!!document.querySelector('.katex')") {
+                if (it == "true" && view.tag === preview) ready.value?.invoke()
+            }
         }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }

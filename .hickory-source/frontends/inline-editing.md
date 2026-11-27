@@ -1156,6 +1156,11 @@ At narrower sizes the existing grid scroller keeps cells reachable. Recorded
 terminal output updates its emulator palette in place. The interactive terminal
 keeps its own palette.
 
+Fit read-only output to the WebView's measured viewport. An Android placement
+can start with a zero-height layout viewport and later receive a nonzero
+`innerHeight`. Using that measured height before fitting the rows keeps the
+first recorded line visible when the Run popover opens.
+
 <ui:copy id="simple-inline-math-0">
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1183,6 +1188,7 @@ html[data-appearance="dark"] { color-scheme: dark; }
   min-width: calc(2.25rem + var(--native-table-columns, 1) * 5.5rem);
 }
 body.terminal-mode:not(.interactive-terminal) { color-scheme: inherit; background: light-dark(#f6f7f8, #1c1c1e); color: CanvasText; }
+body.terminal-mode:not(.interactive-terminal) #formula { height: var(--output-terminal-height, 100%); }
 </style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
@@ -1256,6 +1262,14 @@ globalThis.setPreviewAppearance = dark => {
 };
 // This screen has no input binding and never executes expected/output bytes.
 let outputTerminal, outputFit, outputBytes = '', outputResize;
+function fitOutputViewport() {
+  if (!document.body.matches('.terminal-mode:not(.interactive-terminal)')) return;
+  const node = document.getElementById('formula');
+  if (!innerHeight || !node.clientWidth) return;
+  node.style.setProperty('--output-terminal-height', innerHeight + 'px');
+  outputFit?.fit();
+}
+addEventListener('resize', fitOutputViewport);
 globalThis.renderNotebookOutput = function (source) {
   globalThis.hickoryOutputSource = source;
   if (globalThis.hickoryOutput) { globalThis.hickoryOutput.update(source); return; }
@@ -1279,8 +1293,9 @@ globalThis.renderSourceOutput = (source, revision) => {
   const root = document.getElementById('formula');
   outputResize?.disconnect();
   outputTerminal?.dispose();
-  outputTerminal = undefined;
+  outputTerminal = outputFit = undefined;
   outputBytes = '';
+  fitOutputViewport();
   root.style.overflow = 'auto';
   const lines = document.createElement('pre');
   lines.style.cssText = 'margin:0;font:12px ui-monospace,monospace;white-space:pre-wrap';
@@ -1329,21 +1344,22 @@ globalThis.renderTerminal = function (source) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.setAttribute('aria-label', 'Terminal output');
   document.body.classList.add('terminal-mode'); status.textContent = '';
+  fitOutputViewport();
   if (!globalThis.Terminal) { node.textContent = source; status.textContent = 'Terminal renderer unavailable. Prepare resources and rebuild.'; return; }
   try {
   if (!outputTerminal) {
     node.replaceChildren();
     outputTerminal = new Terminal({ disableStdin:true, convertEol:true, cursorBlink:false, screenReaderMode:true, fontSize:12, fontFamily:'ui-monospace, monospace', rows:6, cols:80, scrollback:5000, minimumContrastRatio:4.5, theme:outputTheme() });
     outputFit = new FitAddon.FitAddon(); outputTerminal.loadAddon(outputFit); outputTerminal.open(node);
-    outputResize = new ResizeObserver(() => { if (node.clientWidth && node.clientHeight) outputFit.fit(); }); outputResize.observe(node);
+    outputResize = new ResizeObserver(fitOutputViewport); outputResize.observe(node);
   }
   const append = source.startsWith(outputBytes);
   if (!append) outputTerminal.reset();
-  outputTerminal.write(append ? source.slice(outputBytes.length) : source, () => { if (node.clientWidth && node.clientHeight) outputFit.fit(); });
+  outputTerminal.write(append ? source.slice(outputBytes.length) : source, fitOutputViewport);
   outputBytes = source;
   } catch (error) {
     outputResize?.disconnect(); try { outputTerminal?.dispose(); } catch (_) {}
-    outputTerminal = undefined; outputBytes = '';
+    outputTerminal = outputFit = undefined; outputBytes = '';
     node.textContent = source; status.textContent = 'Terminal unavailable: ' + (error.message || 'prepare resources and rebuild');
   }
 };
@@ -1775,6 +1791,12 @@ struct InlineEquationControl: View {
 
 Android uses the same local page with network and content access disabled. Source remains in TextFieldState; the WebView receives no native mutation bridge and is destroyed when its contextual control closes.
 
+The WebView keeps its active revision and script together in its ordinary
+view tag. Android reserves keyed tags for application resource IDs, so a
+framework ID can throw while the view is mounting, including when a recorded
+fence opens its terminal. Both the navigation and completion callbacks check
+the active preview before exposing a result.
+
 <ui:copy id="simple-inline-math-3">
 package com.hickorydocs.simple
 
@@ -1789,6 +1811,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
+
+private data class MathPreview(val revision: Int, val script: String)
 
 private fun mathPreviewScript(source: String, renderer: String?, revision: Int): String {
     val escaped = JSONObject.quote(source)
@@ -1813,32 +1837,35 @@ private fun mathPreviewScript(source: String, renderer: String?, revision: Int):
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val url = request.url
-                    if (request.isForMainFrame && url.scheme == "hickory-diagram" && url.host == "navigate" &&
-                        url.getQueryParameter("revision") == view.getTag(android.R.id.custom)?.toString()) {
+                    val preview = view.tag as? MathPreview
+                    if (preview != null && request.isForMainFrame && url.scheme == "hickory-diagram" && url.host == "navigate" &&
+                        url.getQueryParameter("revision") == preview.revision.toString()) {
                         url.pathSegments.singleOrNull()?.let { activateLink.value?.invoke(it) }
                     }
                     return url.toString() != "file:///android_asset/math.html"
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     if (url == "file:///android_asset/math.html") {
-                        val rendered = view.tag as? String ?: return
-                        view.evaluateJavascript("globalThis.hickoryAndroidDiagram=true;globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
+                        val preview = view.tag as? MathPreview ?: return
+                        view.evaluateJavascript("globalThis.hickoryAndroidDiagram=true;globalThis.setPreviewAppearance(${dark.value});" + preview.script + ";!!document.querySelector('.katex')") {
+                            if (it == "true" && view.tag === preview) ready.value?.invoke()
+                        }
                     }
                 }
             }
-            setTag(android.R.id.custom, 1)
-            tag = mathPreviewScript(source, diagramRenderer, 1)
+            tag = MathPreview(1, mathPreviewScript(source, diagramRenderer, 1))
             loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
         view.evaluateJavascript("globalThis.setPreviewAppearance?.(${dark.value})", null)
-        val current = view.getTag(android.R.id.custom) as? Int ?: 1
-        if (view.tag != mathPreviewScript(source, diagramRenderer, current)) {
-            val revision = current + 1
-            view.setTag(android.R.id.custom, revision)
-            val command = mathPreviewScript(source, diagramRenderer, revision)
-            view.tag = command
-            view.evaluateJavascript("if(globalThis.renderDiagram){" + command + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == command) ready.value?.invoke() }
+        val current = view.tag as? MathPreview ?: return@AndroidView
+        if (current.script != mathPreviewScript(source, diagramRenderer, current.revision)) {
+            val revision = current.revision + 1
+            val preview = MathPreview(revision, mathPreviewScript(source, diagramRenderer, revision))
+            view.tag = preview
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + preview.script + "};!!document.querySelector('.katex')") {
+                if (it == "true" && view.tag === preview) ready.value?.invoke()
+            }
         }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }
