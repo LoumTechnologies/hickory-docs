@@ -1545,6 +1545,87 @@ final class ParityTests: XCTestCase {
         XCTAssertFalse(updated.dirty)
         XCTAssertEqual(session.prompt, "Unsent response")
     }
+    #if os(macOS)
+    @MainActor func testMountedAgentEditorsKeepReadingAndDraftHistory() async throws {
+        let session = AgentSession()
+        let prompt = "# Recorded question"
+        let answer = (1...60).map { "Answer line \($0)\n" }.joined()
+        session.turns = [AgentTurn(id: "turn", prompt: prompt, answer: answer, status: "ok")]
+        session.select("turn")
+        session.prompt = "# Draft"
+
+        let host = NSHostingView(rootView: AgentPane(engine: nil, session: session))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 850),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        func editor(_ path: String, in view: NSView) -> SimpleMacTextView? {
+            if let text = view as? SimpleMacTextView, text.accessibilityLabel() == path { return text }
+            for child in view.subviews {
+                if let found = editor(path, in: child) { return found }
+            }
+            return nil
+        }
+        func settle(_ condition: () -> Bool) async throws {
+            for _ in 0..<100 {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        let userPath = "hick-agent-message:///turn-user.md"
+        let answerPath = "hick-agent-message:///turn-agent.md"
+        try await settle { editor(userPath, in: host) != nil && editor(answerPath, in: host) != nil }
+        let user = try XCTUnwrap(editor(userPath, in: host))
+        let reading = try XCTUnwrap(editor(answerPath, in: host))
+        let composer = try XCTUnwrap(editor("conversation/draft.md", in: host))
+        for recorded in [user, reading] {
+            XCTAssertFalse(recorded.isEditable)
+            let original = recorded.string
+            recorded.insertText("unexpected edit", replacementRange: NSRange(location: 0, length: 0))
+            XCTAssertEqual(recorded.string, original)
+        }
+        XCTAssertTrue(composer.isEditable)
+        let submit = try XCTUnwrap(composer.submitMessage)
+        var submissions: [String] = []
+        composer.submitMessage = { submissions.append(session.prompt); submit() }
+        XCTAssertTrue(window.makeFirstResponder(composer))
+        composer.setSelectedRange(NSRange(location: 7, length: 0))
+        func returnKey(_ modifiers: NSEvent.ModifierFlags = []) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+            composer.keyDown(with: event)
+        }
+        try returnKey()
+        XCTAssertEqual(session.prompt, "# Draft\n")
+        XCTAssertTrue(submissions.isEmpty)
+        try returnKey(.shift)
+        XCTAssertEqual(submissions, ["# Draft\n"])
+        XCTAssertEqual(session.prompt, "# Draft\n")
+        XCTAssertTrue(composer.undoManager?.canUndo == true)
+
+        let selection = NSRange(location: 9, length: 4)
+        reading.setSelectedRange(selection)
+        let scroll = try XCTUnwrap(reading.enclosingScrollView)
+        let container = try XCTUnwrap(reading.textContainer)
+        reading.layoutManager?.ensureLayout(for: container)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 120))
+        let viewport = scroll.contentView.bounds.origin
+        XCTAssertGreaterThan(viewport.y, 0)
+        let updated = answer + "One more line.\n"
+        session.turns = [AgentTurn(id: "turn", prompt: prompt, answer: updated, status: "ok")]
+        try await settle { reading.string == updated }
+        XCTAssertEqual(reading.string, updated)
+        XCTAssertTrue(editor(answerPath, in: host) === reading)
+        XCTAssertEqual(reading.selectedRange(), selection)
+        XCTAssertEqual(scroll.contentView.bounds.origin, viewport)
+        XCTAssertTrue(editor("conversation/draft.md", in: host) === composer)
+        XCTAssertEqual(session.prompt, "# Draft\n")
+        composer.undoManager?.undo()
+        XCTAssertEqual(session.prompt, "# Draft")
+    }
+    #endif
     @MainActor func testAgentHistoryKeepsTheBranchBoundaryAndSidebar() {
         let session = AgentSession()
         session.messageForks = true

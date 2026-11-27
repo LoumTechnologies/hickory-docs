@@ -1073,12 +1073,13 @@ class ParityTest {
         }
         server.start()
         val engine = Engine("http://127.0.0.1:${server.address.port}")
-        val session = AgentSession()
-        val draft = session.draft
-        val state = draft.state
         try {
             repeat(4) { index ->
+                val session = AgentSession()
                 session.turns = listOf(parent)
+                session.select(parent.id)
+                val draft = session.draft
+                val state = draft.state
                 session.prompt = submitted
                 val revision = draft.sourceRevision
                 val pending = launch { session.send(engine) { JSONObject().put("fixture", index) } }

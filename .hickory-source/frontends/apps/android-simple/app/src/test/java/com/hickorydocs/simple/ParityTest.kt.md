@@ -50,6 +50,8 @@ The held-send witness checks that the actual engine request carries the
 submitted bytes. Before acknowledgment it edits the composer, including an edit
 that returns to the same bytes. The later revisions survive. An unchanged
 acknowledged revision clears in the same editor, and a refusal retains it.
+Each case opens the same parent in a fresh conversation so a successful Send
+cannot carry its new selection into the following case.
 
 A retained Run has three different observations: exact side-bound admission,
 terminal screen and process exit. The loopback test also holds the admission
@@ -1142,12 +1144,13 @@ class ParityTest {
         }
         server.start()
         val engine = Engine("http://127.0.0.1:${server.address.port}")
-        val session = AgentSession()
-        val draft = session.draft
-        val state = draft.state
         try {
             repeat(4) { index ->
+                val session = AgentSession()
                 session.turns = listOf(parent)
+                session.select(parent.id)
+                val draft = session.draft
+                val state = draft.state
                 session.prompt = submitted
                 val revision = draft.sourceRevision
                 val pending = launch { session.send(engine) { JSONObject().put("fixture", index) } }
