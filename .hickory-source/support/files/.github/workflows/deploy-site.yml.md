@@ -12,6 +12,12 @@ The static source publication now runs a build-time language compiler. Build the
 
 Check the bulk model and static export behavior before publishing. The site then compiles one project index instead of starting a provider for every source page. Keep broad regression checks independent; this workflow’s new gate exercises only the exported read-only feature.
 
+Generate selected evidence in the runner's temporary directory. An index written
+at the end of generation marks a complete publication, including publications
+whose witnesses failed. The site build and artifact upload only receive that
+complete directory. A refused input review still fails the evidence check after
+the site has published, without exposing a partial publication.
+
 <book:entry path=".github/workflows/deploy-site.yml">
 # Publish the static marketing site to Cloudflare Pages.
 #
@@ -109,9 +115,18 @@ jobs:
         id: publications
         if: ${{ !inputs.domains_only }}
         continue-on-error: true
-        run: python3 scripts/publish-spec-results.py --hick target/debug/hick --output apps/web/public/publications
+        run: |
+          output="$RUNNER_TEMP/spec-results"
+          status=0
+          python3 scripts/publish-spec-results.py --hick target/debug/hick --output "$output" || status=$?
+          if [[ ! -f "$output/index.json" ]]; then
+            echo "::error::Selected publication generation did not produce a complete index."
+            exit 1
+          fi
+          mv "$output" apps/web/public/publications
+          exit "$status"
       - name: Retain failed and successful specification evidence
-        if: ${{ always() && !inputs.domains_only }}
+        if: ${{ always() && !inputs.domains_only && hashFiles('apps/web/public/publications/index.json') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: executable-spec-results-${{ github.sha }}
@@ -235,7 +250,7 @@ jobs:
       - name: Report failed published verification
         if: ${{ !inputs.domains_only && steps.publications.outcome == 'failure' }}
         run: |
-          echo "::error::Selected verification failed or was unavailable. Inspect the hosted publication or retained artifact."
+          echo "::error::Selected verification failed or was unavailable. Inspect the generation step and any retained evidence."
           exit 1
 </book:entry>
 
