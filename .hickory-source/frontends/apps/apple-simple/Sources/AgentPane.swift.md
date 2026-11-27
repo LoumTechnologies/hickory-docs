@@ -105,7 +105,11 @@ struct NativePendingAgentReview: Decodable, Identifiable {
     struct Selection { let id: String?; var userFork: Bool? = nil }
     var selection: Selection?
     var tip: String? { if let selection { return selection.id }; return turns.last?.id }
-    var title: String { transcript.first?.turn.prompt.split(whereSeparator: \.isNewline).first.map { String($0.prefix(80)) } ?? "New conversation" }
+    var title: String {
+        let rows = transcript
+        let session = rows.last?.turn.session
+        return rows.first { $0.turn.session == session }?.turn.historyLabel ?? "New conversation"
+    }
     var historyLoaded = false
     var messageForks = false
     var historyError = ""
@@ -534,7 +538,7 @@ struct NativeAgentHistoryPane: View {
     }
 
     private func row(_ turn: AgentTurn) -> some View {
-        let title = turn.prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Conversation"
+        let title = turn.historyLabel
         let source = session.turns.first { $0.id == turn.parent_id }
         let fork = source?.session != nil && turn.session != nil && source?.session != turn.session
         let label = fork ? "Branch from \(turn.parent_is_user == true ? "user" : "agent") · \(title)" : title

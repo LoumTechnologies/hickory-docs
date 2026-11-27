@@ -614,6 +614,7 @@ mod tests {
     #[test]
     fn subscription_totals_never_apply_an_api_price_even_for_a_priced_model() {
         let turn = super::super::agent::TurnRecord {
+            title: None,
             backend: "python".into(),
             id: "fixture".into(),
             parent_id: None,

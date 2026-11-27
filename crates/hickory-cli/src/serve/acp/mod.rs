@@ -433,6 +433,7 @@ pub async fn start_turn(
         }
         turns.push(TurnRecord {
             backend: backend.clone(),
+            title: None,
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
             parent_is_user: false,

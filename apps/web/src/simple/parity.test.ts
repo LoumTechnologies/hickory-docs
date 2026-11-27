@@ -1664,7 +1664,8 @@ describe("simple literate subscription agent", () => {
       id, parent_id, parent_is_user, prompt, session, answer: `Answer ${id}`, error: null, status: "ok", backend: "python",
       created_at: "", provider: "codex-subscription", model: "", usage: null,
     });
-    const turns = [row("root", null, "Root conversation", "original.md"),
+    const prompt = "Please review this very long first message and summarize the history of the current workspace.";
+    const turns = [{ ...row("root", null, prompt, "original.md"), title: "Review workspace history" },
       row("later", "root", "Original continuation", "original.md"),
       row("fork", "root", "Retained follow-up", "fork.md", true)];
     expect(agentTranscript(turns, "fork").map(({ turn, userOnly }) => [turn.id, userOnly])).toEqual([["root", true], ["fork", false]]);
@@ -1678,18 +1679,26 @@ describe("simple literate subscription agent", () => {
       fireEvent.click(await history.findByRole("button", { name: /Branch from user · Retained follow-up/ }));
       let log = within(await screen.findByRole("log", { name: "Conversation" }));
       expect(log.getByText("Answer fork")).toBeTruthy();
+      expect(log.getByText(prompt)).toBeTruthy();
+      expect(history.getByRole("button", { name: "Review workspace history" })).toBeTruthy();
       expect(log.queryByText("Answer root")).toBeNull();
       const draft = screen.container.querySelector<HTMLElement>('[aria-label="conversation/draft.md"]')!;
       const view = EditorView.findFromDOM(draft.closest('.cm-editor') ?? draft)!;
       act(() => view.dispatch({changes: {from: 0, insert: 'Keep my draft'}}));
-      const firstTab = screen.getByRole('tab', {name: /Root conversation/});
+      const firstTab = screen.getByRole('tab', {name: /Retained follow-up/});
       const continuation = history.getByRole('button', {name: 'Original continuation'});
       act(() => { fireEvent.click(continuation); fireEvent.click(continuation); });
-      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(2);
+      expect(screen.getAllByRole('tab', {name: /Review workspace history|Retained follow-up/})).toHaveLength(2);
       fireEvent.click(history.getByRole('button', {name:'Original continuation'}));
-      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(2);
+      expect(screen.getAllByRole('tab', {name: /Review workspace history|Retained follow-up/})).toHaveLength(2);
       expect(screen.getByText('Answer later')).toBeTruthy();
       expect(screen.queryByText('Answer fork')).toBeNull();
+      const titled = turns.map(turn => turn.id === "fork" ? { ...turn, title: "Trace the follow-up" } : turn);
+      vi.mocked(api.agentTurns).mockImplementation(async () => ({
+        turns: titled, message_forks: true, provider: "", model: "", totals: { usd: null, input: 153000, output: 0, cache_read: 0, cache_write: 0 },
+      }));
+      expect(await screen.findByRole('tab', {name: /Trace the follow-up/}, {timeout: 3000})).toBe(firstTab);
+      expect(history.getByRole("button", { name: /Branch from user · Trace the follow-up/ })).toBeTruthy();
       fireEvent.click(firstTab);
       expect(screen.getByText('Answer fork')).toBeTruthy();
       expect(screen.container.textContent).toContain('Keep my draft');
@@ -1697,7 +1706,7 @@ describe("simple literate subscription agent", () => {
       const branch = log.getByRole('button', {name: 'Branch from assistant message'});
       expect(branch.compareDocumentPosition(log.getByText('Answer fork')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
       fireEvent.click(branch);
-      expect(screen.getAllByRole('tab', {name: /Root conversation/})).toHaveLength(3);
+      expect(screen.getAllByRole('tab', {name: /Review workspace history|Trace the follow-up/})).toHaveLength(3);
       expect(screen.getByText(/New branch from assistant message/)).toBeTruthy();
       fireEvent.click(history.getByRole('button', {name: 'New conversation'}));
       expect(screen.getByRole('tab', {name: /New conversation/})).toBeTruthy();

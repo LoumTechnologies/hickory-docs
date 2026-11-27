@@ -699,14 +699,16 @@ pub(super) async fn run_turn(
         prompt,
         max_turns: 20,
     };
+    let storage = super::agent_context::session_root(state, doc)
+        .map_err(|_| "Could not open conversation storage".to_string())?;
+    let mut title_request = identity.title_client.zip(
+        super::agent::title_metadata_path(&storage, &identity.session, &identity.turn),
+    );
     let conversation = crate::python_agent::Conversation {
         private_prediction: false,
         require_private_verification: false,
         session: Some(identity.session),
-        session_storage: Some(
-            super::agent_context::session_root(state, doc)
-                .map_err(|_| "Could not open conversation storage".to_string())?,
-        ),
+        session_storage: Some(storage),
         subject: Some(subject),
         turn: Some(identity.turn.clone()),
         parent: identity.parent,
@@ -714,7 +716,7 @@ pub(super) async fn run_turn(
         provider,
         context: identity.context,
         prior_turns,
-        cancel: Some(identity.cancel),
+        cancel: Some(identity.cancel.clone()),
         changeset: identity.changeset,
     };
     let identity_turn = identity.turn.clone();
@@ -735,7 +737,20 @@ pub(super) async fn run_turn(
             }
         })
     };
-    let mut emit = move |event| {
+    // The user event follows durable recording and contains only the message text.
+    let mut emit = |event| {
+        if let AgentEvent::UserMessage { text } = &event
+            && let Some((client, path)) = title_request.take()
+        {
+            state.agent.generate_conversation_title(
+                doc.to_string(),
+                identity_turn.clone(),
+                path,
+                client,
+                text.clone(),
+                identity.cancel.clone(),
+            );
+        }
         let _ = tx.send(event);
     };
     let result = crate::python_agent::run_conversation(
@@ -747,6 +762,7 @@ pub(super) async fn run_turn(
     )
     .await;
     drop(emit);
+    drop(tx);
     let _ = forwarder.await;
     result
         .map(|outcome| {

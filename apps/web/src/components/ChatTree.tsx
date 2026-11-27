@@ -5,7 +5,7 @@
 // it the tip (a rewind), which is how you go back to where you branched off.
 
 import { useMemo, useState } from "react";
-import type { AgentTurn } from "../api/types";
+import { agentTurnLabel, type AgentTurn } from "../api/agentTypes";
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 
 const ROW = 30;
@@ -145,14 +145,15 @@ export function ChatTree({
             })}
             {tree.order.map(id => {
               const turn = turnsById.get(id)!;
+              const label = agentTurnLabel(turn);
               const node = tree.nodes.get(id)!;
               const y = tree.height - 70 - node.depth * 100;
               return <g key={id}>
                 <path aria-hidden="true" className="hickory-tree__leaf" d={`M ${node.x + 76} ${y - 18} q 4 -28 27 -28 q 0 23 -27 28 Z`} />
                 <foreignObject x={node.x - 86} y={y - 29} width={172} height={58}>
                   <button type="button" className="hickory-tree__node" aria-current={id === tip ? "true" : undefined}
-                    title={turn.prompt} onClick={() => onSelect(id)}>
-                    <span>{turn.prompt || "Untitled turn"}</span>
+                    title={label} onClick={() => onSelect(id)}>
+                    <span>{label}</span>
                     <span className="muted">{id === tip ? "Current · " : ""}{turn.status === "running" ? "running" : turn.status === "error" ? "failed" : turn.model}</span>
                   </button>
                 </foreignObject>
@@ -206,9 +207,7 @@ export function ChatTree({
               }
             >
               <span className="chat-tree__prompt">
-                {turn.prompt.length > 80
-                  ? `${turn.prompt.slice(0, 80)}…`
-                  : turn.prompt}
+                {agentTurnLabel(turn)}
               </span>
               <span className="chat-tree__meta muted">
                 {turn.status === "running"

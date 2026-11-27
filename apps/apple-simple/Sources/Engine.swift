@@ -25,6 +25,7 @@ struct SavedDocument: Decodable { var path: String? = nil; var source: String; v
 struct AgentTurn: Decodable, Identifiable {
     var id: String
     var prompt: String
+    var title: String? = nil
     var answer: String?
     var error: String?
     var status: String
@@ -36,6 +37,13 @@ struct AgentTurn: Decodable, Identifiable {
     var session: String? = nil
     var backend: String? = nil
     var usage: NativeAgentEvent.Usage? = nil
+
+    var historyLabel: String {
+        if let title, !title.isEmpty { return title }
+        let line = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isNewline).first.map(String.init) ?? "Conversation"
+        return line.count > 60 ? String(line.prefix(59)).trimmingCharacters(in: .whitespaces) + "…" : line
+    }
 }
 struct AgentTotals: Decodable {
     let subscription: Bool?

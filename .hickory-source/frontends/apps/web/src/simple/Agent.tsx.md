@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The workspace owns the session so moving or hiding its tab retains the literate draft and in-flight send. Explicit subscription choices always use the Hickory Python backend; the backend refuses missing runtime or sign-in rather than selecting an API provider. Durable history refreshes independently and stops when unmounted.
+The workspace owns the session so moving or hiding its tab retains the literate draft and in-flight send. Explicit subscription choices always use the Hickory Python backend; the backend refuses missing runtime or sign-in rather than selecting an API provider. Durable history refreshes independently and stops when unmounted. Tabs and history rows read the same optional title. A short excerpt is available on the first refresh. Each tab reads late titles through the shared workspace history, so an inactive tab updates without restarting its transcript watcher.
 
 Prompts, provisional answers and accepted answers use the same Document surface as
 files and the response draft. Mount readable text immediately; parser readiness
@@ -63,7 +63,7 @@ import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { useWorkspaceDebugger, type DebugSession } from "../debug/useDebugger";
 import { debugUTF8, type DebugSourceReading } from "../debug/SourceGuards";
-import type { AgentTotals, AgentTurn, AgentUsage } from "../api/agentTypes";
+import { agentTurnLabel, type AgentTotals, type AgentTurn, type AgentUsage } from "../api/agentTypes";
 import type { TerminalSession } from "../api/types";
 import { computeEdits, simplePatchHunks } from "../lib/diff";
 import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
@@ -147,10 +147,13 @@ export function AgentActivityIcon({working}: {working: boolean}) {
   return <span className="agent-activity-icon" aria-hidden="true" title={label}>{working ? '●' : '○'}</span>;
 }
 
-export function AgentTabTitle({session}: {session: AgentSession}) {
+export function AgentTabTitle({session, history}: {session: AgentSession; history: AgentSession}) {
   useSyncExternalStore(session.subscribe, session.snapshot);
-  const title = session.transcript[0]?.turn.prompt.trim().split(/\r?\n/)[0] || 'New conversation';
-  return <><span aria-hidden="true">✦ </span><AgentActivityIcon working={session.working} /> {title.slice(0, 80)}</>;
+  const transcript = session.transcript;
+  const selected = transcript.at(-1)?.turn;
+  const opening = transcript.find(({turn}) => turn.session === selected?.session)?.turn;
+  const title = useSyncExternalStore(history.subscribe, () => history.turns.find(turn => turn.id === opening?.id)?.title);
+  return <><span aria-hidden="true">✦ </span><AgentActivityIcon working={session.working} /> {title ?? (opening ? agentTurnLabel(opening) : "New conversation")}</>;
 }
 
 export class AgentSession {
@@ -512,7 +515,7 @@ export function AgentHistoryPane({ session, open }: { session: AgentSession; ope
   const rows = (parent: string | null, seen: Set<string>): ReactNode => {
     const group = (children.get(parent) ?? []).filter(turn => !seen.has(turn.id));
     return group.length ? <ul>{group.map(turn => {
-      const title = turn.prompt.trim().split(/\r?\n/)[0] || "Conversation";
+      const title = agentTurnLabel(turn);
       const source = turn.parent_id && byId.get(turn.parent_id);
       const fork = !!(source && turn.session && source.session && turn.session !== source.session);
       const hasChildren = children.has(turn.id);

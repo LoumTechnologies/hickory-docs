@@ -28,6 +28,13 @@ conversation runs. Its bottom status strip owns provider, model, effort and
 reported usage for that ancestry. Enter adds a newline; Shift+Enter sends.
 Ordinary response Markdown needs no document wrapper or empty project element.
 
+Hickory Python uses the selected model to summarize the first user message
+of a new conversation in a short title. Tabs and history show that title
+when available. Title generation runs independently of the conversation and
+stores the result with the workspace's Agent metadata. Existing conversations
+and failed or pending title requests use a short excerpt. The full user
+message remains available in the transcript.
+
 A successful turn carries its final captured literate construction in a
 **Review project changes** disclosure immediately after its messages. This document presents the successful steps from beginning to
 end with the final design in mind, beside real implementation and observed checks.

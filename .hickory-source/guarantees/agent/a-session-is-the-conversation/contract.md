@@ -47,7 +47,7 @@ it the tip (a rewind), which is how you go back to where you branched off.
 // it the tip (a rewind), which is how you go back to where you branched off.
 
 import { useMemo, useState } from "react";
-import type { AgentTurn } from "../api/types";
+import { agentTurnLabel, type AgentTurn } from "../api/agentTypes";
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 
 const ROW = 30;
@@ -108,7 +108,8 @@ The canvas scrolls and zooms without moving surrounding controls. Both readings
 select the same retained turn; decorative branches never invent conversation data.
 A visited set makes cycles finite, and an iterative traversal avoids recursive
 stack growth. This experiment renders all turns; it does not yet virtualize large
-histories. The browser remembers the chosen reading independently of app colors.
+histories. Both readings use the retained title when one exists and a short
+message excerpt otherwise. The browser remembers the chosen reading independently of app colors.
 
 <storycode:copy id="f-d6c33a544e5e-ChatTree">/** Place parents below their children, with one horizontal slot per leaf.
  * Iterative traversal keeps deep conversations off the JS call stack. */
@@ -221,14 +222,15 @@ export function ChatTree({
             })}
             {tree.order.map(id => {
               const turn = turnsById.get(id)!;
+              const label = agentTurnLabel(turn);
               const node = tree.nodes.get(id)!;
               const y = tree.height - 70 - node.depth * 100;
               return <g key={id}>
                 <path aria-hidden="true" className="hickory-tree__leaf" d={`M ${node.x + 76} ${y - 18} q 4 -28 27 -28 q 0 23 -27 28 Z`} />
                 <foreignObject x={node.x - 86} y={y - 29} width={172} height={58}>
                   <button type="button" className="hickory-tree__node" aria-current={id === tip ? "true" : undefined}
-                    title={turn.prompt} onClick={() => onSelect(id)}>
-                    <span>{turn.prompt || "Untitled turn"}</span>
+                    title={label} onClick={() => onSelect(id)}>
+                    <span>{label}</span>
                     <span className="muted">{id === tip ? "Current · " : ""}{turn.status === "running" ? "running" : turn.status === "error" ? "failed" : turn.model}</span>
                   </button>
                 </foreignObject>
@@ -282,9 +284,7 @@ export function ChatTree({
               }
             >
               <span className="chat-tree__prompt">
-                {turn.prompt.length > 80
-                  ? `${turn.prompt.slice(0, 80)}…`
-                  : turn.prompt}
+                {agentTurnLabel(turn)}
               </span>
               <span className="chat-tree__meta muted">
                 {turn.status === "running"

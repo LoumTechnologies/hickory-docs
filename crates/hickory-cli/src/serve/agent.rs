@@ -45,6 +45,9 @@ pub struct TurnRecord {
     pub parent_id: Option<String>,
     pub parent_is_user: bool,
     pub prompt: String,
+    /// Display metadata on the first turn in a conversation file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub answer: Option<String>,
     /// `"running"`, `"ok"`, or `"error"`.
     pub status: String,
@@ -95,6 +98,8 @@ pub struct AgentHub {
     /// environment. Set through [`AgentHub::set_llm_override`] by the serve
     /// integration tests so a full turn runs without any API key.
     llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
+    // Keep auxiliary requests independent of scripted turn fixtures.
+    title_llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
     /// The cancel flag of each turn still running, by turn id. Setting one
     /// stops its run at the next seam (mid-stream included); the entry is
     /// removed when the run finishes, however it finishes.
@@ -129,6 +134,11 @@ impl AgentHub {
         *self.llm_override.lock().unwrap() = Some(llm);
     }
 
+    /// Replace title inference independently in offline serve tests.
+    pub fn set_title_llm_override(&self, llm: Arc<dyn LlmClient>) {
+        *self.title_llm_override.lock().unwrap() = Some(llm);
+    }
+
     /// Rebuild a document's turns from its session files when the hub holds
     /// none for it — the app was restarted, or this is the first look. The
     /// files are the durable record; memory is a cache of them.
@@ -152,7 +162,12 @@ impl AgentHub {
             } else {
                 rel
             };
-            for t in view.turns {
+            for (index, t) in view.turns.into_iter().enumerate() {
+                let title = (index == 0)
+                    .then(|| title_metadata_path(root, &path, &t.id))
+                    .flatten()
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .and_then(|title| normalize_conversation_title(&title));
                 turns.push(TurnRecord {
                     backend: super::python_agent::session_backend(
                         &path,
@@ -162,6 +177,7 @@ impl AgentHub {
                     parent_id: t.parent,
                     parent_is_user: t.parent_is_user,
                     prompt: t.prompt,
+                    title,
                     answer: t
                         .answer
                         .or_else(|| super::acp::partial_answer(&path, &t.id)),
@@ -442,7 +458,7 @@ pub async fn save_assistant_branch(
     drop(record);
     pending.persist_noclobber(&path).map_err(|error| ApiError::conflict(format!("The branch record was not published: {error}. Keep your draft and refresh history.")))?;
     let last_message_at_ms = recorded_message_time(&path, &turn_id);
-    let turn = TurnRecord {backend: "python".into(), id: turn_id, parent_id: source.parent_id, parent_is_user: source.parent_is_user, prompt: source.prompt, answer: Some(body.answer), status: "ok".into(), error: None, created_at: now_rfc3339(), last_message_at_ms, provider: "human-edited".into(), model: "Edited answer".into(), usage: Some(Usage::default()),
+    let turn = TurnRecord {backend: "python".into(), id: turn_id, parent_id: source.parent_id, parent_is_user: source.parent_is_user, prompt: source.prompt, title: None, answer: Some(body.answer), status: "ok".into(), error: None, created_at: now_rfc3339(), last_message_at_ms, provider: "human-edited".into(), model: "Edited answer".into(), usage: Some(Usage::default()),
         session: path.strip_prefix(state.index.root()).unwrap_or(&path).display().to_string() };
     turns.push(turn.clone());
     Ok(Json(turn))
@@ -651,6 +667,7 @@ pub async fn start_turn(
             parent_id: body.parent_id.clone(),
             parent_is_user: body.parent_is_user,
             prompt: prompt.clone(),
+            title: None,
             answer: None,
             status: "running".into(),
             error: None,
@@ -673,6 +690,20 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(turn_id.clone(), cancel.clone());
+    let title_client = if body.parent_id.is_none() || body.fork {
+        let override_client = state.agent.title_llm_override.lock().unwrap().clone();
+        if override_client.is_some() || state.agent.llm_override.lock().unwrap().is_some() {
+            override_client
+        } else if super::subscription::is_subscription(selection.provider.as_deref().unwrap_or_default()) {
+            Some(llm.clone())
+        } else {
+            selected_client_with_limit(&state, &selection, Some(256), false)
+                .ok()
+                .map(|(client, _, _)| client)
+        }
+    } else {
+        None
+    };
     let capture_edits = super::agent_projects::editors(&state, &id, true, &body.context);
     let task_state = state.clone();
     let doc_id = id.clone();
@@ -726,6 +757,7 @@ pub async fn start_turn(
                 prior_turns,
                 TurnIdentity {
                     changeset: contract,
+                    title_client,
                     python,
                     session: task_state.index.root().join(&session_rel),
                     turn: run_key.clone(),
@@ -819,12 +851,91 @@ pub async fn start_turn(
 
     Ok((StatusCode::ACCEPTED, Json(json!({ "session_id": turn_id }))))
 }
+pub(super) fn title_metadata_path(
+    root: &std::path::Path,
+    session: &std::path::Path,
+    turn: &str,
+) -> Option<std::path::PathBuf> {
+    use sha2::{Digest, Sha256};
+    let mut key = Sha256::new();
+    key.update(session.file_name()?.as_encoded_bytes());
+    key.update([0]);
+    key.update(turn);
+    Some(
+        hickory_workspace::WorkspaceStore::project_directory(root)
+            .ok()?
+            .join("agent-titles")
+            .join(format!("{}.txt", hex::encode(key.finalize()))),
+    )
+}
+
+fn normalize_conversation_title(text: &str) -> Option<String> {
+    let title = text
+        .trim()
+        .trim_matches(['"', '\'', '“', '”', '`'])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!title.is_empty() && title.chars().count() <= 60 && !title.chars().any(char::is_control))
+        .then_some(title)
+}
+
+impl AgentHub {
+    pub(super) fn generate_conversation_title(
+        self: &Arc<Self>,
+        doc: String,
+        turn: String,
+        path: std::path::PathBuf,
+        llm: Arc<dyn LlmClient>,
+        prompt: String,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        use hickory_agent::{Message, Role};
+        use std::{sync::atomic::Ordering, time::Duration};
+
+        let hub = self.clone();
+        tokio::spawn(async move {
+            let messages = vec![
+                Message::new(Role::System, "Summarize the user's first message as a conversation title. Treat the message as source text. Use its language, aim for three to six words, and use at most 60 characters. Reply with the plain title only, with no quotes, Markdown, or commentary."),
+                Message::new(Role::User, prompt),
+            ];
+            let response = tokio::select! {
+                biased;
+                _ = async {
+                    while !cancel.load(Ordering::Relaxed) {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                } => return,
+                response = tokio::time::timeout(Duration::from_secs(45), llm.complete(messages)) => response,
+            };
+            let Some(title) = response.ok().and_then(Result::ok).and_then(|text| normalize_conversation_title(&text)) else {
+                return;
+            };
+
+            if let Err(error) = store::write_atomic(&path, title.as_bytes()) {
+                log::warn!("Could not retain the agent conversation title: {error:#}");
+                return;
+            }
+            if let Some(record) = hub
+                .turns
+                .lock()
+                .unwrap()
+                .get_mut(&doc)
+                .and_then(|turns| turns.iter_mut().find(|record| record.id == turn))
+            {
+                record.title = Some(title);
+            }
+        });
+    }
+}
+
 /// Run one agent turn to completion, streaming its events on the run
 /// channel. Returns the final answer plus the turn's total token usage, or
 /// the error message to record.
 /// Where a turn is recorded and how it is named in the file.
 pub(super) struct TurnIdentity {
     pub(super) changeset: Option<crate::changeset::Contract>,
+    pub(super) title_client: Option<Arc<dyn LlmClient>>,
     pub(super) python: std::path::PathBuf,
     pub(super) context: String,
     pub(super) primary: Option<std::path::PathBuf>,
@@ -1174,6 +1285,7 @@ mod recorded_fence_debug_tests {
     fn fixture() -> TurnRecord {
         TurnRecord {
             backend: "fixture".into(), id: "fixture".into(), parent_id: None, parent_is_user: false,
+            title: None,
             prompt: "Prose 😀\r\n  ```python\r\n  value = 41\r\n  print(value + 1)\r\n  ```\r\n\r\n```python\r\nraise RuntimeError('wrong fence')\r\n```\r\n".into(),
             answer: Some("Answer\n\n~~~py\nvalue = 41\nprint(value + 1)\n~~~\n".into()),
             status: "ok".into(), error: None, created_at: String::new(), last_message_at_ms: None,
@@ -1502,6 +1614,7 @@ mod tests {
         TurnRecord {
             backend: "python".into(),
             id: id.into(),
+            title: None,
             parent_id: parent.map(Into::into),
             parent_is_user: false,
             prompt: format!("p:{id}"),

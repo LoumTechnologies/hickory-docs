@@ -922,6 +922,7 @@ mod recorded_declared_patch_tests {
         let selected = sources["response.md"].clone();
         let captured = capture(&root, session.clone(), sources, &inputs());
         let turn = super::super::agent::TurnRecord {
+            title: None,
             backend: "fixture".into(),
             id: "owned".into(),
             parent_id: None,

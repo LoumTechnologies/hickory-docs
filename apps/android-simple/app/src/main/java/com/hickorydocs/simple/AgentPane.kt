@@ -144,6 +144,11 @@ class AgentSession {
     data class Selection(val id: String?, val userFork: Boolean? = null)
     var selection by mutableStateOf<Selection?>(null)
     val tip: String? get() = selection.let { if (it == null) turns.lastOrNull()?.id else it.id }
+    val title: String get() {
+        val rows = transcript
+        val session = rows.lastOrNull()?.first?.session
+        return rows.firstOrNull { it.first.session == session }?.first?.historyLabel ?: "New conversation"
+    }
     var historyLoaded by mutableStateOf(false)
     var messageForks by mutableStateOf(false)
     var historyError by mutableStateOf("")
@@ -587,7 +592,7 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
             val descendants = children[turn.id].orEmpty()
             val source = turn.parentID?.let(byId::get)
             val fork = source?.session != null && turn.session != null && source.session != turn.session
-            val title = turn.prompt.trim().lineSequence().firstOrNull()?.ifBlank { "Conversation" } ?: "Conversation"
+            val title = turn.historyLabel
             val state = turn.session?.let { flags?.get(it) }
             val favorite = state?.favorite == true
             val archived = state?.archived == true

@@ -99927,6 +99927,14 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
+      "id": "f-2ce16640df92-conversation_title",
+      "output": "crates/hickory-cli/src/serve/agent.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/agent.rs.md",
+      "symbol": "Title the recorded conversation",
+      "basis": "authored-explanation",
+      "original_range": null
+    },
+    {
       "id": "f-2ce16640df92-TurnIdentity",
       "output": "crates/hickory-cli/src/serve/agent.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/agent.rs.md",

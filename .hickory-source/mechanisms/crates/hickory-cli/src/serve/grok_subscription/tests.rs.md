@@ -86,6 +86,7 @@ fn reports_disjoint_tokens_without_interpreting_native_api_cost() {
 #[test]
 fn selection_restores_only_latest_subscription_and_never_prices_it() {
     let turn = super::super::agent::TurnRecord {
+        title: None,
         backend: "python".into(),
         id: "fixture".into(),
         parent_id: None,

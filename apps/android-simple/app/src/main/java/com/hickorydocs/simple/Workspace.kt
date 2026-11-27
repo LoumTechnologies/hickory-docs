@@ -978,7 +978,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         adoptTabLayout(layout.move(tab, target), target)
     }
     fun label(tab: String): String = agentSession(tab)?.let { session ->
-        (if (session.working()) "✦ ● " else "✦ ○ ") + (session.transcript.firstOrNull()?.first?.prompt?.trim()?.lineSequence()?.firstOrNull()?.take(80) ?: "New conversation")
+        (if (session.working()) "✦ ● " else "✦ ○ ") + session.title
     } ?: when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "agent-history" -> "Agent History"; "terminal" -> "Terminal"
         else -> "▤ " + (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""

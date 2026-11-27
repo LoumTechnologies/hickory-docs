@@ -878,7 +878,7 @@ its cursor position or save state.
       </div>
       {buildStamp && <DevBuildStatus ui={buildStamp} />}
     </div></details><span className="app-name">Hickory Simple</span></nav>
-    <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} title={tab => isAgentTab(tab) ? <AgentTabTitle session={conversations.get(tab) ?? agent} /> : <><span aria-hidden="true">{tabIdentity(tab).kind === "source" ? "▤ " : ""}</span>{label(tab)}</>} content={content} close={close}
+    <div className="workspace"><LayoutView node={layout} collapsedFilesPane={collapsedFilesPane} focused={focused} focus={setFocused} label={label} title={tab => isAgentTab(tab) ? <AgentTabTitle session={conversations.get(tab) ?? agent} history={agent} /> : <><span aria-hidden="true">{tabIdentity(tab).kind === "source" ? "▤ " : ""}</span>{label(tab)}</>} content={content} close={close}
       drop={(tab, target, before) => { retireTabMove(tab, target); setLayout(current => move(current, tab, target, before)); setFocused(target); }}
       activate={activateTab}
       dock={(tab, target, edge) => {

@@ -12,6 +12,8 @@ export interface AgentTurn {
   parent_id: string | null;
   parent_is_user?: boolean;
   prompt: string;
+  /** Generated display title on the first turn of a conversation file. */
+  title?: string;
   answer: string | null;
   status: "running" | "ok" | "error" | string;
   error: string | null;
@@ -27,6 +29,13 @@ export interface AgentTurn {
   usage: AgentUsage | null;
   /** The session file this turn is recorded in, relative to the folder. */
   session?: string;
+}
+
+export function agentTurnLabel(turn: AgentTurn) {
+  if (turn.title) return turn.title;
+  const line = turn.prompt.trim().split(/[\r\n]/, 1)[0].trim();
+  const characters = Array.from(line.slice(0, 122));
+  return characters.length > 60 ? characters.slice(0, 59).join("").trimEnd() + "…" : line || "Conversation";
 }
 
 /** Session-wide spend across a document's turns, each turn priced on the

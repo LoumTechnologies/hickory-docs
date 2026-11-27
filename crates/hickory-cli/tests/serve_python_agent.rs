@@ -229,6 +229,90 @@ fn python() -> Option<String> {
     value
 }
 
+// The title provider is gated so the test can finish the turn and read the
+// complete transcript before the auxiliary request returns.
+#[tokio::test(flavor = "multi_thread")]
+async fn conversation_title_arrives_after_turn_and_survives_restart() {
+    struct TitleModel {
+        request: Mutex<Option<Vec<Message>>>,
+        requested: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+    #[async_trait::async_trait]
+    impl LlmClient for TitleModel {
+        async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
+            assert!(self.request.lock().unwrap().replace(messages).is_none());
+            self.requested.notify_one();
+            self.release.notified().await;
+            Ok("  “Inspect workspace history”  ".into())
+        }
+        fn model_name(&self) -> &str { "fixture-title" }
+        fn provider_name(&self) -> &str { "fixture" }
+    }
+
+    let Some(python) = python() else { return };
+    let app = App::start().await;
+    app.configure(&python).await;
+    app.state.agent.set_llm_override(Model::new([
+        json!({"done":"First answer."}),
+        json!({"done":"Second answer."}),
+    ]));
+    let model = Arc::new(TitleModel {
+        request: Mutex::new(None),
+        requested: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    app.state.agent.set_title_llm_override(model.clone());
+    let prompt = "Please review the activity in this workspace and explain how its history is recorded.\nStart with the current note.";
+    let id = app.send(prompt, None).await;
+    tokio::time::timeout(Duration::from_secs(10), model.requested.notified()).await.unwrap();
+    {
+        let request = model.request.lock().unwrap();
+        let messages = request.as_ref().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0].role, hickory_agent::Role::System));
+        assert!(matches!(messages[1].role, hickory_agent::Role::User));
+        assert_eq!(messages[1].content, prompt);
+        assert!(messages.iter().all(|message| message.images.is_empty()));
+    }
+
+    let completed = app.wait(&id).await;
+    assert_eq!(completed["status"], "ok", "{completed}");
+    assert!(completed.get("title").is_none());
+    let path = app.root.join(completed["session"].as_str().unwrap());
+    let record = std::fs::read(&path).unwrap();
+    model.release.notify_one();
+
+    let titled = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let turn = app.wait(&id).await;
+            if turn.get("title").is_some() { break turn; }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(titled["title"], "Inspect workspace history");
+    assert_eq!(titled["prompt"], prompt);
+    assert_eq!(titled["last_message_at_ms"], completed["last_message_at_ms"]);
+    assert_eq!(std::fs::read(&path).unwrap(), record);
+
+    let next = app.send("Can you expand on that?", Some(&id)).await;
+    let continuation = app.wait(&next).await;
+    assert_eq!(continuation["status"], "ok", "{continuation}");
+    assert!(continuation.get("title").is_none());
+
+    let restarted = prepare(ServeOptions {
+        target: app.root.clone(), port: 0, params: vec![], executor: ExecutorChoice::Local,
+        key_store_path: Some(app.root.join("keys.json")), ui_settings_path: Some(app.root.join("ui.json")),
+    }).await.unwrap();
+    let history = hickory_cli::serve::agent::list_turns(axum::extract::State(restarted.state), axum::extract::Path(app.doc.clone())).await.0;
+    let turns = history["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[0]["id"], id);
+    assert_eq!(turns[0]["title"], "Inspect workspace history");
+    assert_eq!(turns[0]["prompt"], prompt);
+    assert!(turns[1].get("title").is_none());
+}
+
 // Contract: .hickory-source/frontends/contract.md
 #[tokio::test(flavor = "multi_thread")]
 async fn python_git_status_is_read_only_and_answers_with_bare_markdown() {
