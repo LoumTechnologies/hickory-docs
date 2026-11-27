@@ -288,6 +288,37 @@ fn checkout_python(root: &Path) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+async fn development_python(root: &Path, session: &mut Session, install: bool) -> Option<PathBuf> {
+    if let Some(path) = env::var_os("HICKORY_AGENT_PYTHON") {
+        return Some(PathBuf::from(path));
+    }
+    let installed = checkout_python(root);
+    if !install && installed.is_none() {
+        return None;
+    }
+    let mut sync = cmd("uv", &[
+        "sync", "--project", "apps/agent", "--locked", "--no-editable",
+        "--reinstall-package", "hickory-agent-worker",
+    ]);
+    sync.env("UV_PROJECT_ENVIRONMENT", root.join("apps/agent/.venv"));
+    if !install {
+        sync.arg("--offline");
+    } else if installed.is_none() {
+        eprintln!("[simple-dev apple] Installing the locked Python agent worker");
+    }
+    match session.run(&mut sync).await {
+        Ok(()) => checkout_python(root),
+        Err(error) => {
+            if installed.is_some() {
+                eprintln!("Could not refresh the Python agent. Using the installed worker. {error:#}");
+            } else {
+                eprintln!("Could not install the Python agent. The editor will still open. Check that uv is on PATH and rerun just simple-dev apple. {error:#}");
+            }
+            installed
+        }
+    }
+}
+
 async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -319,21 +350,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = initial_file(&project, env::var_os("HICKORY_OPEN_FILE"), showcase)?;
-    let python = if let Some(path) = env::var_os("HICKORY_AGENT_PYTHON") {
-        Some(PathBuf::from(path))
-    } else if let Some(path) = checkout_python(&root) {
-        let mut refresh = cmd("uv", &[
-            "sync", "--project", "apps/agent", "--locked", "--offline", "--no-editable",
-            "--reinstall-package", "hickory-agent-worker",
-        ]);
-        refresh.env("UV_PROJECT_ENVIRONMENT", root.join("apps/agent/.venv"));
-        if let Err(error) = session.run(&mut refresh).await {
-            eprintln!("Could not refresh the Python agent. Using the installed worker. {error:#}");
-        }
-        Some(path)
-    } else {
-        None
-    };
+    let python = development_python(&root, session, cfg!(target_os = "macos") && platform == "apple").await;
     if let Some(executable) = match platform {
         "linux" => Some("target/simple-linux/app/bin/hickory-simple"),
         "windows" => Some("target/simple-windows/app/HickorySimple.exe"),
@@ -410,7 +427,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     attach.callback = Some(api_origin.clone());
     attach.callback_token = engine::window_token();
     attach.key_store_path = hickory_agent::KeyStore::desktop_path();
-    attach.python_runtime_path = python;
+    attach.python_runtime_path = python.clone();
     let token = attach.callback_token.clone();
     if platform == "apple" {
         eprintln!("[simple-dev apple] Connecting to the workspace engine");
@@ -425,7 +442,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     tokio::select! {
-        result = frontend(platform, &root, session, &api_origin, browser_port, file.as_deref()) => result,
+        result = frontend(platform, &root, session, &api_origin, browser_port, file.as_deref(), python.as_deref()) => result,
         result = server => { result??; bail!("Workspace server stopped unexpectedly") },
     }
 }
@@ -437,6 +454,7 @@ async fn frontend(
     api: &str,
     port: Option<u16>,
     file: Option<&str>,
+    python: Option<&Path>,
 ) -> Result<()> {
     if platform == "apple" {
         eprintln!("[simple-dev apple] Preparing native preview assets");
@@ -488,7 +506,7 @@ async fn frontend(
                 )
                 .await
         }
-        "apple" => apple(root, session, api, file).await,
+        "apple" => apple(root, session, api, file, python).await,
         "android" => android(root, session, api, file).await,
         "ios" => ios(session, api, file).await,
         _ => unreachable!(),
@@ -522,7 +540,13 @@ fn install_apple_resources(binary_dir: &Path, contents: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>) -> Result<()> {
+async fn apple(
+    root: &Path,
+    session: &mut Session,
+    api: &str,
+    file: Option<&str>,
+    python: Option<&Path>,
+) -> Result<()> {
     ensure!(
         cfg!(target_os = "macos"),
         "The Apple frontend requires macOS and Xcode"
@@ -600,11 +624,14 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
     println!("Opening {}", bundle.display());
     // Execute the bundled binary directly so Session owns the native app's lifetime.
     let mut app = Command::new(&executable);
-    // The Swift editor needs only the API. Let a new window launch an
-    // independent local workspace even when this preview has no web bundle.
+    // A new window can start its own local workspace host. That host inherits
+    // the interpreter so it can attach the same worker as the startup engine.
     app.env("HICKORY_API_ORIGIN", api)
         .env("HICKORY_SIMPLE_WORKSPACE_HOST", std::env::current_exe()?)
         .env("HICKORY_SIMPLE_HOST_PID", std::process::id().to_string());
+    if let Some(python) = python {
+        app.env("HICKORY_AGENT_PYTHON", python);
+    }
     if let Some(file) = file {
         app.env("HICKORY_OPEN_FILE", file);
     }

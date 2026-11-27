@@ -765,15 +765,12 @@ watch loop. Move the terminal tab while it runs, or keep an unsent command in it
 draft. Full-screen terminal applications and rich ANSI rendering are outside the
 matched terminal slice.
 
-On the workspace host, install the locked Python worker from the Hickory
-checkout and sign in to the subscription you plan to use:
+On macOS, `just simple-dev apple` installs the locked Python worker with `uv`.
+For other development launches, run
+`uv sync --project apps/agent --locked --no-editable` in the Hickory checkout
+on the workspace host, then relaunch Simple.
 
-```sh
-uv sync --project apps/agent --locked --no-editable
-codex login
-```
-
-Relaunch `just simple-dev` after installing the worker. In **Agent**, choose
+Run `codex login` on the workspace host to sign in. In **Agent**, choose
 **ChatGPT subscription** for Codex. If you use Claude, install Claude Code, run
 `claude auth login` on the same host and choose **Claude Code subscription**.
 The picker also offers Grok. Google One and Gemini accounts have no provider
