@@ -2079,6 +2079,9 @@ Send. The archived user card and the wire observation both check the
 submitted text. The mounted UIKit witness also inspects the separate hardware
 Return commands.
 
+The phone's Edit menu exposes only part of its command list at a time.
+Scroll within the presented menu to reach workspace history.
+
 <ui:copy id="ios-native-agent-send-ui-test">
 extension RecordedRunUITests {
     @MainActor func testNativeAgentSendAppliesBothDraftsAndReplaysHistory() throws {
@@ -2096,7 +2099,21 @@ extension RecordedRunUITests {
             XCTAssertTrue(menu.waitForExistence(timeout: 15), name)
             menu.tap()
             let item = app.buttons[action].firstMatch
-            XCTAssertTrue(item.waitForExistence(timeout: 8), action)
+            if name == "Edit" {
+                let lists = app.collectionViews
+                let commands = lists.containing(.button, identifier: "Editor settings").firstMatch
+                XCTAssertTrue(commands.waitForExistence(timeout: 8), "Edit command list")
+                let frame = commands.frame
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.minY + 320))
+                let end = origin.withOffset(CGVector(dx: frame.midX, dy: frame.minY + 100))
+                for _ in 0..<12 where !item.isHittable {
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                }
+                XCTAssertTrue(item.isHittable, action)
+            } else {
+                XCTAssertTrue(item.waitForExistence(timeout: 8), action)
+            }
             item.tap()
         }
         func source(_ path: String, expected: String? = nil) throws -> XCUIElement {
@@ -3349,8 +3366,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             configured.write_bytes(plistlib.dumps(value))
             try:
                 allowance = '280' if workflow in {'python-definition', 'dirty-tab-close'} else '180'
+                timing = []
+                if native_send:
+                    # The rendered replay includes keyboard input and two scrollable menu traversals.
+                    allowance = '300'
+                    timing = ['-default-test-execution-time-allowance', allowance]
                 with log.open('w') as output:
-                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance], stdout=output, stderr=subprocess.STDOUT)
+                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance, *timing], stdout=output, stderr=subprocess.STDOUT)
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
                 (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
                 assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary

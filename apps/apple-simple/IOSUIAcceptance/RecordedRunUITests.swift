@@ -223,7 +223,21 @@ extension RecordedRunUITests {
             XCTAssertTrue(menu.waitForExistence(timeout: 15), name)
             menu.tap()
             let item = app.buttons[action].firstMatch
-            XCTAssertTrue(item.waitForExistence(timeout: 8), action)
+            if name == "Edit" {
+                let lists = app.collectionViews
+                let commands = lists.containing(.button, identifier: "Editor settings").firstMatch
+                XCTAssertTrue(commands.waitForExistence(timeout: 8), "Edit command list")
+                let frame = commands.frame
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.minY + 320))
+                let end = origin.withOffset(CGVector(dx: frame.midX, dy: frame.minY + 100))
+                for _ in 0..<12 where !item.isHittable {
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                }
+                XCTAssertTrue(item.isHittable, action)
+            } else {
+                XCTAssertTrue(item.waitForExistence(timeout: 8), action)
+            }
             item.tap()
         }
         func source(_ path: String, expected: String? = nil) throws -> XCUIElement {

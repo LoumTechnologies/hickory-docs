@@ -190,12 +190,11 @@ Implementation review: not verified. Executed checks and human judgment are reco
   the submit callback and left a marked candidate with the input method.
   The rendered composer accepted a newline and sent the exact prompt to the
   isolated engine, which archived the user card.
-- The separate rendered iOS managed-provider journey reached guarded Apply
-  for two source drafts. The relay delivered the live editor capture and the
-  engine accepted the draft application report. The replay stopped when
-  XCTest could not locate **Undo workspace change** in the Edit menu. The
-  mounted recorded-patch tests independently verified draft Undo for both
-  message sides.
+- The rendered iOS managed-provider journey captured both live editors and
+  applied the guarded proposal to two source drafts. The engine accepted
+  the application report. Undo and Redo from the native Edit menu restored
+  the expected text and frame of both source editors. The engine trace
+  verified that the saved sources and generated output stayed intact.
 - Android (2026-11-27): Gradle 9.3.1 assembled the debug APK. Five focused
   parity tests passed for retained message state, draft acknowledgment, exact
   recorded Run and Debug addressing, and message buffers. The separate guarded
@@ -208,7 +207,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
   composer accepted accessibility input and its Send button sent the exact
   prompt to the owned local engine with HTTP 202. A mounted-activity input
   witness checked the exact draft after Enter and Undo. Shift+Enter sent the
-  exact draft to the engine. The fixture returned HTTP 409 on that replay.
+  exact draft to the engine. The fixture returned HTTP 409 on that replay
+  with a request to sign in to the selected agent.
 - Evidence limits: final explanation quality remains a human judgment. Broad regressions and post-commit status monitoring remain with the maintainer.
 
 </storycode:doc>
