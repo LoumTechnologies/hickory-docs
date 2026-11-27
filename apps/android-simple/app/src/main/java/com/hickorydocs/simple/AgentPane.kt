@@ -4,7 +4,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -715,9 +714,7 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
                 }
                 val answer = turn.answer ?: turn.error ?: activity?.answer
                 if (answer != null) {
-                    if (turn.status != "running" && listOf("```", "~~~", "xmlns:", "<hick").any(answer::contains)) {
-                        AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
-                    } else AgentProse(answer)
+                    AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
                 }
                 if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
                     TextButton(onClick = { workspace.openConversation(turn.id, false, session) }) { Text("Branch from assistant message") }
@@ -764,19 +761,6 @@ private fun decodeConversationFlags(result: JSONObject): Map<String, Conversatio
     }
 }
 
-@Composable private fun AgentProse(text: String) {
-    val headingPattern = remember { Regex("^(#{1,6})[ \t]+(.+)$") }
-    SelectionContainer {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            text.lineSequence().forEach { row ->
-                val match = headingPattern.matchEntire(row)
-                if (match == null) Text(row)
-                else Text(match.groupValues[2], style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.semantics { heading() })
-            }
-        }
-    }
-}
 @Composable private fun AgentDocument(session: AgentSession, buffer: DocumentBuffer, reading: AgentFenceReading?, workspace: Workspace) {
     key(buffer) {
         val engine = workspace.engine

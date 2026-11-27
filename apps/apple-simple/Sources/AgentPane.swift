@@ -855,26 +855,6 @@ struct NativeAgentStatus: View {
     }
 }
 
-private struct NativeAgentProse: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            let rows = text.components(separatedBy: .newlines)
-            ForEach(rows.indices, id: \.self) { index in
-                let row = rows[index]
-                let level = row.prefix { $0 == "#" }.count
-                let heading = (1...6).contains(level) && row.dropFirst(level).first == " "
-                let content = heading ? String(row.dropFirst(level + 1)) : row
-                Text((try? AttributedString(markdown: content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(content))
-                    .font(heading ? (level == 1 ? .title2 : .headline) : .body)
-                    .accessibilityAddTraits(heading ? .isHeader : [])
-            }
-        }.textSelection(.enabled)
-         .environment(\.openURL, OpenURLAction { _ in .discarded })
-    }
-}
-
 struct AgentPane: View {
     let engine: Engine?
     @Bindable var session: AgentSession
@@ -944,11 +924,7 @@ struct AgentPane: View {
                                 }.font(.caption).foregroundStyle(.secondary)
                             }
                             if let answer = turn.answer ?? turn.error ?? activity?.answer {
-                                if turn.status != "running" && (answer.contains("```") || answer.contains("~~~") || answer.contains("xmlns:") || answer.contains("<hick")) {
-                                    message(session.document("\(turn.id)-agent", answer), turn: turn.id, side: .assistant)
-                                } else {
-                                    NativeAgentProse(text: answer)
-                                }
+                                message(session.document("\(turn.id)-agent", answer), turn: turn.id, side: .assistant)
                                 if turn.answer != nil { branchAction(turn, user: false) }
                             }
                             }

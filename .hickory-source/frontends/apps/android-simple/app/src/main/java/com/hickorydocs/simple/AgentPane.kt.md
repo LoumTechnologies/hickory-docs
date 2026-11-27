@@ -3,6 +3,11 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Plain Markdown and provisional answers use the same AgentDocument as recorded
+code-bearing messages. The read-only buffer protects native editor and rich-widget
+edits. A running answer has no fenceReading: only the accepted exact record can
+authorize Run, Debug or guarded patch review.
+
 Polling and prompt state are confined to the agent pane. Cancelling its composition cancels polling; it never cancels or retries a dispatched agent turn implicitly. A failed provider leaves the editor operational.
 
 
@@ -17,7 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -809,9 +813,7 @@ Branch copies are composer drafts, never editable recorded cards. An assistant-a
                 }
                 val answer = turn.answer ?: turn.error ?: activity?.answer
                 if (answer != null) {
-                    if (turn.status != "running" && listOf("```", "~~~", "xmlns:", "<hick").any(answer::contains)) {
-                        AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
-                    } else AgentProse(answer)
+                    AgentDocument(session, session.document("${turn.id}-agent", answer), session.fenceReading(turn, true), workspace)
                 }
                 if (session.messageForks && turn.answer != null && (turn.backend == null || turn.backend == "python"))
                     TextButton(onClick = { workspace.openConversation(turn.id, false, session) }) { Text("Branch from assistant message") }
@@ -867,19 +869,6 @@ heights. Provider and effort choices use floating menus, so opening one does not
 move the conversation. Changing a selection retains the draft buffer.
 
 <ui:copy id="simple-android-agent-message-controls">
-@Composable private fun AgentProse(text: String) {
-    val headingPattern = remember { Regex("^(#{1,6})[ \t]+(.+)$") }
-    SelectionContainer {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            text.lineSequence().forEach { row ->
-                val match = headingPattern.matchEntire(row)
-                if (match == null) Text(row)
-                else Text(match.groupValues[2], style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.semantics { heading() })
-            }
-        }
-    }
-}
 @Composable private fun AgentDocument(session: AgentSession, buffer: DocumentBuffer, reading: AgentFenceReading?, workspace: Workspace) {
     key(buffer) {
         val engine = workspace.engine
