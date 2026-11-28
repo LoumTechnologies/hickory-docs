@@ -31,11 +31,31 @@ export function SourceFileTree({ paths, current, identity, onOpen }: {
     let saved: { expanded?: string[]; top?: number; left?: number } = {};
     try { saved = JSON.parse(sessionStorage.getItem(key) ?? "{}"); if (!saved || typeof saved !== "object") saved = {}; } catch { /* A blocked store cannot prevent reading. */ }
     const expanded = new Set(Array.isArray(saved.expanded) ? saved.expanded.filter(path => typeof path === "string") : []);
+    // Resolve sibling continuations once; line decorations preserve literal text.
+    const nextAtDepth = new Map<number, number>();
+    const hasNext = entries.map(() => false);
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const depth = entries[index].depth;
+      hasNext[index] = nextAtDepth.has(depth);
+      for (const level of nextAtDepth.keys()) if (level > depth) nextAtDepth.delete(level);
+      nextAtDepth.set(depth, index);
+    }
+    const ancestors: number[] = [];
     let offset = 0;
-    const marks = entries.flatMap(entry => {
+    const marks = entries.flatMap((entry, index) => {
+      ancestors[entry.depth] = index;
+      const guides: string[] = [];
+      for (let level = 1; level <= entry.depth; level++) {
+        const branch = level === entry.depth;
+        if (branch || hasNext[ancestors[level]]) {
+          const height = branch && !hasNext[index] ? "50%" : "100%";
+          guides.push(`linear-gradient(var(--tree-guide), var(--tree-guide)) left calc(${level * 2 - 1}ch + 6px) top / 1px ${height} no-repeat`);
+        }
+        if (branch) guides.push(`linear-gradient(var(--tree-guide), var(--tree-guide)) left calc(${level * 2 - 1}ch + 6px) center / 1ch 1px no-repeat`);
+      }
       const from = offset;
       offset += entry.depth * 2 + entry.name.length + (entry.dir ? 1 : 0) + 1;
-      const attributes = { "data-source-path": entry.path, title: entry.path };
+      const attributes = { "data-source-path": entry.path, title: entry.path, style: guides.length ? `background: ${guides.join(", ")}` : "" };
       return [
         Decoration.line({ class: `${entry.dir ? "source-tree-directory" : "source-tree-file"}${entry.path === current ? " source-tree-current" : ""}`, attributes }).range(from),
         ...(!entry.dir ? [Decoration.mark({ tagName: "a", attributes: { href: `?path=${encodeURIComponent(entry.path)}`, title: entry.path, "data-source-path": entry.path, ...(entry.path === current ? { "aria-current": "page" } : {}) } }).range(from + entry.depth * 2, from + entry.depth * 2 + entry.name.length)] : []),

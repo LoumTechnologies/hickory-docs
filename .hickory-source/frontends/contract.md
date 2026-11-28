@@ -9,6 +9,12 @@ retain their original limits; they do not narrow the required outcomes below.
 
 Simple workspace windows and browser tabs use the title **Hickory Docs**.
 
+The Files pane draws quiet parent-to-child connector lines inside the existing
+indentation. Branches continue through expanded descendants and stop at the last
+sibling. Use SwiftUI decoration on Apple platforms, Compose drawing on Android,
+and themed CSS in browser-based hosts, including KDE/Linux and Windows. Lines
+must preserve filename text, disclosure controls, wrapping and hit targets.
+
 A launch without a selected workspace offers a welcome screen. On a desktop
 with a bundled host, **Open Directory…** opens the platform folder picker and
 starts a local workspace for the selected directory. In the browser and on

@@ -6098,6 +6098,19 @@ button.fleet-grant {
 .folder-tree__new:hover { color: var(--fg); border-color: var(--accent); }
 .folder-tree__truncated { padding: 0 0.6rem 0.25rem; font-size: 0.75rem; }
 .folder-tree__list { list-style: none; margin: 0; padding: 0; }
+/* Subtree-height branches preserve the row's existing depth and hit targets. */
+.folder-tree__branch { position: relative; }
+.folder-tree__branch::before, .folder-tree__branch::after {
+  content: ""; position: absolute; pointer-events: none; z-index: 1;
+  border-color: var(--fg-muted); opacity: .45; border-style: solid;
+}
+.folder-tree__branch::before {
+  left: var(--tree-guide-x); top: 0; bottom: 0; border-width: 0 0 0 1px;
+}
+.folder-tree__branch:last-child::before { height: .8rem; bottom: auto; }
+.folder-tree__branch::after {
+  left: var(--tree-guide-x); top: .8rem; width: .4rem; border-width: 1px 0 0;
+}
 .folder-tree__dir,
 .folder-tree__file {
   display: block;

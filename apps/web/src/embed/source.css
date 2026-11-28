@@ -2,11 +2,11 @@
 .source-files { position: sticky; top: 0; height: 100dvh; box-sizing: border-box; padding: .5rem .25rem; border-right: 1px solid var(--border); }
 .source-files nav, .source-tree, .source-tree .cm-editor { height: 100%; }
 .source-tree .cm-scroller { overflow: auto; font-size: .8rem; }
-.source-tree .cm-line { white-space: pre; line-height: 1.65; }
+.source-tree .cm-line { --tree-guide: color-mix(in srgb, var(--fg-muted) 45%, transparent); white-space: pre; line-height: 1.65; }
 .source-tree a { color: inherit; text-decoration: none; }
 .source-tree a:hover { text-decoration: underline; }
 .source-tree .source-tree-directory { color: var(--fg-muted); cursor: pointer; }
-.source-tree .source-tree-current { background: var(--select-bg); color: var(--fg); }
+.source-tree .source-tree-current { background-color: var(--select-bg) !important; color: var(--fg); }
 .source-tree .cm-gutterElement { cursor: pointer; }
 @media (pointer: coarse) {
   .source-tree .cm-line, .source-tree .cm-gutterElement { line-height: 44px; }

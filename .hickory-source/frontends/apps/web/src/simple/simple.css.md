@@ -13,6 +13,8 @@ colors as the editor. Keep its controls sized for narrow browser windows.
 
 Use one fixed menu row and let the workspace fill the remaining height. The Agent pane sizes its own status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
+Draw quiet parent-to-child elbows inside the existing tree indentation. Each branch continues through expanded descendants until its last sibling, where it stops at the first text line. Pseudo-elements stay outside hit testing and use system colors, including high-contrast themes. Windows WebView2 and the simple desktop/browser hosts share these rules.
+
 Keep full file and folder names readable within their pane. A long label
 wraps inside its own row so the editor and split keep their width.
 
@@ -103,6 +105,19 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .file-tree { height: 100%; overflow: auto; padding: 5px; }
 .file-tree ul { list-style: none; padding-left: 12px; margin: 0; }
 .file-tree > ul { padding-left: 0; }
+/* Paint in the existing indentation; connectors never capture a click. */
+.file-tree ul ul > li { position: relative; }
+.file-tree ul ul > li::before, .file-tree ul ul > li::after {
+  content: ""; position: absolute; pointer-events: none;
+  border-color: color-mix(in srgb, CanvasText 30%, Canvas); border-style: solid;
+}
+.file-tree ul ul > li::before {
+  left: -8px; top: 0; bottom: 0; border-width: 0 0 0 1px;
+}
+.file-tree ul ul > li:last-child::before { height: .9em; bottom: auto; }
+.file-tree ul ul > li::after {
+  left: -8px; top: .9em; width: 7px; border-width: 1px 0 0;
+}
 .file-tree button, .file-tree summary {
   max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: start;
   line-height: 22px; padding: 0 4px;

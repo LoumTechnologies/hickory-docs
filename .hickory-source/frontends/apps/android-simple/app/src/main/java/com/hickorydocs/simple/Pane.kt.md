@@ -1638,15 +1638,28 @@ internal fun editorSaveState(buffer: DocumentBuffer): String = when {
         }
     }
 }
-@Composable private fun FileRows(nodes: List<FileNode>, workspace: Workspace) {
+// Branches draw in child indentation, using the measured subtree height and Material outline color.
+// The final sibling ends at its first text line; decoration never adds an input target.
+@Composable private fun FileRows(nodes: List<FileNode>, workspace: Workspace, nested: Boolean = false) {
     val scope = rememberCoroutineScope()
-    nodes.forEach { node ->
+    val guide = MaterialTheme.colorScheme.outlineVariant
+    nodes.forEachIndexed { index, node ->
         key(node.path) {
             var expanded by remember { mutableStateOf(false) }
-            if (node.dir) {
-                Text((if (expanded) "▾ " else "▸ ") + node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 4.dp))
-                if (expanded) Column(Modifier.padding(start = 12.dp)) { FileRows(node.children, workspace) }
-            } else Text(node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { scope.launch { workspace.open(node) } }.padding(vertical = 4.dp))
+            Column(Modifier.drawWithContent {
+                drawContent()
+                if (nested) {
+                    val x = 4.dp.toPx()
+                    val y = 13.sp.toPx() * 0.6f + 4.dp.toPx()
+                    drawLine(guide, Offset(x, 0f), Offset(x, if (index == nodes.lastIndex) y else size.height), 1.dp.toPx())
+                    drawLine(guide, Offset(x, y), Offset(11.dp.toPx(), y), 1.dp.toPx())
+                }
+            }.padding(start = if (nested) 12.dp else 0.dp)) {
+                if (node.dir) {
+                    Text((if (expanded) "▾ " else "▸ ") + node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 4.dp))
+                    if (expanded) FileRows(node.children, workspace, nested = true)
+                } else Text(node.name, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { scope.launch { workspace.open(node) } }.padding(vertical = 4.dp))
+            }
         }
     }
 }

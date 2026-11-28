@@ -653,7 +653,7 @@ function FolderRoot({
       const isExpanded = expanded.has(node.path);
       const selected = dired.marked.has(node.path);
       const recipes = node.dir ? (node.children ?? []).filter(child => !child.dir && ["justfile", ".justfile"].includes(child.name.toLowerCase())).map(child => child.path) : [];
-      return <li key={node.path} role="none">
+      return <li key={node.path} role="none" className={depth ? "folder-tree__branch" : undefined} style={{ "--tree-guide-x": `${(depth - 1) * 0.85 + 0.8}rem` } as React.CSSProperties}>
         <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
         <button type="button" role="treeitem" tabIndex={-1}
           aria-label={node.name} aria-level={depth + 1}

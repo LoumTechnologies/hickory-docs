@@ -689,6 +689,8 @@ row, and recipe discovery never delays the folder label.
 
 Place creation after the file list and label it New document. The folder header identifies the root and retains recipe actions without an ambiguous plus button.
 
+The nested file rows paint connectors in their existing indentation. A branch spans its expanded subtree so an uncle remains visibly connected past a nephew; the final sibling stops at the row center. Absolute pseudo-elements do not participate in layout or hit testing, preserving keyboard navigation and folder actions. Other responsibilities in this large fragment retain the explanation gaps recorded in the narrative map.
+
 <storycode:copy id="f-9c0af3061e25-FolderRoot">
 function FolderRoot({
   folder,
@@ -872,7 +874,7 @@ function FolderRoot({
       const isExpanded = expanded.has(node.path);
       const selected = dired.marked.has(node.path);
       const recipes = node.dir ? (node.children ?? []).filter(child => !child.dir && ["justfile", ".justfile"].includes(child.name.toLowerCase())).map(child => child.path) : [];
-      return <li key={node.path} role="none">
+      return <li key={node.path} role="none" className={depth ? "folder-tree__branch" : undefined} style={{ "--tree-guide-x": `${(depth - 1) * 0.85 + 0.8}rem` } as React.CSSProperties}>
         <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
         <button type="button" role="treeitem" tabIndex={-1}
           aria-label={node.name} aria-level={depth + 1}

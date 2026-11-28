@@ -810,25 +810,42 @@ private struct DevBuildStatus: View {
 struct FileRows: View {
     let nodes: [FileNode]
     var workspace: Workspace
+    var nested = false
     var body: some View {
         ForEach(nodes) { node in
-            if node.dir {
-                DisclosureGroup {
-                    AnyView(FileRows(nodes: node.children ?? [], workspace: workspace)).padding(.leading, 8)
-                } label: {
-                    Text(node.name).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 0) {
+                if node.dir {
+                    DisclosureGroup {
+                        AnyView(FileRows(nodes: node.children ?? [], workspace: workspace, nested: true))
+                    } label: {
+                        Text(node.name).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2)
+                } else {
+                    Button {
+                        Task { await workspace.open(node) }
+                    } label: {
+                        Text(node.name)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 23, alignment: .leading)
+                    }
+                    .help(node.path)
+                    .accessibilityIdentifier(node.path)
                 }
-                .padding(.vertical, 2)
-            } else {
-                Button {
-                    Task { await workspace.open(node) }
-                } label: {
-                    Text(node.name)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, minHeight: 23, alignment: .leading)
+            }
+            .padding(.leading, nested ? 12 : 0)
+            .overlay(alignment: .topLeading) {
+                if nested {
+                    GeometryReader { geometry in
+                        Path { path in
+                            let y: CGFloat = 13
+                            path.move(to: CGPoint(x: 4, y: 0))
+                            path.addLine(to: CGPoint(x: 4, y: node.id == nodes.last?.id ? y : geometry.size.height))
+                            path.move(to: CGPoint(x: 4, y: y))
+                            path.addLine(to: CGPoint(x: 11, y: y))
+                        }.stroke(Color.secondary.opacity(0.45), lineWidth: 1)
+                    }.allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .help(node.path)
-                .accessibilityIdentifier(node.path)
             }
         }
     }
