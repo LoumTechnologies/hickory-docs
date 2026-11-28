@@ -74,6 +74,10 @@ not separately compiling releases.
 <book:include file=".hickory-source/05-saving.md" />
 <book:include file=".hickory-source/06-application.md" />
 
+## Try a demo project
+
+<book:include file=".hickory-source/demos/index.md" />
+
 ## Find a remaining component or review a requirement
 
 The [mechanism reference](.hickory-source/mechanisms/index.md) completes the
@@ -98,6 +102,7 @@ its build artifacts for agent edits.
 
 <book:project sources=".hickory-source/mechanisms/index.md .hickory-source/maintenance/catalog.md .hickory-source/guarantees/agent/index.md .hickory-source/guarantees/analytics/index.md .hickory-source/guarantees/authoring/index.md .hickory-source/guarantees/collaboration/index.md .hickory-source/guarantees/debugging/index.md .hickory-source/guarantees/editing/index.md .hickory-source/guarantees/editor-intelligence/index.md .hickory-source/guarantees/embedding/index.md .hickory-source/guarantees/execution/index.md .hickory-source/guarantees/git/index.md .hickory-source/guarantees/integrations/index.md .hickory-source/guarantees/landing/index.md .hickory-source/guarantees/landing/read-only-homepage/home.md .hickory-source/guarantees/language/index.md .hickory-source/guarantees/languages/index.md .hickory-source/guarantees/lenses/index.md .hickory-source/guarantees/lineage/index.md .hickory-source/guarantees/literate-projects/index.md .hickory-source/guarantees/release/index.md .hickory-source/guarantees/search/index.md .hickory-source/guarantees/shell/index.md .hickory-source/guarantees/terminal/index.md .hickory-source/guarantees/verification/index.md .hickory-source/shared/catalog.md .hickory-source/support/catalog.md .hickory-source/evidence/focused-checks.md" exclude="
   apps/apple-simple/Sources/Resources/katex/ hickory-dogfood/integrated/ hickory-dogfood/workspace/ hickory-dogfood/build/
+  examples/projects/blazor-todos/app/bin/ examples/projects/blazor-todos/app/obj/ examples/projects/blazor-todos/app/.local/ examples/projects/blazor-todos/app/Data/app.db
   target/ node_modules/ .dev/ scripts/__pycache__/ hickory-dogfood/tools/__pycache__/
   apps/web/node_modules/ apps/web/dist/ apps/web/dist-simple/ apps/web/dist-site/ apps/web/test-results/ apps/web/tsconfig.tsbuildinfo
   apps/web/public/install.sh apps/web/public/source/ apps/web/public/publications/
