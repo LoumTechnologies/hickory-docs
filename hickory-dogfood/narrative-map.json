@@ -2,7 +2,7 @@
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1555,
+  "code_outputs": 1557,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -141681,6 +141681,41 @@
       "symbol": "Open the published introduction",
       "basis": "explained-behavior",
       "original_range": null
+    },
+    {
+      "id": "scaffold-form-model",
+      "output": "apps/apple-simple/Sources/ProjectScaffolding.swift",
+      "page": ".hickory-source/frontends/project-scaffolding.md",
+      "symbol": "scaffold-form-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "scaffold-dotnet-process",
+      "output": "apps/apple-simple/Sources/ProjectScaffolding.swift",
+      "page": ".hickory-source/frontends/project-scaffolding.md",
+      "symbol": "scaffold-dotnet-process",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "scaffold-dotnet-metadata",
+      "output": "apps/apple-simple/Sources/ProjectScaffolding.swift",
+      "page": ".hickory-source/frontends/project-scaffolding.md",
+      "symbol": "scaffold-dotnet-metadata",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "scaffold-dotnet-create",
+      "output": "apps/apple-simple/Sources/ProjectScaffolding.swift",
+      "page": ".hickory-source/frontends/project-scaffolding.md",
+      "symbol": "scaffold-dotnet-create",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "scaffold-dotnet-witness",
+      "output": "apps/apple-simple/Tests/DotnetScaffoldTests.swift",
+      "page": ".hickory-source/frontends/project-scaffolding.md",
+      "symbol": "scaffold-dotnet-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

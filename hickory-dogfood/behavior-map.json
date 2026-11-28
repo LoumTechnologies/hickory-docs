@@ -68049,6 +68049,31 @@
         "site-home-reader"
       ],
       "narrative_owner": "landing:read-only-homepage"
+    },
+    "apps/apple-simple/Sources/ProjectScaffolding.swift": {
+      "source": ".hickory-source/frontends/project-scaffolding.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "452a1a1ead7f4a0c3ef39785de18f0e72e9f0ee99f8cb87ce7dd33367feb81bd",
+      "construction": "fragments",
+      "fragments": [
+        "scaffold-form-model",
+        "scaffold-dotnet-process",
+        "scaffold-dotnet-metadata",
+        "scaffold-dotnet-create"
+      ]
+    },
+    "apps/apple-simple/Tests/DotnetScaffoldTests.swift": {
+      "source": ".hickory-source/frontends/project-scaffolding.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6603cfb9bd2afb0021b86e78c5feec73ffd204637b81dc98c8aeb405bac0c989",
+      "construction": "fragments",
+      "fragments": [
+        "scaffold-dotnet-witness"
+      ]
     }
   },
   "evidence_records": [
