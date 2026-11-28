@@ -244,6 +244,9 @@ struct WorkspaceView: View {
             if launch != nil {
                 suggestedServer = launch?.suggestedServer
                 workspace.address = ""
+                #if os(macOS)
+                if let folder = launch?.localFolder { await openLocalWorkspace(folder) }
+                #endif
                 return
             }
             #if os(macOS)

@@ -19,6 +19,12 @@ KDE and WinForms use the editor served at that host's origin. File and
 preconfigured workspace launches go directly to the requested workspace.
 A readable startup preview stays available while workspace authority loads.
 
+On macOS, **File → New → .NET Project…** shows the templates available from
+the local .NET SDK for the chosen destination. Choosing a template and language
+reveals its parameters and defaults. **Create** runs the selected template in
+a new folder and opens it in a separate workspace when a local host is available.
+Creation refuses an existing destination and surfaces SDK errors in the form.
+
 Development launches expose the running UI's build commit under View, or Panes on macOS.
 The focused source tab shows its one-based line and column. Each Agent pane
 shows provider, model, effort and reported conversation usage in its own bottom

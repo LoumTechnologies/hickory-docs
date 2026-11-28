@@ -3,6 +3,7 @@ import SwiftUI
 struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     var id = UUID()
     var suggestedServer: String? = nil
+    var localFolder: URL? = nil
 }
 
 @main struct HickorySimpleApp: App {
@@ -11,7 +12,9 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     private var workspace: Workspace { focusedWorkspace ?? fallbackWorkspace }
     @Environment(\.openWindow) private var openWindow
     #if os(macOS)
+    @Environment(\.dismissWindow) private var dismissWindow
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
+    private static let scaffoldProviders: [any ScaffoldProvider] = [DotnetScaffoldProvider()]
     @FocusedValue(\.simpleOpenDirectory) private var openDirectory
     @FocusedValue(\.simpleNewWindow) private var newWindow
     private var menuCommands:[WorkspaceCommand] {
@@ -38,7 +41,18 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
                 }
         }.commands {
             CommandGroup(replacing: .newItem) {
-                ForEach(menuCommands.filter {["file.connect","file.open","file.directory","file.new","file.window"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
+                Menu("New") {
+                    ForEach(menuCommands.filter { ["file.new", "file.window"].contains($0.id) }) {
+                        WorkspaceCommandButton(command: $0)
+                    }
+                    Divider()
+                    ForEach(Self.scaffoldProviders, id: \.id) { provider in
+                        Button(provider.title) { openWindow(id: "scaffold", value: provider.id) }
+                    }
+                }
+                ForEach(menuCommands.filter { ["file.connect", "file.open", "file.directory"].contains($0.id) }) {
+                    WorkspaceCommandButton(command: $0)
+                }
             }
             CommandGroup(replacing: .saveItem) {
                 ForEach(menuCommands.filter {["file.save","file.saveAs","file.saveAll","file.refresh","file.close"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
@@ -55,6 +69,21 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
                 if let focusedWorkspace { WorkspaceStatusMenu(workspace: focusedWorkspace) }
             }
         }
+        WindowGroup("New Project", id: "scaffold", for: String.self) { $providerID in
+            if let provider = Self.scaffoldProviders.first(where: { $0.id == providerID }) {
+                ScaffoldProjectView(provider: provider) { folder in
+                    if let folder {
+                        if LocalWorkspaceHost.isAvailable {
+                            openWindow(id: "workspace", value: SimpleWindowLaunch(localFolder: folder))
+                        } else {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                        }
+                    }
+                    dismissWindow(id: "scaffold", value: provider.id)
+                }
+            }
+        }
+        .defaultSize(width: 760, height: 580)
         #else
         WindowGroup("Hickory Docs", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
             SimpleWindowRoot(launch: launch)

@@ -5,7 +5,7 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The same recursive split model works on Mac, iPhone and iPad. On narrow screens groups retain their commands; proportions and split directions remain user-controlled. Draggable tab identities and a menu alternative both move the existing buffer.
 
-The first view task connects to the launcher-supplied address and forwards its optional requested file to the same workspace opening path as native menu commands. With no address, or if that connection fails, show the existing connection sheet. An already attached workspace keeps its drafts and layout when the view reappears.
+The first view task connects to the launcher-supplied address and forwards its optional requested file to the same workspace opening path as native menu commands. With no address, or if that connection fails, show the existing connection sheet. An already attached workspace keeps its drafts and layout when the view reappears. A macOS project creation can supply a local folder to the new window, which opens it through the ordinary local workspace path.
 
 A DropDelegate reads pane-local hover and drop positions while the native text view stays mounted. Its pointer-transparent half-pane overlay does not steal normal editing input. The custom tab payload is loaded asynchronously; docking validates the current source and target again before changing the layout, so an obsolete reply cannot remove a tab. A custom tab type keeps the drag distinct from text insertion; plain text never reaches the docking decoder. A decoded payload that does not name a live tab is ignored.
 
@@ -394,6 +394,9 @@ struct WorkspaceView: View {
             if launch != nil {
                 suggestedServer = launch?.suggestedServer
                 workspace.address = ""
+                #if os(macOS)
+                if let folder = launch?.localFolder { await openLocalWorkspace(folder) }
+                #endif
                 return
             }
             #if os(macOS)

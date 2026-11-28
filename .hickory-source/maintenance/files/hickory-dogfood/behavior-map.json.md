@@ -61182,7 +61182,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "owner": "simple-frontends",
       "used_by": [],
       "role": "implementation",
-      "sha256": "1730345e22673a9de603b8fa7e6cbe5f7314b3358b2471346a96bde0488aef29",
+      "sha256": "578d2f9c51e5a1e8390f3571cab5eab6c2153d4f5db4cc25f32f7ed0e410e88c",
       "construction": "fragments",
       "fragments": [
         "simple-80f4e5a1a0-0",
@@ -61201,7 +61201,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "owner": "simple-frontends",
       "used_by": [],
       "role": "implementation",
-      "sha256": "1f5fb71904ab6efc90ea185afaaccca471358cc5ef1b47edbf8f21480816ce62",
+      "sha256": "3009ebca446a6d1e8a6e79b05dbed35a44c971f6f0d8cf0e99a52b74fdf1b851",
       "construction": "fragments",
       "fragments": [
         "simple-967795f4aa-0"
@@ -68081,6 +68081,19 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "scaffold-dotnet-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/ScaffoldProjectView.swift": {
+      "source": ".hickory-source/frontends/project-scaffolding.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bfdd3f3fc9912e5c4cda632f25a3e494ae9e2eff33e9534ed812ed2201996288",
+      "construction": "fragments",
+      "fragments": [
+        "scaffold-view-state",
+        "scaffold-view-controls",
+        "scaffold-view-actions"
       ]
     }
   },

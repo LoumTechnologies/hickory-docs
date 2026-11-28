@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The new app has its own product identity and window. A terminal launch must explicitly adopt the regular macOS activation policy before launch finishes, then activate once its workspace window appears. Otherwise the process can finish building and run without a discoverable foreground app. Activation runs at startup, independently of the backend connection. Launch Services owns the app process, so a development-only host PID makes the app stop when its launcher exits. That explicit Ctrl-C teardown ends the session; ordinary app Quit still checks unsaved buffers. Mac commands match the browser menu. Cmd+N creates a tab; Cmd+Shift+N creates a window. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
+The new app has its own product identity and window. A terminal launch must explicitly adopt the regular macOS activation policy before launch finishes, then activate once its workspace window appears. Otherwise the process can finish building and run without a discoverable foreground app. Activation runs at startup, independently of the backend connection. Launch Services owns the app process, so a development-only host PID makes the app stop when its launcher exits. That explicit Ctrl-C teardown ends the session; ordinary app Quit still checks unsaved buffers. The macOS File menu groups creation commands under New. Cmd+N creates a tab and Cmd+Shift+N creates a window. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
@@ -23,12 +23,19 @@ scene that skips the original app’s automatic workspace connection.
 Name the scene Hickory Docs on both platforms so the title is available as soon
 as the workspace opens.
 
+Register scaffold providers with their own menu labels. The project window
+receives the selected provider ID and uses the same form for every provider.
+Open a successful result in a fresh workspace so the original window keeps its
+buffers. A build without a bundled or configured local host reveals the result
+in Finder.
+
 <ui:copy id="simple-967795f4aa-0">
 import SwiftUI
 
 struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     var id = UUID()
     var suggestedServer: String? = nil
+    var localFolder: URL? = nil
 }
 
 @main struct HickorySimpleApp: App {
@@ -37,7 +44,9 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
     private var workspace: Workspace { focusedWorkspace ?? fallbackWorkspace }
     @Environment(\.openWindow) private var openWindow
     #if os(macOS)
+    @Environment(\.dismissWindow) private var dismissWindow
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
+    private static let scaffoldProviders: [any ScaffoldProvider] = [DotnetScaffoldProvider()]
     @FocusedValue(\.simpleOpenDirectory) private var openDirectory
     @FocusedValue(\.simpleNewWindow) private var newWindow
     private var menuCommands:[WorkspaceCommand] {
@@ -64,7 +73,18 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
                 }
         }.commands {
             CommandGroup(replacing: .newItem) {
-                ForEach(menuCommands.filter {["file.connect","file.open","file.directory","file.new","file.window"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
+                Menu("New") {
+                    ForEach(menuCommands.filter { ["file.new", "file.window"].contains($0.id) }) {
+                        WorkspaceCommandButton(command: $0)
+                    }
+                    Divider()
+                    ForEach(Self.scaffoldProviders, id: \.id) { provider in
+                        Button(provider.title) { openWindow(id: "scaffold", value: provider.id) }
+                    }
+                }
+                ForEach(menuCommands.filter { ["file.connect", "file.open", "file.directory"].contains($0.id) }) {
+                    WorkspaceCommandButton(command: $0)
+                }
             }
             CommandGroup(replacing: .saveItem) {
                 ForEach(menuCommands.filter {["file.save","file.saveAs","file.saveAll","file.refresh","file.close"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
@@ -81,6 +101,21 @@ struct SimpleWindowLaunch: Codable, Hashable, Identifiable {
                 if let focusedWorkspace { WorkspaceStatusMenu(workspace: focusedWorkspace) }
             }
         }
+        WindowGroup("New Project", id: "scaffold", for: String.self) { $providerID in
+            if let provider = Self.scaffoldProviders.first(where: { $0.id == providerID }) {
+                ScaffoldProjectView(provider: provider) { folder in
+                    if let folder {
+                        if LocalWorkspaceHost.isAvailable {
+                            openWindow(id: "workspace", value: SimpleWindowLaunch(localFolder: folder))
+                        } else {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                        }
+                    }
+                    dismissWindow(id: "scaffold", value: provider.id)
+                }
+            }
+        }
+        .defaultSize(width: 760, height: 580)
         #else
         WindowGroup("Hickory Docs", id: "workspace", for: SimpleWindowLaunch.self) { $launch in
             SimpleWindowRoot(launch: launch)
