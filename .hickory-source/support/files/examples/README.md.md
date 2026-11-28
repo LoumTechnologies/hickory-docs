@@ -17,7 +17,7 @@ needs whatever its cells invoke to be installed locally.
 
 | Example | Needs | What it shows |
 |---|---|---|
-| [Blazor todos](../.hickory-source/demos/blazor-todos/scaffold.md) | .NET 10 SDK | Capture `dotnet new` output and run an authenticated Blazor Server app |
+| [Blazor todos](../.hickory-source/demos/blazor-todos/scaffold.md) | .NET 10 SDK, Python 3 for regeneration | Capture `dotnet new`, add an EF Core model and derive an authenticated CRUD page from the C# code model |
 | `text-tools-tour.md` | nothing beyond a POSIX shell (`sort`, `awk`, `wc`, `tr`) | The core loop: cells, pinned expectations, weaving |
 | `bootstrap-ci.md` | `python3` (standard library only) | A small statistical paper that computes its own figure and verifies its own numbers |
 | `grand-tour.md` | `python3` with `polars`, the `duckdb` CLI; optionally `Rscript` with `ggplot2` | Literate weaving with lineage, polyglot cells, generated interactive artifacts, feature gates |

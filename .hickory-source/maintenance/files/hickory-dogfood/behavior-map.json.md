@@ -68486,7 +68486,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "7db2c42c3ee2c7c53dd5e4dc75f4fb7d075dc6aac97ba986e415a58a59a66356"
+      "sha256": "ce93851b28c9a1cb1612c56011797a66ef9f4728a0021a69cecef6d21083b425"
     },
     "examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor.css": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68494,7 +68494,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "3843531ea35440d59b5e688b5ac3feaaed91f760da8940b662531c49f4de66b5"
+      "sha256": "9589888a71b9a0a40300a94d095aafe43fd4d4bace9a933f147f9bf020098db9"
     },
     "examples/projects/blazor-todos/app/Components/Layout/ReconnectModal.razor": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68534,7 +68534,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "a9a489615e6b324df78d257b7cc2abe3d62bf2fc860f460a9a0ff2a0032f99e6"
+      "sha256": "4e146df60f6d80282b76ef6ef56a95ccf68fd494c7e9c63c78b60a99af2d6025"
     },
     "examples/projects/blazor-todos/app/Components/Pages/NotFound.razor": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68679,6 +68679,66 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "implementation",
       "construction": "raw-file",
       "sha256": "dd486fd734049c3b3efdcd1419a6c3ca1c35446b2040a1722a8c37a412a467e9"
+    },
+    "examples/projects/blazor-todos/README.md": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "80c321f94ac0ac990c2a2253b9ae81cee969cd430de7683ad760b2f9f7da7c58"
+    },
+    "examples/projects/blazor-todos/tools/make-crud.py": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "sha256": "55246f3317f150f97264e4bc04f2952454111ff38d7b1b77f1e52990341629ce",
+      "fragments": [
+        "demo-todo-query",
+        "demo-todo-render"
+      ]
+    },
+    "examples/projects/blazor-todos/tools/Todos.razor.template": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "0b37882e8febdfb18f9aeb1590d8c733c519e6a9067be3c795b2948b6d80be6f"
+    },
+    "examples/projects/blazor-todos/tools/smoke.mjs": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "construction": "raw-file",
+      "sha256": "c57035ca8b283dde36f83c9a14c1fa4cd240d41ecb7f16f3ee80e5d85603ce43"
+    },
+    "examples/projects/blazor-todos/app/Components/Pages/Todos.razor": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "ae16025ea8afc55acee537aecbb1cafed73f1f25a24d547cadc3443ee1cddd5c"
+    },
+    "examples/projects/blazor-todos/app/Components/Pages/Todos.razor.cs": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "9983511e5f9753fdd07b4363049de33bba5e28c03522034a3768fac327230171"
+    },
+    "examples/projects/blazor-todos/app/Components/Pages/Todos.razor.css": {
+      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "e29fd51883ede540d13057d74be20d83156abe243ce51e465c4844b737555352"
     }
   },
   "evidence_records": [

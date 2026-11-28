@@ -1,6 +1,28 @@
 ﻿@inherits LayoutComponentBase
 
-@Body
+<header>
+    <nav aria-label="Main navigation">
+        <a href="/">Hickory Todos</a>
+        <AuthorizeView>
+            <Authorized>
+                <a href="/todos">My todos</a>
+                <a href="/Account/Manage">Account</a>
+                <form action="/Account/Logout" method="post">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="ReturnUrl" value="." />
+                    <button type="submit">Sign out</button>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <a href="/Account/Register">Register</a>
+                <a href="/Account/Login">Log in</a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</header>
+<main>
+    @Body
+</main>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

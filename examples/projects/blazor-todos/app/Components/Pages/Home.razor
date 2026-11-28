@@ -1,7 +1,15 @@
 ﻿@page "/"
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Hickory Todos</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Hickory Todos</h1>
+<p>Keep a private list of things to do.</p>
 
-Welcome to your new app.
+<AuthorizeView>
+    <Authorized>
+        <a href="/todos">Open your todos</a>
+    </Authorized>
+    <NotAuthorized>
+        <a href="/Account/Register">Create an account</a>
+    </NotAuthorized>
+</AuthorizeView>

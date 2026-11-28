@@ -1,0 +1,643 @@
+<demo:doc xmlns:demo="http://www.hickorydocs.com/1.0">
+# Generate the todo UI from the C# model
+
+The [todo entity](model.md) owns which fields are editable. Query it through
+Hickory's Roslyn code-model server. Use a source folder that contains just the
+model so the query can resolve it without compiling the ASP.NET app or
+restoring EF Core references into the code model.
+
+<demo:copy id="demo-todo-query">
+"""Generate the todo component from the public C# code-model query."""
+import argparse
+from html import escape
+import json
+from pathlib import Path
+import re
+from string import Template
+import subprocess
+
+DEMO = Path(__file__).resolve().parents[1]
+OUTPUT = DEMO / "app/Components/Pages/Todos.razor"
+QUERY = """
+{
+  unresolved { message }
+  type(fullName: "HickoryTodos.Models.TodoItem") {
+    properties {
+      name accessibility isStatic isInitOnly hasGetter hasSetter
+      type { fullName }
+      attributes { fullName arguments }
+    }
+  }
+}
+"""
+ANNOTATION = "System.ComponentModel.DataAnnotations.EditableAttribute"
+INPUTS = {"string": "InputText", "string?": "InputText", "bool": "InputCheckbox"}
+
+
+def editable_properties():
+    result = subprocess.run(
+        ["hick", "code-model", "csharp", str(DEMO / "app/Models"), "--query", QUERY],
+        cwd=DEMO, check=True, stdout=subprocess.PIPE, text=True,
+    )
+    result = json.loads(result.stdout)
+    if result.get("errors"):
+        raise ValueError(f"Code-model query failed: {result['errors']}")
+    data = result["data"]
+    if data["unresolved"] or not data["type"]:
+        raise ValueError(f"Could not resolve the todo model: {data['unresolved']}")
+    for prop in data["type"]["properties"]:
+        if not any(attr["fullName"] == ANNOTATION and attr["arguments"] == ["true"]
+                   for attr in prop["attributes"]):
+            continue
+        name = prop["name"]
+        if (name in {"Id", "OwnerId"} or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", name)
+                or prop["accessibility"] != "PUBLIC" or prop["isStatic"] or prop["isInitOnly"]
+                or not (prop["hasGetter"] and prop["hasSetter"])):
+            raise ValueError(f"{name} cannot be an editable todo field.")
+        field_type = prop["type"]["fullName"]
+        if field_type not in INPUTS:
+            raise ValueError(f"Add a control for the {field_type} property {name}.")
+        label = escape(re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name))
+        yield name, field_type, label
+
+</demo:copy>
+
+Generate a text box or checkbox from the resolved C# type. Each field gets a
+form control, validation message, table column and assignment. Validate the
+query result before emitting code so a new unsupported field stops generation.
+The generator rejects identity and owner fields even if someone marks them
+editable.
+
+<demo:copy id="demo-todo-render">
+
+def generate():
+    fields, headers, cells, assignments = [], [], [], []
+    for name, field_type, label in editable_properties():
+        control = INPUTS[field_type]
+        headers.append(f'                <th scope="col">{label}</th>')
+        value = f'@(item.{name} ? "Yes" : "No")' if field_type == "bool" else f"@item.{name}"
+        cells.append(f"                    <td>{value}</td>")
+        fields.append(
+            f'        <div class="field">\n'
+            f'            <label for="todo-{name}">{label}</label>\n'
+            f'            <{control} id="todo-{name}" @bind-Value="draft.{name}" />\n'
+            f'            <ValidationMessage For="() => draft.{name}" />\n'
+            f'        </div>'
+        )
+        assignments.append(f"        target.{name} = source.{name};")
+    if not fields:
+        raise ValueError("Mark at least one todo property with Editable(true).")
+    template = Template(Path(__file__).with_name("Todos.razor.template").read_text())
+    return template.substitute(fields="\n".join(fields), headers="\n".join(headers),
+                               cells="\n".join(cells), assignments="\n".join(assignments))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="compare against the constructed Razor file")
+    args = parser.parse_args()
+    source = generate()
+    if args.check:
+        if OUTPUT.read_bytes() != source.encode("utf-8"):
+            parser.exit(1, "Todos.razor differs from the C# model. Refresh its literate file element.\n")
+    else:
+        print(source, end="")
+
+
+if __name__ == "__main__":
+    main()
+</demo:copy>
+<demo:file path="examples/projects/blazor-todos/tools/make-crud.py"><demo:paste select="#demo-todo-query" /><demo:paste select="#demo-todo-render" /></demo:file>
+
+The template supplies the page layout and connects form actions to named
+handlers. It accepts the columns, inputs and assignments from the generator.
+The route requires authentication and becomes interactive on the server.
+
+<demo:file path="examples/projects/blazor-todos/tools/Todos.razor.template">
+@* Generated by make-crud.py from the C# code model. *@
+@page "/todos"
+@using HickoryTodos.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>My todos</PageTitle>
+
+<h1>My todos</h1>
+
+@if (error is not null)
+{
+    <p role="alert">@error</p>
+}
+
+<EditForm @key="draft" Model="draft" OnValidSubmit="SaveAsync">
+    <DataAnnotationsValidator />
+    <fieldset disabled="@busy">
+        <legend>@(draft.Id == 0 ? "New todo" : "Edit todo")</legend>
+$fields
+        <div class="actions">
+            <button type="submit">@(draft.Id == 0 ? "Add todo" : "Save todo")</button>
+            @if (draft.Id != 0)
+            {
+                <button type="button" @onclick="ResetDraft">Cancel edit</button>
+            }
+        </div>
+    </fieldset>
+</EditForm>
+
+@if (todos.Count == 0)
+{
+    <p>No todos yet.</p>
+}
+else
+{
+    <table>
+        <caption>Saved todos</caption>
+        <thead>
+            <tr>
+$headers
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in todos)
+            {
+                <tr @key="item.Id">
+$cells
+                    <td>
+                        <button disabled="@busy" @onclick="() => Edit(item)">Edit</button>
+                        <button disabled="@busy" @onclick="() => DeleteAsync(item.Id)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private static void CopyEditable(TodoItem source, TodoItem target)
+    {
+$assignments
+    }
+}
+</demo:file>
+
+## Record the result in the project
+
+The generator wrote the Razor file below. Keeping the output in a file element
+lets Hickory reconstruct the app without executing the code model. Regenerate
+from the materialized model and compare the exact bytes to catch a stale page.
+
+Publish the code-model server from the repository root with `hick` available on PATH.
+
+```sh
+dotnet publish code-models/csharp -c Release \
+  --artifacts-path "$PWD/target/blazor-todos-model-build" \
+  -o "$PWD/target/blazor-todos-model"
+export PATH="$PWD/target/blazor-todos-model:$PATH"
+python3 examples/projects/blazor-todos/tools/make-crud.py --check
+```
+
+To try the generation in a disposable copy, add an `[Editable(true)]` string
+or bool to `app/Models/TodoItem.cs` in that copy. Run its `tools/make-crud.py`
+without `--check` to see the added controls on stdout. To adopt a real
+schema change, update the entity and the EF migration in the model chapter,
+materialize, then replace the Razor file element below with the new output.
+
+<demo:file path="examples/projects/blazor-todos/app/Components/Pages/Todos.razor">
+@* Generated by make-crud.py from the C# code model. *@
+@page "/todos"
+@using HickoryTodos.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>My todos</PageTitle>
+
+<h1>My todos</h1>
+
+@if (error is not null)
+{
+    <p role="alert">@error</p>
+}
+
+<EditForm @key="draft" Model="draft" OnValidSubmit="SaveAsync">
+    <DataAnnotationsValidator />
+    <fieldset disabled="@busy">
+        <legend>@(draft.Id == 0 ? "New todo" : "Edit todo")</legend>
+        <div class="field">
+            <label for="todo-Title">Title</label>
+            <InputText id="todo-Title" @bind-Value="draft.Title" />
+            <ValidationMessage For="() => draft.Title" />
+        </div>
+        <div class="field">
+            <label for="todo-Completed">Completed</label>
+            <InputCheckbox id="todo-Completed" @bind-Value="draft.Completed" />
+            <ValidationMessage For="() => draft.Completed" />
+        </div>
+        <div class="actions">
+            <button type="submit">@(draft.Id == 0 ? "Add todo" : "Save todo")</button>
+            @if (draft.Id != 0)
+            {
+                <button type="button" @onclick="ResetDraft">Cancel edit</button>
+            }
+        </div>
+    </fieldset>
+</EditForm>
+
+@if (todos.Count == 0)
+{
+    <p>No todos yet.</p>
+}
+else
+{
+    <table>
+        <caption>Saved todos</caption>
+        <thead>
+            <tr>
+                <th scope="col">Title</th>
+                <th scope="col">Completed</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in todos)
+            {
+                <tr @key="item.Id">
+                    <td>@item.Title</td>
+                    <td>@(item.Completed ? "Yes" : "No")</td>
+                    <td>
+                        <button disabled="@busy" @onclick="() => Edit(item)">Edit</button>
+                        <button disabled="@busy" @onclick="() => DeleteAsync(item.Id)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private static void CopyEditable(TodoItem source, TodoItem target)
+    {
+        target.Title = source.Title;
+        target.Completed = source.Completed;
+    }
+}
+</demo:file>
+
+## Enforce ownership in the database queries
+
+The component gets the caller's ID from authenticated server state for every
+operation. List, update and delete all use the same ownership filter. A
+create assigns the owner server-side and copies only the editable fields
+declared by the model. Each operation owns a separate EF Core context.
+
+<demo:file path="examples/projects/blazor-todos/app/Components/Pages/Todos.razor.cs">
+using System.Data.Common;
+using System.Security.Claims;
+using HickoryTodos.Data;
+using HickoryTodos.Models;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.EntityFrameworkCore;
+
+namespace HickoryTodos.Components.Pages;
+
+public partial class Todos
+{
+    [Inject] private AuthenticationStateProvider Authentication { get; set; } = default!;
+    [Inject] private IDbContextFactory<ApplicationDbContext> Db { get; set; } = default!;
+    [Inject] private ILogger<Todos> Logger { get; set; } = default!;
+
+    private List<TodoItem> todos = [];
+    private TodoItem draft = new();
+    private string? error;
+    private bool busy;
+
+    protected override Task OnInitializedAsync() => WithOwnerAsync(ReadAsync);
+
+    private static IQueryable<TodoItem> Owned(ApplicationDbContext db, string ownerId) =>
+        db.Todos.Where(todo => todo.OwnerId == ownerId);
+
+    private async Task ReadAsync(ApplicationDbContext db, string ownerId) =>
+        todos = await Owned(db, ownerId).AsNoTracking().OrderBy(todo => todo.Id).ToListAsync();
+
+    private void Edit(TodoItem item)
+    {
+        draft = new TodoItem { Id = item.Id };
+        CopyEditable(item, draft);
+    }
+
+    private void ResetDraft() => draft = new TodoItem();
+
+    private Task SaveAsync() => WithOwnerAsync(async (db, ownerId) =>
+    {
+        var creating = draft.Id == 0;
+        var item = creating ? new TodoItem { OwnerId = ownerId }
+            : await Owned(db, ownerId).SingleOrDefaultAsync(todo => todo.Id == draft.Id);
+        if (item is null)
+        {
+            await MissingTodoAsync(db, ownerId);
+            return;
+        }
+
+        CopyEditable(draft, item);
+        if (creating)
+            db.Todos.Add(item);
+        await db.SaveChangesAsync();
+        ResetDraft();
+        await ReadAsync(db, ownerId);
+    });
+
+    private Task DeleteAsync(int id) => WithOwnerAsync(async (db, ownerId) =>
+    {
+        var item = await Owned(db, ownerId).SingleOrDefaultAsync(todo => todo.Id == id);
+        if (item is null)
+        {
+            await MissingTodoAsync(db, ownerId);
+            return;
+        }
+
+        db.Todos.Remove(item);
+        await db.SaveChangesAsync();
+        if (draft.Id == id)
+            ResetDraft();
+        await ReadAsync(db, ownerId);
+    });
+
+    private async Task MissingTodoAsync(ApplicationDbContext db, string ownerId)
+    {
+        ResetDraft();
+        await ReadAsync(db, ownerId);
+        error = "That todo is no longer available.";
+    }
+
+    private async Task WithOwnerAsync(Func<ApplicationDbContext, string, Task> operation)
+    {
+        if (busy)
+            return;
+
+        busy = true;
+        error = null;
+        try
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (user.Identity?.IsAuthenticated != true ||
+                user.FindFirstValue(ClaimTypes.NameIdentifier) is not { Length: > 0 } ownerId)
+            {
+                todos = [];
+                ResetDraft();
+                error = "Sign in to access your todos.";
+                return;
+            }
+
+            await using var db = await Db.CreateDbContextAsync();
+            await operation(db, ownerId);
+        }
+        catch (Exception exception) when (exception is DbException or DbUpdateException)
+        {
+            Logger.LogError(exception, "Could not complete a todo operation.");
+            error = "There was a database error. Reload the page to see the current list.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}
+</demo:file>
+
+Keep the controls beside the list so a reader can see the affected row and
+the next action in the same view.
+
+<demo:file path="examples/projects/blazor-todos/app/Components/Pages/Todos.razor.css">
+fieldset {
+    display: grid;
+    max-width: 34rem;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #ccd6dd;
+    border-radius: 0.5rem;
+}
+
+.field {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+table {
+    width: 100%;
+    text-align: left;
+    margin-top: 1.5rem;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid #e1e6ea;
+}
+
+caption {
+    text-align: left;
+    padding: 0.5rem;
+    font-weight: 600;
+}
+</demo:file>
+
+Patch the scaffold's home page and layout to link the account and todo routes.
+Sign-out posts to the scaffold's Identity endpoint with an antiforgery token.
+
+<demo:patch id="blazor-todo-navigation" after="blazor-todo-context">
+--- a/examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor
++++ b/examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor
+@@ -1,6 +1,28 @@
+ ﻿@inherits LayoutComponentBase
+ 
+-@Body
++<header>
++    <nav aria-label="Main navigation">
++        <a href="/">Hickory Todos</a>
++        <AuthorizeView>
++            <Authorized>
++                <a href="/todos">My todos</a>
++                <a href="/Account/Manage">Account</a>
++                <form action="/Account/Logout" method="post">
++                    <AntiforgeryToken />
++                    <input type="hidden" name="ReturnUrl" value="." />
++                    <button type="submit">Sign out</button>
++                </form>
++            </Authorized>
++            <NotAuthorized>
++                <a href="/Account/Register">Register</a>
++                <a href="/Account/Login">Log in</a>
++            </NotAuthorized>
++        </AuthorizeView>
++    </nav>
++</header>
++<main>
++    @Body
++</main>
+ 
+ <div id="blazor-error-ui" data-nosnippet>
+     An unhandled error has occurred.
+--- a/examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor.css
++++ b/examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor.css
+@@ -1,3 +1,21 @@
++header {
++    border-bottom: 1px solid #ccd6dd;
++}
++
++nav,
++main {
++    max-width: 64rem;
++    margin-inline: auto;
++    padding: 1rem;
++}
++
++nav {
++    display: flex;
++    align-items: center;
++    flex-wrap: wrap;
++    gap: 1rem;
++}
++
+ #blazor-error-ui {
+     color-scheme: light only;
+     background: lightyellow;
+--- a/examples/projects/blazor-todos/app/Components/Pages/Home.razor
++++ b/examples/projects/blazor-todos/app/Components/Pages/Home.razor
+@@ -1,7 +1,15 @@
+ ﻿@page "/"
+ 
+-<PageTitle>Home</PageTitle>
++<PageTitle>Hickory Todos</PageTitle>
+ 
+-<h1>Hello, world!</h1>
++<h1>Hickory Todos</h1>
++<p>Keep a private list of things to do.</p>
+ 
+-Welcome to your new app.
++<AuthorizeView>
++    <Authorized>
++        <a href="/todos">Open your todos</a>
++    </Authorized>
++    <NotAuthorized>
++        <a href="/Account/Register">Create an account</a>
++    </NotAuthorized>
++</AuthorizeView>
+</demo:patch>
+
+## Check the demo through a browser
+
+Start the app using the [scaffold chapter](scaffold.md). With the web workspace's
+Playwright dependencies and Chromium installed, pass the app's loopback URL to
+`node examples/projects/blazor-todos/tools/smoke.mjs`. The witness registers two
+test accounts and verifies password sign-in, form validation, CRUD, persistence
+after a reload, and separate todo lists. Run it against a disposable local
+database.
+
+<demo:file path="examples/projects/blazor-todos/tools/smoke.mjs">
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
+import assert from "node:assert/strict";
+
+const require = createRequire(new URL("../../../../apps/web/package.json", import.meta.url));
+const { chromium } = require("playwright");
+const base = new URL(process.argv[2]);
+assert.ok(["127.0.0.1", "localhost"].includes(base.hostname), "Use a local demo database.");
+
+const password = "Todo!" + randomBytes(12).toString("hex") + "Aa1";
+const runId = randomBytes(8).toString("hex");
+const account = (label) => `${label}-${runId}@example.test`;
+const goto = (page, path) => page.goto(new URL(path, base).href);
+const button = (page, name) => page.getByRole("button", { name, exact: true });
+async function ready(page) {
+    await page.getByRole("heading", { name: "My todos", exact: true }).waitFor();
+    await button(page, "Add todo").click({ trial: true });
+}
+
+async function register(page, email) {
+    await goto(page, "/Account/Register?ReturnUrl=%2Ftodos");
+    await page.getByLabel("Email", { exact: true }).fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByLabel("Confirm Password").fill(password);
+    await button(page, "Register").click();
+    await ready(page);
+}
+
+const browser = await chromium.launch();
+try {
+    const first = await browser.newPage();
+    await goto(first, "/todos");
+    await first.waitForURL((url) => url.pathname === "/Account/Login");
+
+    await register(first, account("first"));
+    await button(first, "Add todo").click();
+    await first.getByText("The Title field is required.").waitFor();
+    await first.getByLabel("Title", { exact: true }).fill("Learn literate patches");
+    await button(first, "Add todo").click();
+    let row = first.getByRole("row", { name: /Learn literate patches/ });
+    await row.getByRole("button", { name: "Edit" }).click();
+    await button(first, "Save todo").waitFor();
+    await first.getByLabel("Title", { exact: true }).fill("Learn the C# code model");
+    await first.getByLabel("Completed", { exact: true }).check();
+    await button(first, "Save todo").click();
+    row = first.getByRole("row", { name: /Learn the C# code model/ });
+    await row.getByRole("cell", { name: "Yes", exact: true }).waitFor();
+
+    const second = await browser.newPage();
+    await register(second, account("second"));
+    await second.getByText("No todos yet.").waitFor();
+    assert.equal(await second.getByRole("row", { name: /Learn the C# code model/ }).count(), 0);
+
+    await button(first, "Sign out").click();
+    await first.getByRole("link", { name: "Log in", exact: true }).waitFor();
+    await goto(first, "/Account/Login?ReturnUrl=%2Ftodos");
+    await first.getByLabel("Email", { exact: true }).fill(account("first"));
+    await first.getByLabel("Password", { exact: true }).fill(password);
+    await button(first, "Log in").click();
+    await ready(first);
+    await row.getByRole("cell", { name: "Yes", exact: true }).waitFor();
+    await row.getByRole("button", { name: "Delete" }).click();
+    await first.getByText("No todos yet.").waitFor();
+    await first.reload();
+    await ready(first);
+    await first.getByText("No todos yet.").waitFor();
+    console.log("Password login, todo validation and CRUD, persistence, and account isolation passed.");
+} finally {
+    await browser.close();
+}
+</demo:file>
+
+Keep a short entry point beside the runnable files for readers who arrive
+through the repository tree.
+
+<demo:entry path="examples/projects/blazor-todos/README.md">
+# Blazor todos
+
+This demo starts with the .NET 10 Blazor Server template and ASP.NET Core
+Identity, adds an EF Core model, and generates the todo page from Hickory's
+C# code model.
+
+[Read the literate construction](../../../.hickory-source/demos/blazor-todos/scaffold.md).
+
+Start the app from this directory.
+
+```sh
+cd app
+dotnet run --launch-profile http
+```
+
+Open the loopback URL printed by the app. Register with an email address and
+password, then choose **My todos**. The Development profile creates the SQLite
+database and applies migrations on startup.
+</demo:entry>
+</demo:doc>

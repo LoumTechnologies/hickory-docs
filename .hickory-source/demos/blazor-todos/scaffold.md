@@ -9,7 +9,7 @@ repository root to inspect the scaffold and its changes.
 ## Capture an authenticated server app
 
 In the macOS app, choose **File > New > .NET Project**, then **Blazor Web App
-(C#)**. Select **Server** interactivity and **Individual** authentication.
+(C#)**. Select **.NET 10**, **Server** interactivity and **Individual** authentication.
 Use the empty template and leave global interactivity off. Identity keeps its
 account pages on the server request path, where it can issue cookies. The
 capture command below selects those same options and pins the SDK family.
@@ -5088,7 +5088,7 @@ username. Run it on loopback under the Development environment.
      <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
 </demo:patch>
 
-From the repository root, run:
+Start the app from the repository root.
 
 ```sh
 cd examples/projects/blazor-todos/app
@@ -5097,4 +5097,8 @@ dotnet run --launch-profile http
 
 Open the loopback URL printed by the app. The account pages are available at
 `/Account/Register` and `/Account/Login`.
+
+Continue with the [EF Core todo model](model.md) and the
+[code-model-generated CRUD page](crud.md). After registering, choose **My todos**
+to see the result.
 </demo:doc>
