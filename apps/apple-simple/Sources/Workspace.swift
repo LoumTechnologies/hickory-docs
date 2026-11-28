@@ -113,12 +113,18 @@ struct StartupSourceObservation {
     var inlineMarkup = InlineSnapshot(source: "")
     @ObservationIgnored var renderMarkup: (() -> Void)?
     @ObservationIgnored private var inlineTask: Task<Void, Never>?
+    @ObservationIgnored private var formattingLimit = UserDefaults.standard.integer(forKey: inlineFormattingLimitKey)
+    func setInlineFormattingLimit(_ limit: Int) {
+        guard formattingLimit != limit else { return }
+        formattingLimit = limit
+        refreshInline()
+    }
     func refreshInline() {
-        inlineTask?.cancel(); let source = text, path = file.path
+        inlineTask?.cancel(); let source = text, path = file.path, limit = formattingLimit
         inlineTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
-            let job = Task.detached { computeInlineMarkup(source, path: path) }
+            let job = Task.detached { computeInlineMarkup(source, path: path, formattingLimit: limit) }
             let result = await withTaskCancellationHandler(operation: { await job.value }, onCancel: { job.cancel() })
             guard !Task.isCancelled, let self, exactUTF8(self.text,source) else { return }
             self.inlineMarkup = result; self.renderMarkup?()

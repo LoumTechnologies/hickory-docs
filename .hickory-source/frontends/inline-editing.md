@@ -3,7 +3,12 @@
 
 For maintainers implementing rich source editing on native platforms.
 
-Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. The same bounded scan supplies local syntax colors for standalone source files and embedded code. Standalone files skip Markdown presentation rules. Large files retain readable text while the optional scanner is bounded to 200,000 UTF-16 units.
+Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. The same presentation scan supplies local syntax colors for standalone source files and embedded code. Standalone files skip Markdown presentation rules.
+
+On Apple, a positive formatting limit skips presentation when the document
+exceeds that many UTF-16 units. The default of zero admits a full scan. Keep
+the line index and debugger candidate discovery independent so opting out of
+presentation on a large file leaves its text and line navigation available.
 
 For native Markdown links the label remains the touch target and the whole
 authored link is the caret target. Both refer to the same workspace destination.
@@ -564,14 +569,16 @@ func inlineDiagrams(_ source: String) -> [InlineDiagram] {
     }
     return result
 }
-func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
+let inlineFormattingLimitKey = "editor.inlineFormattingLimit"
+
+func computeInlineMarkup(_ source: String, path: String, formattingLimit: Int = 0) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
     var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
-    if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
+    guard formattingLimit <= 0 || source.utf16.count <= formattingLimit else { return result }
+    if (path as NSString).pathExtension.lowercased() == "csv" {
         result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
-    guard source.utf16.count <= 200_000 else { return result }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else {
         result.marks = inlineSyntaxMarks(source, path: path)
         return result

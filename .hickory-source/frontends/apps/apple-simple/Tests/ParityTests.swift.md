@@ -13,6 +13,10 @@ then confirms the shortcut leaves marked text with AppKit.
 
 The language-cache witnesses retain colors on unchanged Unicode text, exercise a real AppKit edit/undo and the refresh task with a closed channel, and reject stale completion writes. A second paint of the same source with no semantic tokens must keep its local syntax colors. The opt-in live-provider witness opens a literate buffer after a plain Python buffer already received tokens on the same connection, then checks mapped colors and completion. Mobile gestures still need device acceptance.
 
+The large-document witness crosses the former formatting cutoff using emoji,
+then tests the inclusive UTF-16 boundary and changes the limit on a retained
+AppKit editor. The original source and selection survive both repaint directions.
+
 The gutter witness lays out real AppKit text, including wrapped text and empty final fragments, and checks the logical rows used to draw numbers. It does not verify UIKit or Compose rendering.
 
 These cases consume the same JSON as the browser tests. They check user-visible tab membership and active-tab validity independently of view framework and internal split identifiers.
@@ -939,6 +943,45 @@ final class ParityTests: XCTestCase {
         manager.ensureLayout(for: container)
         XCTAssertEqual(manager.glyph(at: manager.glyphIndexForCharacter(at: quote.location)), sourceGlyph)
         XCTAssertEqual(editor.text.string, source)
+        #endif
+    }
+
+    @MainActor func testLargeDocumentFormattingCanBeLimitedAndRestored() async throws {
+        let source = "# Heading\n\n```cs\nreturn 1;\n```\n\n"
+            + String(repeating: String(repeating: "😀", count: 50) + "\n", count: 2_000)
+        let length = source.utf16.count
+        XCTAssertGreaterThan(length, 200_000)
+        let unlimited = computeInlineMarkup(source, path: "README.md")
+        XCTAssertTrue(unlimited.marks.contains { $0.kind == "heading" })
+        XCTAssertTrue(unlimited.marks.contains { $0.kind == "syntax-keyword" })
+        let limited = computeInlineMarkup(source, path: "README.md", formattingLimit: length - 1)
+        XCTAssertTrue(limited.marks.isEmpty)
+        XCTAssertEqual(limited.source, source)
+        XCTAssertEqual(limited.lineStarts, unlimited.lineStarts)
+        XCTAssertEqual(computeInlineMarkup(source, path: "README.md", formattingLimit: length).marks.count, unlimited.marks.count)
+
+        #if os(macOS)
+        let file = FileNode(name: "README.md", path: "README.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "saved"))
+        buffer.setInlineFormattingLimit(length - 1)
+        let editor = MacEditor(buffer)
+        let selection = NSRange(location: 2, length: 7)
+        editor.text.setSelectedRange(selection)
+        let storage = try XCTUnwrap(editor.text.textStorage)
+        let keyword = (source as NSString).range(of: "return").location
+        for (limit, size, color) in [(0, CGFloat(23), NSColor.systemPurple),
+                                    (length - 1, CGFloat(13), NSColor.textColor),
+                                    (0, CGFloat(23), NSColor.systemPurple)] {
+            buffer.setInlineFormattingLimit(limit)
+            for _ in 0..<100 {
+                if (storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize == size { break }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            XCTAssertEqual((storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize, size)
+            XCTAssertEqual(storage.attribute(.foregroundColor, at: keyword, effectiveRange: nil) as? NSColor, color)
+            XCTAssertEqual(editor.text.selectedRange(), selection)
+            XCTAssertEqual(editor.text.string, source)
+        }
         #endif
     }
 

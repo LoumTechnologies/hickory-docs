@@ -454,6 +454,7 @@ struct EditorNavigationSettings: View {
     @AppStorage("editor.controlArrow") private var control = "native"
     @AppStorage("editor.altArrow") private var alt = "native"
     @AppStorage("editor.enterIndent") private var enter = "smart"
+    @AppStorage(inlineFormattingLimitKey) private var formattingLimit = 0
     var body: some View {
         Menu("Editor settings") {
             Picker("Enter indentation", selection: $enter) {
@@ -463,6 +464,12 @@ struct EditorNavigationSettings: View {
             }
             Picker("Ctrl + Left/Right", selection: $control) { modes }
             Picker("Alt/Option + Left/Right", selection: $alt) { modes }
+            Picker("Inline formatting limit", selection: $formattingLimit) {
+                Text("Unlimited").tag(0)
+                ForEach([100_000, 200_000, 500_000, 1_000_000], id: \.self) { limit in
+                    Text("\(limit.formatted()) UTF-16 units").tag(limit)
+                }
+            }
         }
     }
     private var modes: some View {
@@ -1630,7 +1637,9 @@ private struct EquationLayout: Equatable {
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
         // Foreground colors reset on every paint, including provider-only refreshes.
-        if exactUTF8(buffer.inlineMarkup.source,source), source.utf16.count <= 200_000 {
+        let currentMarkup = exactUTF8(buffer.inlineMarkup.source, source)
+        let hasInlineMarks = !buffer.inlineMarkup.marks.isEmpty
+        if currentMarkup {
             for mark in buffer.inlineMarkup.marks where mark.kind.hasPrefix("syntax-") && NSMaxRange(mark.range) <= storage.length {
                 let color: NSColor
                 switch mark.kind {
@@ -1654,10 +1663,11 @@ private struct EquationLayout: Equatable {
             }
             storage.addAttribute(.foregroundColor, value: color, range: token.range)
         }
-        if exactUTF8(buffer.inlineMarkup.source,source) && !exactUTF8(paintedInlineSource,source) && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
+        if currentMarkup, hasInlineMarks || hadInlineFonts,
+           !exactUTF8(paintedInlineSource, source) || hasInlineMarks != hadInlineFonts {
             storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: storage.length))
             storage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: storage.length))
-            if source.utf16.count <= 200_000 {
+            if hasInlineMarks {
                 for mark in buffer.inlineMarkup.marks where NSMaxRange(mark.range) <= storage.length {
                     let font: NSFont
                     switch mark.kind {
@@ -1672,7 +1682,7 @@ private struct EquationLayout: Equatable {
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? NSColor.systemGreen : NSColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
             }
-            paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
+            paintedInlineSource = source; hadInlineFonts = hasInlineMarks
         }
         storage.endEditing(); text.typingAttributes[.foregroundColor] = NSColor.textColor
         presentTables()
@@ -1696,6 +1706,7 @@ private final class MacEditorHost: NSView {
     override func layout() { super.layout(); attach(); Task { @MainActor in measure() } }
 }
 struct NativeEditor: NSViewRepresentable {
+    @AppStorage(inlineFormattingLimitKey) private var formattingLimit = 0
     let buffer: DocumentBuffer
     var readOnly: Bool? = nil
     var submitMessage: (() -> Void)? = nil
@@ -1709,6 +1720,7 @@ struct NativeEditor: NSViewRepresentable {
         return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
+        buffer.setInlineFormattingLimit(formattingLimit)
         if let editor = EditorCache.views[buffer.id] {
             editor.text.submitMessage = submitMessage
             if !exactUTF8(editor.text.string,buffer.text) {
@@ -2476,7 +2488,9 @@ import UIKit
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
         // Foreground colors reset on every paint, including provider-only refreshes.
-        if exactUTF8(buffer.inlineMarkup.source,source), source.utf16.count <= 200_000 {
+        let currentMarkup = exactUTF8(buffer.inlineMarkup.source, source)
+        let hasInlineMarks = !buffer.inlineMarkup.marks.isEmpty
+        if currentMarkup {
             for mark in buffer.inlineMarkup.marks where mark.kind.hasPrefix("syntax-") && NSMaxRange(mark.range) <= storage.length {
                 let color: UIColor
                 switch mark.kind {
@@ -2500,10 +2514,11 @@ import UIKit
             }
             storage.addAttribute(.foregroundColor, value: color, range: token.range)
         }
-        if exactUTF8(buffer.inlineMarkup.source,source) && !exactUTF8(paintedInlineSource,source) && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
+        if currentMarkup, hasInlineMarks || hadInlineFonts,
+           !exactUTF8(paintedInlineSource, source) || hasInlineMarks != hadInlineFonts {
             storage.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: storage.length))
             storage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: storage.length))
-            if source.utf16.count <= 200_000 {
+            if hasInlineMarks {
                 for mark in buffer.inlineMarkup.marks where NSMaxRange(mark.range) <= storage.length {
                     let font: UIFont
                     switch mark.kind {
@@ -2518,7 +2533,7 @@ import UIKit
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
             }
-            paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
+            paintedInlineSource = source; hadInlineFonts = hasInlineMarks
         }
         storage.endEditing(); text.typingAttributes[.foregroundColor] = UIColor.label
         presentTables()
@@ -2539,6 +2554,7 @@ private final class MobileEditorHost: UIView {
     override func layoutSubviews() { super.layoutSubviews(); attach(); Task { @MainActor in measure() } }
 }
 struct NativeEditor: UIViewRepresentable {
+    @AppStorage(inlineFormattingLimitKey) private var formattingLimit = 0
     let buffer: DocumentBuffer
     var readOnly: Bool? = nil
     var submitMessage: (() -> Void)? = nil
@@ -2552,6 +2568,7 @@ struct NativeEditor: UIViewRepresentable {
         return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
+        buffer.setInlineFormattingLimit(formattingLimit)
         if let editor = EditorCache.views[buffer.id] {
             editor.text.submitMessage = submitMessage
             if !exactUTF8(editor.text.accessibilityLabel, buffer.file.path) {

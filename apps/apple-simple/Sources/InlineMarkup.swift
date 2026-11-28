@@ -488,14 +488,16 @@ func inlineDiagrams(_ source: String) -> [InlineDiagram] {
     }
     return result
 }
-func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
+let inlineFormattingLimitKey = "editor.inlineFormattingLimit"
+
+func computeInlineMarkup(_ source: String, path: String, formattingLimit: Int = 0) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
     var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
-    if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
+    guard formattingLimit <= 0 || source.utf16.count <= formattingLimit else { return result }
+    if (path as NSString).pathExtension.lowercased() == "csv" {
         result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
-    guard source.utf16.count <= 200_000 else { return result }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else {
         result.marks = inlineSyntaxMarks(source, path: path)
         return result

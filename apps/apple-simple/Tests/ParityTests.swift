@@ -895,6 +895,45 @@ final class ParityTests: XCTestCase {
         #endif
     }
 
+    @MainActor func testLargeDocumentFormattingCanBeLimitedAndRestored() async throws {
+        let source = "# Heading\n\n```cs\nreturn 1;\n```\n\n"
+            + String(repeating: String(repeating: "😀", count: 50) + "\n", count: 2_000)
+        let length = source.utf16.count
+        XCTAssertGreaterThan(length, 200_000)
+        let unlimited = computeInlineMarkup(source, path: "README.md")
+        XCTAssertTrue(unlimited.marks.contains { $0.kind == "heading" })
+        XCTAssertTrue(unlimited.marks.contains { $0.kind == "syntax-keyword" })
+        let limited = computeInlineMarkup(source, path: "README.md", formattingLimit: length - 1)
+        XCTAssertTrue(limited.marks.isEmpty)
+        XCTAssertEqual(limited.source, source)
+        XCTAssertEqual(limited.lineStarts, unlimited.lineStarts)
+        XCTAssertEqual(computeInlineMarkup(source, path: "README.md", formattingLimit: length).marks.count, unlimited.marks.count)
+
+        #if os(macOS)
+        let file = FileNode(name: "README.md", path: "README.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "saved"))
+        buffer.setInlineFormattingLimit(length - 1)
+        let editor = MacEditor(buffer)
+        let selection = NSRange(location: 2, length: 7)
+        editor.text.setSelectedRange(selection)
+        let storage = try XCTUnwrap(editor.text.textStorage)
+        let keyword = (source as NSString).range(of: "return").location
+        for (limit, size, color) in [(0, CGFloat(23), NSColor.systemPurple),
+                                    (length - 1, CGFloat(13), NSColor.textColor),
+                                    (0, CGFloat(23), NSColor.systemPurple)] {
+            buffer.setInlineFormattingLimit(limit)
+            for _ in 0..<100 {
+                if (storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize == size { break }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            XCTAssertEqual((storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize, size)
+            XCTAssertEqual(storage.attribute(.foregroundColor, at: keyword, effectiveRange: nil) as? NSColor, color)
+            XCTAssertEqual(editor.text.selectedRange(), selection)
+            XCTAssertEqual(editor.text.string, source)
+        }
+        #endif
+    }
+
     func testInlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
         let source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
         let result = computeInlineMarkup(source, path: "source.md")
