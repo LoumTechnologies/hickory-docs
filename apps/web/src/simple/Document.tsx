@@ -322,7 +322,7 @@ export function Document({ buffer, current, renderTools }: {
         EditorState.transactionFilter.of(transaction => transaction.docChanged && buffer.readonly
           && (buffer.transient || buffer.startupWorkspace !== undefined)
           && authoredSource(transaction.state) !== buffer.text ? [] : transaction),
-        address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
+        address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path, tabindex: "0" })),
         EditorView.updateListener.of(update => {
           if(update.selectionSet){const held=editors.get(buffer);if(held)held.interaction++;}
           if (update.selectionSet || update.docChanged) {
@@ -336,7 +336,7 @@ export function Document({ buffer, current, renderTools }: {
       buffer.caretOffset = authoredOffset(view.state, view.state.selection.main.head); buffer.publish();
       cached = { view, language, prose, completion, address,permission,interaction:0 }; editors.set(buffer, cached);view.scrollDOM.addEventListener("scroll",()=>{const held=editors.get(buffer);if(held)held.interaction++;}); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
-    cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});
+    cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({ "aria-label": buffer.file.path, tabindex: "0" }))});
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
     if(!host.current)return;
     const held=cached,release=mountRetainedEditor(buffer,held,host.current,()=>editors.get(buffer)===held);
@@ -359,9 +359,9 @@ export function Document({ buffer, current, renderTools }: {
   useEffect(() => {
     if (!parserReady || !/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
     let cancelled = false;
-    void import("../editor/markdownStyling").then(({ markdownStyling }) => {
+    void Promise.all([import("../editor/markdownStyling"), import("../editor/taskList")]).then(([{ markdownStyling }, { taskCheckboxes }]) => {
       const cached = editors.get(buffer);
-      if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: [cached.prose.reconfigure(markdownStyling()), cached.view.scrollSnapshot()] });
+      if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: [cached.prose.reconfigure([markdownStyling(), taskCheckboxes()]), cached.view.scrollSnapshot()] });
     }).catch(() => { /* Readable source remains available if styling cannot load. */ });
     return () => { cancelled = true; };
   }, [buffer, parserReady]);

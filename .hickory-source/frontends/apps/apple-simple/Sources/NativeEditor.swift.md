@@ -235,6 +235,7 @@ to the same spreadsheet so language discovery and calculation can retry.
 
 <ui:copy id="simple-native-table-grid">
 import SwiftUI
+import CoreText
 import WebKit
 // The grid is hosted inside the text view at a source-backed layout anchor.
 // Cell commits go through the editor's snapshot/permission guard and native undo.
@@ -763,6 +764,12 @@ struct SimpleWordSelection {
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    var copiedQuote: ((NSRange) -> String?)?
+    override func copy(_ sender: Any?) {
+        guard selectedRanges.count == 1, let contents = copiedQuote?(selectedRange()) else { super.copy(sender); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(contents, forType: .string)
+    }
     var submitMessage: (() -> Void)?
     private let sourceUndoManager=UndoManager()
     override var undoManager:UndoManager? {sourceUndoManager}
@@ -867,6 +874,11 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    var copiedQuote: ((NSRange) -> String?)?
+    override func copy(_ sender: Any?) {
+        guard let contents = copiedQuote?(selectedRange) else { super.copy(sender); return }
+        UIPasteboard.general.string = contents
+    }
     var submitMessage: (() -> Void)?
     private let sourceUndoManager=UndoManager()
     override var undoManager:UndoManager? {sourceUndoManager}
@@ -1190,16 +1202,51 @@ private struct EquationLayout: Equatable {
     var tables: [InlineTable] = []
     var diagrams: [InlineDiagram] = []
     var equations: [EquationLayout] = []
+    private var markdownGlyphs: [Int: UInt16] = [:]
+    private let checkboxFallback: [UInt16: UInt16] = [0x2610: 0x25A1, 0x2611: 0x2713]
+
+    // Only changed marker positions need new glyphs when the caret moves.
+    func presentMarkdown(_ glyphs: [Int: UInt16], in manager: NSLayoutManager) {
+        guard glyphs != markdownGlyphs else { return }
+        let length = manager.textStorage?.length ?? 0
+        let changed = Set(glyphs.keys).union(markdownGlyphs.keys).filter { $0 < length && glyphs[$0] != markdownGlyphs[$0] }
+        markdownGlyphs = glyphs
+        for offset in changed {
+            manager.invalidateGlyphs(forCharacterRange: NSRange(location: offset, length: 1), changeInLength: 0, actualCharacterRange: nil)
+        }
+    }
+
     func tableContains(_ offset: Int) -> Bool { tables.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } }
     func contains(_ offset: Int) -> Bool { equations.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || tableContains(offset) || diagrams.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || ranges.contains { NSLocationInRange(offset, $0) } }
     func layoutManager(_ manager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: FoldFont, forGlyphRange range: NSRange) -> Int {
-        guard !ranges.isEmpty || !tables.isEmpty || !diagrams.isEmpty || !equations.isEmpty else { return 0 }
+        guard !ranges.isEmpty || !tables.isEmpty || !diagrams.isEmpty || !equations.isEmpty || !markdownGlyphs.isEmpty else { return 0 }
         var props = Array(UnsafeBufferPointer(start: properties, count: range.length))
+        var drawn = Array(UnsafeBufferPointer(start: glyphs, count: range.length))
+        var markerFont: CTFont?
         for i in 0..<range.length {
-            if equations.contains(where: { $0.range.location == characterIndexes[i] }) { props[i] = .controlCharacter }
-            else if contains(characterIndexes[i]) { props[i] = .null }
+            let offset = characterIndexes[i]
+            if equations.contains(where: { $0.range.location == offset }) { props[i] = .controlCharacter }
+            else if contains(offset) { props[i] = .null }
+            else if var marker = markdownGlyphs[offset] {
+                if marker == 0 { props[i] = .null }
+                else {
+                    let fontForMarker = markerFont ?? CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
+                    markerFont = fontForMarker
+                    var glyph: CGGlyph = 0
+                    if CTFontGetGlyphsForCharacters(fontForMarker, &marker, &glyph, 1) {
+                        drawn[i] = glyph
+                    } else if var fallback = checkboxFallback[marker],
+                              CTFontGetGlyphsForCharacters(fontForMarker, &fallback, &glyph, 1) {
+                        drawn[i] = glyph
+                    }
+                }
+            }
         }
-        props.withUnsafeBufferPointer { manager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range) }
+        drawn.withUnsafeBufferPointer { drawn in
+            props.withUnsafeBufferPointer {
+                manager.setGlyphs(drawn.baseAddress!, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range)
+            }
+        }
         return range.length
     }
     func layoutManager(_ manager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction, forControlCharacterAt index: Int) -> NSLayoutManager.ControlCharacterAction {
@@ -1352,6 +1399,10 @@ private struct EquationLayout: Equatable {
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
+        text.copiedQuote = { [weak self] selection in
+            guard let self, exactUTF8(self.buffer.inlineMarkup.source, self.text.string) else { return nil }
+            return self.buffer.inlineMarkup.quoteContents(selection)
+        }
         buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text); self.measureDebugLines() }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
             guard let self, self.text.selectedRange() == selection else { return false }
@@ -1510,7 +1561,7 @@ private struct EquationLayout: Equatable {
         if !hidden,!text.hasMarkedText(),text.selectedRanges.count==1,let replacementString,buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:affectedCharRange,text:replacementString) != nil{return false}
         unfoldAll(); return !hidden
     }
-    func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
+    func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; presentMarkdown(); measureDebugLines() }
     func textViewDidChangeSelection(_ notification: Notification) {
         if let equation = folding.equations.first(where: { text.selectedRange().location > $0.range.location && NSLocationInRange(text.selectedRange().location, $0.range) }) {
             buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
@@ -1520,6 +1571,13 @@ private struct EquationLayout: Equatable {
         buffer.snippets.selectionChanged(text.selectedRange())
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, text.selectedRange() != primary { buffer.clearMulti() }
         buffer.selection = text.selectedRange()
+        presentMarkdown()
+    }
+    func presentMarkdown() {
+        let snapshot = buffer.inlineMarkup
+        let carets = text.selectedRanges.map(\.rangeValue).filter { $0.length == 0 }.map(\.location)
+        let glyphs = exactUTF8(snapshot.source, text.string) ? snapshot.markdownGlyphs(carets: carets) : [:]
+        if let manager = text.layoutManager { folding.presentMarkdown(glyphs, in: manager) }
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         let snippetCommand=NSStringFromSelector(commandSelector)
@@ -1839,6 +1897,7 @@ private struct EquationLayout: Equatable {
         }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
+        presentMarkdown()
         guard exactUTF8(text.string,source), !text.hasMarkedText(), let storage = text.textStorage else { return }
         let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
@@ -1932,6 +1991,7 @@ struct NativeEditor: NSViewRepresentable {
                 let selection = NSRange(location: start, length: min(buffer.selection.length, length - start))
                 editor.text.string = buffer.text
                 editor.text.setSelectedRange(selection)
+                editor.presentMarkdown()
                 editor.scroll.contentView.scroll(to: viewport)
                 editor.scroll.reflectScrolledClipView(editor.scroll.contentView)
                 editor.text.undoManager?.removeAllActions()
@@ -2064,6 +2124,10 @@ import UIKit
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
+        text.copiedQuote = { [weak self] selection in
+            guard let self, exactUTF8(self.buffer.inlineMarkup.source, self.text.text ?? "") else { return nil }
+            return self.buffer.inlineMarkup.quoteContents(selection)
+        }
         buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text); self.measureDebugLines() }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
             guard let self, self.text.selectedRange == selection else { return false }
@@ -2382,7 +2446,7 @@ import UIKit
         }
         return UIMenu(children: [open] + suggestedActions)
     }
-    func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
+    func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; presentMarkdown(); measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) {
         if let equation = folding.equations.first(where: { textView.selectedRange.location > $0.range.location && NSLocationInRange(textView.selectedRange.location, $0.range) }) {
             buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
@@ -2392,6 +2456,13 @@ import UIKit
         buffer.snippets.selectionChanged(textView.selectedRange)
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, textView.selectedRange != primary { buffer.clearMulti() }
         buffer.selection = textView.selectedRange
+        presentMarkdown()
+    }
+    func presentMarkdown() {
+        let snapshot = buffer.inlineMarkup, selection = text.selectedRange
+        let carets = selection.length == 0 ? [selection.location] : []
+        let glyphs = exactUTF8(snapshot.source, text.text ?? "") ? snapshot.markdownGlyphs(carets: carets) : [:]
+        folding.presentMarkdown(glyphs, in: sourceLayoutManager)
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) { measureDebugLines() }
     func measureDebugLines() {
@@ -2671,6 +2742,7 @@ import UIKit
         }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
+        presentMarkdown()
         guard exactUTF8(text.text,source), text.markedTextRange == nil else { return }
         let storage = text.textStorage
         let restore = preserveViewport(); defer { restore() }
@@ -2765,6 +2837,7 @@ struct NativeEditor: UIViewRepresentable {
                 let selection = NSRange(location: start, length: min(buffer.selection.length, length - start))
                 editor.text.text = buffer.text
                 editor.text.selectedRange = selection
+                editor.presentMarkdown()
                 editor.text.setContentOffset(viewport, animated: false)
                 editor.text.undoManager?.removeAllActions()
             }

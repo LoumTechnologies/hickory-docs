@@ -1584,6 +1584,25 @@ class ParityTest {
         assertFalse(generated.applySourceEdits(edits, source)); assertEquals(source, generated.text)
         assertTrue(generated.selectSourceRange(8, 12, source)); assertEquals(8, generated.state.selection.min)
     }
+    @Test fun markdownBlockMarkersRevealSourceAndCopyQuoteContents() {
+        val source = "Intro\n> first 😀\n> second\n\n+ Bullet\n7) Ordered\n- [x] Task\n```md\n> raw\n- raw\n```"
+        val snapshot = computeInlineMarkup(source, "blocks.md")
+        fun projection(caret: Int?) = editorReplacements(emptyList(), emptyList(), source,
+            markdown = snapshot.renderedBlockLines(caret).flatMap { it.markers })
+        val replacements = projection(null)
+        val display = editorDisplay(source, replacements)
+        val from = editorDisplayOffset(source.indexOf("first"), replacements)
+        val to = editorDisplayOffset(source.indexOf("second") + 3, replacements)
+        assertEquals("first 😀\nsec", display.substring(from, to))
+        assertTrue(display.contains("• Bullet\n7. Ordered\n☑ Task"))
+        assertTrue(display.contains("```md\n> raw\n- raw\n```"))
+        val activeQuote = editorDisplay(source, projection(source.indexOf("second")))
+        assertTrue(activeQuote.contains("> first 😀\n> second\n"))
+        assertTrue(activeQuote.contains("• Bullet\n7. Ordered\n☑ Task"))
+        assertTrue(editorDisplay(source, projection(source.indexOf("[x]"))).contains("- [x] Task"))
+        assertEquals(source, snapshot.source)
+    }
+
     @Test fun inlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
         val source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
         val result = computeInlineMarkup(source, "source.md")

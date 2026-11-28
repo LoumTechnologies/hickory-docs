@@ -113,7 +113,12 @@ they type — which per-paragraph grouping would fight.
  * per paragraph: the decoration that tints a quote is a line decoration, and
  * a reader who splits a quote in half wants both halves to stay quoted while
  * they type — which per-paragraph grouping would fight. */
+export interface ProseLine { from: number; to: number; quote?: { from: number; to: number } }
+
+export interface ListMarker extends ProseLine { markFrom: number; markTo: number; label: string }
+
 export interface QuoteLine {
+  quote: { from: number; to: number };
   /** Whole line range. */
   from: number;
   to: number;
@@ -130,7 +135,7 @@ export interface QuoteLine {
 
 <storycode:copy id="f-c2f7bc821e36-TaskItem">
 /** A `- [ ]` / `- [x]` task-list item. */
-export interface TaskItem {
+export interface TaskItem extends ProseLine {
   /** Whole line range. */
   from: number;
   to: number;
@@ -168,6 +173,7 @@ export interface HickDocStructure {
   headings: Heading[];
   inline: InlineMark[];
   quotes: QuoteLine[];
+  lists: ListMarker[];
   tasks: TaskItem[];
   /** The namespace prefix the document binds — `hick` unless a root element
    * rebinds it. */
@@ -383,7 +389,10 @@ bare `[ ]` in prose is text about brackets, not a checkbox.
 <storycode:copy id="f-c2f7bc821e36-TASK_RE">
 // A task box belongs to a list item, so the bullet is part of the match: a
 // bare `[ ]` in prose is text about brackets, not a checkbox.
-const TASK_RE = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\](?=[ \t])/;
+const LIST_RE = /^( *)([-*+]|[0-9]{1,9}[.)])(?=[ \t]|$)[ \t]*/;
+const TASK_RE = /^\[([ xX])\](?=[ \t]|$)/;
+const FENCE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const THEMATIC_BREAK_RE = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})\r?$/;
 </storycode:copy>
 <a id="f-c2f7bc821e36-CODE_RE"></a>
 ### `CODE_RE`
@@ -481,8 +490,10 @@ export function yamlFrontmatter(text: string): { from: number; to: number; end: 
 
 </storycode:copy>
 
-Start prose after the complete metadata block so YAML comments, scalar markers
-and collection items cannot become Markdown headings, emphasis or task lists.
+Start prose after the complete metadata block so YAML collection items stay
+literal. Consecutive quote prefixes share a block range while keeping their
+individual marker offsets for Copy. Inside a quoted code fence, retain the
+quote markers for the outer presentation and skip list and emphasis styling.
 
 <storycode:copy id="f-c2f7bc821e36-scanMarkdownProse">
 /**
@@ -490,24 +501,35 @@ and collection items cannot become Markdown headings, emphasis or task lists.
  * not inside a `verbatim` range. Shared between the .md document parse
  * (verbatim = exec/file/fragment payloads, tagRanges = hick tags) and the
  * plain-markdown styling used by the output panes (see markdownStyling.ts),
- * which passes fenced-code ranges as verbatim and no tag ranges.
+ * which leaves the verbatim and tag ranges empty. This scan handles Markdown fences.
  */
 export function scanMarkdownProse(
   text: string,
   verbatim: [number, number][],
   tagRanges: [number, number][],
-): { headings: Heading[]; inline: InlineMark[]; quotes: QuoteLine[]; tasks: TaskItem[] } {
+): { headings: Heading[]; inline: InlineMark[]; quotes: QuoteLine[]; lists: ListMarker[]; tasks: TaskItem[] } {
   const headings: Heading[] = [];
   const inline: InlineMark[] = [];
   const quotes: QuoteLine[] = [];
   const tasks: TaskItem[] = [];
+  const lists: ListMarker[] = [];
+  let quote: QuoteLine["quote"] | undefined;
+  let listIndent: number | undefined;
+  let listEnd = -2;
+  let fence: { marker: string; quote?: QuoteLine["quote"] } | undefined;
   const metadata = yamlFrontmatter(text);
   let lineFrom = metadata?.end ?? 0;
   while (lineFrom <= text.length) {
     let lineTo = text.indexOf("\n", lineFrom);
     if (lineTo < 0) lineTo = text.length;
     if (lineTo > lineFrom && !inRanges(lineFrom, verbatim)) {
-      const line = text.slice(lineFrom, lineTo);
+      const line = text.slice(lineFrom, lineTo).replace(/\r$/, "");
+      if (fence && !fence.quote) {
+        const close = FENCE_RE.exec(line);
+        if (close && !close[2].trim() && close[1].startsWith(fence.marker)) fence = undefined;
+        lineFrom = lineTo + 1;
+        continue;
+      }
       // A quote prefix is stripped BEFORE anything else looks at the line, so
       // `> ## Heading` and `> - [x] done` are a heading and a task inside a
       // quote rather than three unrelated features refusing to compose. What
@@ -516,7 +538,10 @@ export function scanMarkdownProse(
       let base = lineFrom;
       const q = QUOTE_RE.exec(line);
       if (q) {
+        if (!quote || quote.to + 1 !== lineFrom) quote = { from: lineFrom, to: lineTo };
+        quote.to = lineTo;
         quotes.push({
+          quote,
           from: lineFrom,
           to: lineTo,
           depth: (q[0].match(/>/g) ?? []).length,
@@ -525,6 +550,22 @@ export function scanMarkdownProse(
         });
         content = line.slice(q[0].length);
         base = lineFrom + q[0].length;
+      } else {
+        quote = undefined;
+      }
+      // Only the quote prefix is presentation inside a quoted fence. The
+      // fence body itself is literal, even when it starts with a list marker.
+      if (fence && fence.quote !== quote) fence = undefined;
+      const fenceMatch = FENCE_RE.exec(content);
+      if (fence) {
+        if (fenceMatch && !fenceMatch[2].trim() && fenceMatch[1].startsWith(fence.marker)) fence = undefined;
+        lineFrom = lineTo + 1;
+        continue;
+      }
+      if (fenceMatch && (fenceMatch[1][0] === "~" || !fenceMatch[2].includes("`"))) {
+        fence = { marker: fenceMatch[1], quote };
+        lineFrom = lineTo + 1;
+        continue;
       }
       const h = HEADING_RE.exec(content);
       if (h) {
@@ -537,18 +578,22 @@ export function scanMarkdownProse(
           markTo: base + markEnd,
         });
       } else {
-        const t = TASK_RE.exec(content);
-        if (t) {
-          const boxFrom = base + t[1].length;
-          tasks.push({
-            from: lineFrom,
-            to: lineTo,
-            // Anything but a space is checked: `[x]`, `[X]`, and the `[-]`
-            // some tools write all mean the box is not empty.
-            checked: t[2] !== " ",
-            boxFrom,
-            boxTo: boxFrom + 3,
+        const list = LIST_RE.exec(content);
+        if (list && list[1].length <= (listEnd + 1 === lineFrom ? (listIndent ?? -1) + 4 : 3) &&
+            !THEMATIC_BREAK_RE.test(content)) {
+          listIndent = list[1].length;
+          listEnd = lineTo;
+          const ordered = list[2].length > 1;
+          const boxFrom = base + list[0].length;
+          const task = TASK_RE.exec(content.slice(list[0].length));
+          lists.push({
+            from: lineFrom, to: lineTo, quote,
+            markFrom: base + list[1].length, markTo: task && !ordered ? boxFrom : base + list[1].length + list[2].length,
+            label: ordered ? list[2].slice(0, -1) + "." : task ? "" : "•",
           });
+          if (task) tasks.push({ from: lineFrom, to: lineTo, quote, checked: task[1] !== " ", boxFrom, boxTo: boxFrom + 3 });
+        } else {
+          listIndent = undefined;
         }
         scanInline(content, base, inline, tagRanges);
       }
@@ -556,7 +601,7 @@ export function scanMarkdownProse(
     lineFrom = lineTo + 1;
   }
   inline.sort((a, b) => a.openFrom - b.openFrom);
-  return { headings, inline, quotes, tasks };
+  return { headings, inline, quotes, lists, tasks };
 }
 
 </storycode:copy>
@@ -577,8 +622,8 @@ export function parseHickDoc(text: string): HickDocStructure {
   const { tags, blocks, prefix, error } = parseStructure(text);
   const verbatim = verbatimRanges(blocks);
   const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
-  const { headings, inline, quotes, tasks } = scanMarkdownProse(text, verbatim, tagRanges);
-  return { tags, blocks, headings, inline, quotes, tasks, prefix, error };
+  const prose = scanMarkdownProse(text, verbatim, tagRanges);
+  return { tags, blocks, ...prose, prefix, error };
 }
 
 </storycode:copy>

@@ -86,6 +86,41 @@ describe("shared frontend layout contract", () => {
       expect(screen.queryByRole("button", { name: /Debug .*coupon/ })).toBeNull();
     } finally { screen.unmount(); }
   }, 20000);
+  it.each([false, true])("reveals block Markdown and copies quote contents in Simple (read-only %s)", async readOnly => {
+    // The read-only homepage mounts the same Document and RichOwners pair.
+    const source = "Intro\n\n> first 😀\n> second\n\n+ Bullet\n7) Ordered\n- [x] Task\n\n```md\n> literal\n+ literal\n```";
+    const buffers = new Buffers(() => {});
+    const file = { path: "blocks.md", name: "blocks.md", dir: false, ...(readOnly ? { generated_by: "publication" } : {}) };
+    const buffer = new Buffer(file, source, "hash", () => {}, readOnly);
+    buffers.values.set(file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      const line = (n: number) => view.contentDOM.querySelectorAll(".cm-line")[n - 1];
+      await waitFor(() => expect(view.contentDOM.querySelectorAll(".cm-md-quote")).toHaveLength(2), { timeout: 10000 });
+      expect(line(3).textContent).toBe("first 😀");
+      expect(line(6).textContent).toBe("• Bullet");
+      expect(line(7).textContent).toBe("7. Ordered");
+      expect(line(8).querySelector('[role="checkbox"]')?.getAttribute("aria-disabled")).toBe(String(readOnly));
+      expect(line(11).textContent).toBe("> literal");
+      expect(line(12).textContent).toBe("+ literal");
+      act(() => view.dispatch({ selection: { anchor: source.indexOf("second") } }));
+      expect(line(3).textContent).toBe("> first 😀");
+      expect(line(4).textContent).toBe("> second");
+      expect(line(6).textContent).toBe("• Bullet");
+      act(() => view.dispatch({ selection: { anchor: source.indexOf("[x]") } }));
+      expect(line(3).textContent).toBe("first 😀");
+      expect(line(8).textContent).toBe("- [x] Task");
+      act(() => view.dispatch({ selection: { anchor: source.indexOf("first"), head: source.indexOf("second") + 3 } }));
+      const setData = vi.fn();
+      const copy = new Event("copy", { bubbles: true, cancelable: true });
+      Object.defineProperty(copy, "clipboardData", { value: { setData } });
+      view.contentDOM.dispatchEvent(copy);
+      expect(setData).toHaveBeenCalledWith("text/plain", "first 😀\nsec");
+      expect(buffer.text).toBe(source);
+      expect(buffer.dirty).toBe(false);
+    } finally { screen.unmount(); }
+  }, 20000);
   it("includes graph canvas styles in rendered Simple shadow roots", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const buffers = new Buffers(() => {});

@@ -1,7 +1,6 @@
 // Markdown task lists, made clickable.
 //
-// The styling half lives in markdownStyling.ts, which is decoration-only by
-// charter — it tints the line and dims the `[ ]`, and never touches text.
+// The presentation in markdownStyling.ts styles the line and list marker.
 // This module is the other half, and it is a different kind of thing: it
 // REPLACES the three-character box with a checkbox, and a click on that
 // checkbox edits the document.
@@ -24,19 +23,19 @@ import { foldedRanges } from "@codemirror/language";
 import { editorLanguageActions } from "./languageActions";
 import type { UiActor, UiOutcome } from "../lib/uiActions";
 import { StateField } from "@codemirror/state";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import type { TaskItem } from "./hickDoc";
-import { parseMarkdownProse } from "./markdownStyling";
+import { markdownProseOf, parseMarkdownProse, proseCarets, proseSourceVisible } from "./markdownStyling";
 
 /** Where a task list's items come from, given the buffer being shown. */
 export type TaskSource = (state: EditorState) => readonly TaskItem[];
 
 /** The default source: scan the buffer as plain markdown. */
 export const markdownTasks: TaskSource = (state) =>
-  parseMarkdownProse(state.doc.toString()).tasks;
+  markdownProseOf(state).tasks;
 
 /**
  * The edit that flips the box of the task at `pos`, or null when `pos` is not
@@ -65,16 +64,8 @@ export function toggleTaskAt(
   };
 }
 
-/** The lines any cursor or selection currently touches. */
-function activeLines(state: EditorState): Set<number> {
-  const lines = new Set<number>();
-  for (const range of state.selection.ranges) {
-    const first = state.doc.lineAt(range.from).number;
-    const last = state.doc.lineAt(range.to).number;
-    for (let n = first; n <= last; n++) lines.add(n);
-  }
-  return lines;
-}
+// A collapsed caret exposes a whole containing quote. A selection can still
+// span a rendered task row without swapping the checkbox during the drag.
 
 class CheckboxWidget extends WidgetType {
   constructor(private readonly checked: boolean, private readonly source: TaskSource, private readonly readOnly: boolean) {
@@ -103,6 +94,7 @@ class CheckboxWidget extends WidgetType {
     // moved the selection, which would reveal the source and take the box out
     // from under the pointer mid-gesture.
     box.addEventListener("mousedown", (event) => {
+      if (this.readOnly || event.button !== 0) return;
       event.preventDefault();
       changeTask(view, this.source, view.posAtDOM(box));
     });
@@ -112,17 +104,17 @@ class CheckboxWidget extends WidgetType {
   ignoreEvent() {
     // The box handles its own press; the editor must not also read it as a
     // click into text it is not showing.
-    return true;
+    return !this.readOnly;
   }
 }
 
 function buildCheckboxes(state: EditorState, source: TaskSource): DecorationSet {
   const tasks = source(state);
   if (tasks.length === 0) return Decoration.none;
-  const live = activeLines(state);
+  const live = proseCarets(state);
   const ranges: Range<Decoration>[] = [];
   for (const task of tasks) {
-    if (live.has(state.doc.lineAt(task.from).number)) continue;
+    if (proseSourceVisible(task, live)) continue;
     if (task.boxTo > task.boxFrom && task.boxTo <= state.doc.length) {
       ranges.push(
         Decoration.replace({ widget: new CheckboxWidget(task.checked, source, state.readOnly) }).range(
@@ -143,16 +135,20 @@ function buildCheckboxes(state: EditorState, source: TaskSource): DecorationSet 
  * update CodeMirror measures — a plugin producing these would leave the
  * height map describing a document that no longer exists.
  */
-export function taskCheckboxes(source: TaskSource = markdownTasks): Extension {
+let nextTaskControlId = 0;
+export function taskCheckboxes(
+  source: TaskSource = markdownTasks,
+  refresh?: (transaction: Transaction) => boolean,
+): Extension {
   const field = StateField.define<DecorationSet>({
     create: (state) => buildCheckboxes(state, source),
     update: (value, tr) =>
       // Selection matters as much as content here: moving the caret onto a
       // task line is what reveals its source.
-      tr.docChanged || tr.selection || tr.startState.readOnly !== tr.state.readOnly ? buildCheckboxes(tr.state, source) : value,
+      tr.docChanged || tr.selection || refresh?.(tr) || tr.startState.readOnly !== tr.state.readOnly ? buildCheckboxes(tr.state, source) : value,
     provide: (f) => EditorView.decorations.from(f),
   });
-  const id = crypto.randomUUID();
+  const id = `markdown-task-${++nextTaskControlId}`;
   const position = { type: "number" as const, integer: true, minimum: 0, maximum: 100_000_000 };
   return [field,
     editorLanguageActions.of({ id: `${id}:tasks-read`, label: "Read Markdown task checkbox page", visible: view => availableTasks(view.state, source).length > 0,
@@ -172,9 +168,9 @@ export function taskCheckboxes(source: TaskSource = markdownTasks): Extension {
 
 
 function availableTasks(state: EditorState, source: TaskSource): readonly TaskItem[] {
-  const active = activeLines(state), folded = foldedRanges(state);
+  const active = proseCarets(state), folded = foldedRanges(state);
   return source(state).filter(task => {
-    if (active.has(state.doc.lineAt(task.from).number) || task.boxFrom < 0 || task.boxTo > state.doc.length) return false;
+    if (proseSourceVisible(task, active) || task.boxFrom < 0 || task.boxTo > state.doc.length) return false;
     let hidden = false; folded.between(task.boxFrom, task.boxTo, (from, to) => { if (from <= task.boxFrom && task.boxFrom < to) hidden = true; });
     return !hidden;
   });

@@ -48,7 +48,60 @@ func equationSourceCaret(_ equation: InlineEquation, fraction: CGFloat) -> Int {
     return equation.range.location + min(equation.range.length, leading + nearest)
 }
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
+struct MarkdownMarker: Sendable {
+    var range: NSRange
+    var label: String
+}
+
+struct MarkdownBlockLine: Sendable {
+    var range: NSRange
+    var quoteStart: Int?
+    var quotePrefix: NSRange?
+    var markers: [MarkdownMarker]
+}
+
+extension InlineSnapshot {
+    func markdownGlyphs(carets: [Int]) -> [Int: UInt16] {
+        let active = blockLines.filter { line in
+            carets.contains { $0 >= line.range.location && $0 <= NSMaxRange(line.range) }
+        }
+        let activeRows = Set(active.map { $0.range.location })
+        let activeQuotes = Set(active.compactMap(\.quoteStart))
+        var glyphs: [Int: UInt16] = [:]
+        for line in blockLines where !activeRows.contains(line.range.location) {
+            if let quote = line.quoteStart, activeQuotes.contains(quote) { continue }
+            for marker in line.markers {
+                let label = Array(marker.label.utf16)
+                for index in 0..<marker.range.length {
+                    // A zero entry suppresses a glyph without moving any source offset.
+                    glyphs[marker.range.location + index] = index < label.count ? label[index] : 0
+                }
+            }
+        }
+        return glyphs
+    }
+
+    func quoteContents(_ selection: NSRange) -> String? {
+        let text = source as NSString, end = NSMaxRange(selection)
+        guard selection.length > 0, end <= text.length,
+              let first = blockLines.first(where: { selection.location >= $0.range.location && selection.location <= NSMaxRange($0.range) }),
+              let quote = first.quoteStart,
+              let last = blockLines.last(where: { $0.quoteStart == quote }),
+              end <= NSMaxRange(last.range) + 1 else { return nil }
+        var parts: [String] = [], offset = selection.location
+        for line in blockLines where line.quoteStart == quote {
+            guard let prefix = line.quotePrefix, NSMaxRange(prefix) > offset, prefix.location < end else { continue }
+            let stop = max(offset, prefix.location)
+            parts.append(text.substring(with: NSRange(location: offset, length: stop - offset)))
+            offset = min(end, NSMaxRange(prefix))
+        }
+        guard offset > selection.location else { return nil }
+        parts.append(text.substring(with: NSRange(location: offset, length: end - offset)))
+        return parts.joined()
+    }
+}
+
+struct InlineSnapshot: Sendable { var blockLines: [MarkdownBlockLine] = []; var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -452,10 +505,19 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
     let links = try! NSRegularExpression(pattern: #"(?<![!\\])\[([^\]\n]+)\]\(([^\s()]+)\)"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
-    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
+    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table|entry|patch|expect)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
     var equationStart: Int?, equationLine = 0, equationOpen = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
+    let quoteMarker = try! NSRegularExpression(pattern: #"^ {0,3}(?:>[ \t]?)+"#)
+    let listMarker = try! NSRegularExpression(pattern: #"^( *)([-*+]|[0-9]{1,9}[.)])(?=[ \t]|$)[ \t]*"#)
+    let taskMarker = try! NSRegularExpression(pattern: #"^\[([ xX])\](?=[ \t]|$)"#)
+    let ruleMarker = try! NSRegularExpression(pattern: #"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"#)
+    let frontMatterEnd = rows.first?.trimmingCharacters(in: CharacterSet(charactersIn: "\u{feff}\r")) == "---"
+        ? rows.dropFirst().firstIndex { ["---", "..."].contains($0.trimmingCharacters(in: .whitespacesAndNewlines)) } : nil
+    let quoteFenceMarker = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})(.*)$"#)
+    var quoteFence = ""
+    var quoteRow = -2, quoteStart: Int?, listIndent: Int?, listRow = -2
     for (line, rawRow) in rows.enumerated() {
         defer { offset += rawRow.utf16.count + 1 }
         let row = rawRow.hasSuffix("\r") ? String(rawRow.dropLast()) : rawRow
@@ -502,6 +564,48 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             }
             if trimmed.contains("</") || trimmed.hasSuffix("/>") { payload = ""; equationStart = nil }
             table = false; continue
+        }
+        if frontMatterEnd.map({ line > $0 }) ?? true {
+            var content = row, base = offset, prefix: NSRange?, markers: [MarkdownMarker] = []
+            if let match = quoteMarker.firstMatch(in: row, range: all) {
+                let raw = ns.substring(with: match.range)
+                let depth = raw.filter { $0 == ">" }.count
+                prefix = NSRange(location: offset, length: match.range.length)
+                markers.append(MarkdownMarker(range: prefix!, label: String(repeating: "│", count: depth) + (depth < match.range.length ? " " : "")))
+                if quoteRow != line - 1 { quoteStart = offset; quoteFence = "" }
+                quoteRow = line
+                content = ns.substring(from: match.range.length)
+                base += match.range.length
+            }
+            let contentNS = content as NSString, contentRange = NSRange(location: 0, length: contentNS.length)
+            let inQuoteFence = prefix != nil && !quoteFence.isEmpty
+            let quotedFence = prefix == nil ? nil : quoteFenceMarker.firstMatch(in: content, range: contentRange)
+            if let quotedFence {
+                let delimiter = contentNS.substring(with: quotedFence.range(at: 1))
+                let tail = contentNS.substring(with: quotedFence.range(at: 2))
+                if !inQuoteFence { quoteFence = delimiter }
+                else if delimiter.hasPrefix(quoteFence), tail.trimmingCharacters(in: .whitespaces).isEmpty { quoteFence = "" }
+            }
+            if !inQuoteFence, quotedFence == nil, let match = listMarker.firstMatch(in: content, range: contentRange),
+               match.range(at: 1).length <= (listRow == line - 1 ? (listIndent ?? -1) + 4 : 3),
+               ruleMarker.firstMatch(in: content, range: contentRange) == nil {
+                listIndent = match.range(at: 1).length; listRow = line
+                let marker = match.range(at: 2), ordered = marker.length > 1
+                let boxOffset = match.range.length
+                let tail = contentNS.substring(from: boxOffset)
+                let task = taskMarker.firstMatch(in: tail, range: NSRange(location: 0, length: tail.utf16.count))
+                let label = ordered ? String(contentNS.substring(with: marker).dropLast()) + "." : task == nil ? "•" : ""
+                let markerEnd = task != nil && !ordered ? boxOffset : NSMaxRange(marker)
+                markers.append(MarkdownMarker(range: NSRange(location: base + marker.location, length: markerEnd - marker.location), label: label))
+                if let task {
+                    let checked = (tail as NSString).substring(with: task.range(at: 1)) != " "
+                    markers.append(MarkdownMarker(range: NSRange(location: base + boxOffset, length: 3), label: checked ? "☑" : "☐"))
+                }
+            }
+            if !markers.isEmpty {
+                result.blockLines.append(MarkdownBlockLine(range: NSRange(location: offset, length: rawRow.utf16.count),
+                    quoteStart: prefix == nil ? nil : quoteStart, quotePrefix: prefix, markers: markers))
+            }
         }
         if let match = heading.firstMatch(in: row, range: all) { result.marks.append(InlineMark(kind: "heading", range: NSRange(location: offset, length: row.utf16.count), level: match.range(at: 1).length)) }
         var codeRanges: [NSRange] = []

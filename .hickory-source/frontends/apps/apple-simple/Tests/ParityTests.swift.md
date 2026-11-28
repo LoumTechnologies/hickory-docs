@@ -900,6 +900,48 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(edits.allSatisfy { $0.range.length == 0 })
     }
 
+    @MainActor func testMarkdownBlockMarkersRevealSourceAndCopyQuoteContents() throws {
+        let source = "Intro\r\n> first 😀\r\n> second\r\n\r\n+ Bullet\n7) Ordered\n- [x] Task\n```md\n> raw\n- raw\n```"
+        let text = source as NSString
+        let snapshot = computeInlineMarkup(source, path: "blocks.md")
+        let quote = text.range(of: "> first")
+        let second = text.range(of: "> second")
+        let bullet = text.range(of: "+ Bullet")
+        let box = text.range(of: "[x]")
+        let rendered = snapshot.markdownGlyphs(carets: [])
+        XCTAssertEqual(rendered[quote.location], "│".utf16.first)
+        XCTAssertEqual(rendered[bullet.location], "•".utf16.first)
+        XCTAssertEqual(rendered[text.range(of: "7)").location + 1], ".".utf16.first)
+        XCTAssertEqual(rendered[box.location], "☑".utf16.first)
+        XCTAssertNil(rendered[text.range(of: "> raw").location])
+        let active = snapshot.markdownGlyphs(carets: [second.location + 3])
+        XCTAssertNil(active[quote.location])
+        XCTAssertNil(active[second.location])
+        XCTAssertEqual(active[bullet.location], "•".utf16.first)
+        XCTAssertNil(snapshot.markdownGlyphs(carets: [box.location])[box.location])
+        let from = text.range(of: "first").location, to = second.location + 5
+        XCTAssertEqual(snapshot.quoteContents(NSRange(location: from, length: to - from)), "first 😀\r\nsec")
+        XCTAssertNil(snapshot.quoteContents(NSRange(location: 0, length: to)))
+        #if os(macOS)
+        let file = FileNode(name: "blocks.md", path: "blocks.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let manager = try XCTUnwrap(editor.text.layoutManager)
+        let container = try XCTUnwrap(editor.text.textContainer)
+        manager.ensureLayout(for: container)
+        let sourceGlyph = manager.glyph(at: manager.glyphIndexForCharacter(at: quote.location))
+        buffer.inlineMarkup = snapshot
+        buffer.renderMarkup?()
+        manager.ensureLayout(for: container)
+        let quotedGlyph = manager.glyph(at: manager.glyphIndexForCharacter(at: quote.location))
+        XCTAssertNotEqual(quotedGlyph, sourceGlyph)
+        editor.text.setSelectedRange(NSRange(location: second.location + 3, length: 0))
+        manager.ensureLayout(for: container)
+        XCTAssertEqual(manager.glyph(at: manager.glyphIndexForCharacter(at: quote.location)), sourceGlyph)
+        XCTAssertEqual(editor.text.string, source)
+        #endif
+    }
+
     func testInlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
         let source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
         let result = computeInlineMarkup(source, path: "source.md")

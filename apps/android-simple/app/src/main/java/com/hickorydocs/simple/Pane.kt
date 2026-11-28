@@ -476,6 +476,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
 fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap(), fontScale: Float = 1f,
     renderedEquations: List<InlineEquation> = emptyList(),
+    markdown: List<MarkdownMarker> = emptyList(),
 ): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
@@ -496,7 +497,7 @@ fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, sourc
         EditorReplacement(end, end, "\n ".repeat(kotlin.math.ceil(188f / (13f * fontScale.coerceAtLeast(.1f))).toInt() + 1))
     } }
     val equationText = renderedEquations.map { EditorReplacement(it.renderedFrom, it.renderedTo, " ") }
-    val candidates = outputSpace + math + equationText + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    val candidates = outputSpace + math + equationText + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + markdown.map { EditorReplacement(it.from, it.to, it.label) } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -825,8 +826,11 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     val runOutputs = debug?.outputPlacements(buffer).orEmpty()
     val outputs = buffer.recordedOutputPlacements() +
         buffer.terminalOutput.takeIf { buffer.terminalOutputRevision == buffer.sourceRevision }.orEmpty() + runOutputs
+    val blockLines = inline.takeIf { it.source == source }
+        ?.renderedBlockLines(selection.start.takeIf { selection.collapsed }).orEmpty()
     val replacements = editorReplacements(folds, tables, source, diagrams, previews, outputs,
-        fontScale = LocalDensity.current.fontScale, renderedEquations = renderedEquations)
+        fontScale = LocalDensity.current.fontScale, renderedEquations = renderedEquations,
+        markdown = blockLines.flatMap { it.markers })
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     // Observe the native text field's gestures without taking over its caret or IME.
@@ -1048,15 +1052,22 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 },
                 onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
+                    if (toString() != source) return@OutputTransformation
+                    replacements.asReversed().forEach { replace(it.from, it.to, it.text) }
+                    fun displaySpan(style: SpanStyle, from: Int, to: Int) {
+                        val start = editorDisplayOffset(from, replacements)
+                        val end = editorDisplayOffset(to, replacements)
+                        if (start < end) addStyle(style, start, end)
+                    }
                     if (paused != null) {
                         val start = debugLineOffset(source, paused)
-                        if (start != null && toString() == source) addStyle(SpanStyle(background = pauseColor), start, source.indexOf('\n', start).let { if (it < 0) source.length else it })
+                        if (start != null) displaySpan(SpanStyle(background = pauseColor), start, source.indexOf('\n', start).let { if (it < 0) source.length else it })
                     }
-                    if (source == toString()) lexical.forEach { token ->
-                        addStyle(SpanStyle(color = color), token.from, token.to)
+                    lexical.forEach { token ->
+                        displaySpan(SpanStyle(color = color), token.from, token.to)
                     }
-                    if (source == toString()) semantic.forEach { token -> addStyle(SpanStyle(color = color), token.from, token.to) }
-                    if (inline.source == toString()) inline.marks.forEach { mark ->
+                    semantic.forEach { token -> displaySpan(SpanStyle(color = color), token.from, token.to) }
+                    if (inline.source == source) inline.marks.forEach { mark ->
                         if (mark.kind.startsWith("syntax-") && semantic.any { it.from < mark.to && it.to > mark.from }) return@forEach
                         val style = when (mark.kind) {
                             "link" -> SpanStyle(color = syntaxPalette.primary, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
@@ -1071,21 +1082,30 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                             "em", "math" -> SpanStyle(fontStyle = FontStyle.Italic)
                             else -> SpanStyle(fontFamily = FontFamily.Monospace)
                         }
-                        addStyle(style, mark.from, mark.to)
+                        displaySpan(style, mark.from, mark.to)
                     }
-                    if (toString() == source) {
-                        val exposed = equations.firstOrNull { it.from == buffer.exposedEquation && it.displayBlock }
-                        if (exposed != null) {
-                            val from = source.lastIndexOf('\n', exposed.renderedFrom - 1) + 1
-                            val to = source.indexOf('\n', exposed.renderedTo).let { if (it < 0) source.length else it + 1 }
-                            if (to > from) addStyle(androidx.compose.ui.text.ParagraphStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center), from, to)
+                    val exposed = equations.firstOrNull { it.from == buffer.exposedEquation && it.displayBlock }
+                    if (exposed != null) {
+                        val from = source.lastIndexOf('\n', exposed.renderedFrom - 1) + 1
+                        val to = source.indexOf('\n', exposed.renderedTo).let { if (it < 0) source.length else it + 1 }
+                        val displayFrom = editorDisplayOffset(from, replacements)
+                        val displayTo = editorDisplayOffset(to, replacements)
+                        if (displayTo > displayFrom) addStyle(androidx.compose.ui.text.ParagraphStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center), displayFrom, displayTo)
+                    }
+                    for (line in blockLines) {
+                        if (line.quoteDepth == 0 || hiddenRanges.any { it.from <= line.from && line.from < it.to }) continue
+                        val start = editorDisplayOffset(line.from, replacements)
+                        val end = editorDisplayOffset((line.to + 1).coerceAtMost(source.length), replacements)
+                        if (start < end) {
+                            val indent = (line.quoteDepth.coerceAtMost(3) * 8 + 4).sp
+                            addStyle(androidx.compose.ui.text.ParagraphStyle(
+                                textIndent = androidx.compose.ui.text.style.TextIndent(indent, indent)), start, end)
                         }
-                        replacements.asReversed().forEach { replace(it.from, it.to, it.text) }
-                        var removed = 0
-                        for (item in replacements) {
-                            if (tables.any { it.from == item.from && it.to == item.to } || diagrams.any { it.from == item.from && it.to == item.to }) addStyle(SpanStyle(fontSize = 28.sp), item.from - removed, item.from - removed + item.text.length)
-                            removed += item.to - item.from - item.text.length
-                        }
+                    }
+                    var removed = 0
+                    for (item in replacements) {
+                        if (tables.any { it.from == item.from && it.to == item.to } || diagrams.any { it.from == item.from && it.to == item.to }) addStyle(SpanStyle(fontSize = 28.sp), item.from - removed, item.from - removed + item.text.length)
+                        removed += item.to - item.from - item.text.length
                     }
                 },
                 modifier = Modifier.fillMaxSize().padding(8.dp).focusRequester(editorFocus).pointerInput(buffer) {
@@ -1147,6 +1167,26 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 }.drawWithContent {
                     drawContent()
                     val layout = textLayout
+                    if (layout?.layoutInput?.text?.text == display && blockLines.isNotEmpty()) {
+                        val firstVisible = layout.getLineForVerticalPosition(scroll.value.toFloat())
+                        val lastVisible = layout.getLineForVerticalPosition(scroll.value + size.height)
+                        val visibleFrom = editorSourceOffset(layout.getLineStart(firstVisible), replacements)
+                        val visibleTo = editorSourceOffset(layout.getLineEnd(lastVisible), replacements)
+                        for (line in blockLines) {
+                            if (line.from > visibleTo) break
+                            if (line.to < visibleFrom || line.quoteDepth == 0 ||
+                                hiddenRanges.any { it.from <= line.from && line.from < it.to }) continue
+                            val first = layout.getLineForOffset(editorDisplayOffset(line.from, replacements))
+                            val last = layout.getLineForOffset(editorDisplayOffset(line.to, replacements))
+                            val top = layout.getLineTop(first) - scroll.value
+                            val bottom = layout.getLineBottom(last) - scroll.value
+                            if (bottom <= 0f || top >= size.height) continue
+                            for (index in 0 until line.quoteDepth.coerceAtMost(3)) {
+                                val x = (4 + index * 8).sp.toPx()
+                                drawLine(syntaxPalette.outline, Offset(x, top), Offset(x, bottom), 2.dp.toPx())
+                            }
+                        }
+                    }
                     if (buffer.multiSource == source && layout?.layoutInput?.text?.text == display) buffer.multiRanges.drop(1).forEach { sourceRange ->
                         val range = TextRange(editorDisplayOffset(sourceRange.from, replacements), editorDisplayOffset(sourceRange.to, replacements))
                         if (range.start == range.end) { val rect = layout.getCursorRect(range.start); drawLine(color, Offset(rect.left, rect.top - scroll.value), Offset(rect.left, rect.bottom - scroll.value), 2f) }

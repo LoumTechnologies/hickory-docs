@@ -32,7 +32,6 @@ import { EnvRegistry, parserBecameReady, setVerifiedExpects, structureOf, wysiwy
 import { hickLangReady, useHickLangStatus } from "./hickLang";
 import type { ManagedDocumentPreview } from "../views/folderPane";
 import { PaneHeaderContent } from "../shell/PaneHeader";
-import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
 import { completions } from "../lsp/completion";
 import { readCompletionAcceptance } from "../lsp/completionAcceptance";
@@ -584,11 +583,6 @@ export function DocumentEditor({
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           wysiwyg(envRegistry),
-          // Task boxes come from the DOCUMENT's structure parse, not a plain
-          // markdown scan: a `- [ ]` inside an exec cell's payload is a
-          // command's argument, and turning it into a checkbox would offer to
-          // edit a line the reader is not looking at.
-          taskCheckboxes((state) => structureOf(state).tasks),
           // Two sources, one list, each marked. The language server knows
           // what is in scope; the project index knows what this codebase
           // calls things. Neither subsumes the other — see lsp/completion.ts.

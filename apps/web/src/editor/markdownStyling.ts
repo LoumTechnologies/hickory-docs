@@ -1,8 +1,6 @@
-// Typora-style markdown DISPLAY styling, shared between the document editor
-// (wysiwyg.ts, over .md prose) and the output panes (OutputEditorPane, over
-// a generated .md file). Decorations only — line classes and marks; nothing
-// here ever replaces or edits text. Inactive dash rules conceal their glyphs
-// visually; entering the line restores the original characters.
+// Markdown presentation shared by source and output panes. Decorations can
+// conceal a prefix or replace its glyphs while source and selections keep
+// their original offsets.
 //
 // Two layers:
 //  - `proseDecorationRanges` turns already-parsed headings/inline marks into
@@ -15,13 +13,12 @@
 
 import { EditorState, StateField } from "@codemirror/state";
 import type { Extension, Range, Transaction } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { scanMarkdownProse, yamlFrontmatter } from "./hickDoc";
-import type { Heading, InlineMark, QuoteLine, TaskItem } from "./hickDoc";
+import type { Heading, InlineMark, ListMarker, ProseLine, QuoteLine, TaskItem } from "./hickDoc";
 
-// One Decoration instance per class, shared by both editors so the CSS in
-// styles.css (`.cm-md-*`) is the single definition of the look.
+// Reuse each line decoration so the editor can keep existing DOM on updates.
 export const headingLineDecos = [1, 2, 3, 4, 5, 6].map((level) =>
   Decoration.line({ class: `cm-md-heading cm-md-h${level}` }),
 );
@@ -42,10 +39,55 @@ export const mdTaskDoneLine = Decoration.line({
   class: "cm-md-task cm-md-task--done",
 });
 
+export function proseCarets(state: EditorState): number[] {
+  return state.selection.ranges.filter(range => range.empty).map(range => range.head);
+}
+
+export function proseSourceVisible(line: ProseLine, carets: readonly number[]): boolean {
+  const { from, to } = line.quote ?? line;
+  return carets.some(caret => caret >= from && caret <= to);
+}
+
+class ListLabel extends WidgetType {
+  constructor(private readonly label: string) { super(); }
+  eq(other: ListLabel) { return this.label === other.label; }
+  toDOM() {
+    const marker = document.createElement("span");
+    marker.textContent = this.label;
+    marker.style.color = "var(--fg-muted, currentColor)";
+    return marker;
+  }
+  ignoreEvent() { return false; }
+}
+
+export function quoteClipboard(quotes: (state: EditorState) => readonly QuoteLine[]): Extension {
+  return EditorView.domEventHandlers({
+    copy(event, view) {
+      const selection = view.state.selection;
+      if (selection.ranges.length !== 1 || selection.main.empty || !event.clipboardData) return false;
+      const { from, to } = selection.main;
+      const lines = quotes(view.state);
+      const block = lines.find(line => from >= line.from && from <= line.to)?.quote;
+      if (!block || to > block.to + 1) return false;
+      let text = "", offset = from;
+      for (const line of lines) {
+        if (line.quote !== block || line.markTo <= from || line.markFrom >= to) continue;
+        text += view.state.sliceDoc(offset, Math.max(offset, line.markFrom));
+        offset = Math.min(to, line.markTo);
+      }
+      if (offset === from) return false;
+      text += view.state.sliceDoc(offset, to);
+      event.clipboardData.setData("text/plain", text);
+      return true;
+    },
+  });
+}
+
 export interface MarkdownProse {
   headings: Heading[];
   inline: InlineMark[];
   quotes: QuoteLine[];
+  lists: ListMarker[];
   tasks: TaskItem[];
 }
 
@@ -58,30 +100,42 @@ export interface MarkdownProse {
 export function proseDecorationRanges(
   prose: MarkdownProse,
   docLen: number,
+  carets: readonly number[] = [],
 ): Range<Decoration>[] {
   const ranges: Range<Decoration>[] = [];
   const clamp = (n: number) => Math.max(0, Math.min(n, docLen));
+  const raw = [...prose.quotes, ...prose.lists].filter(line => proseSourceVisible(line, carets))
+    .sort((a, b) => a.from - b.from);
+  const revealed = new Set(raw.map(line => line.from));
+  let rawIndex = 0;
   for (const h of prose.headings) {
+    if (revealed.has(h.from)) continue;
     ranges.push(headingLineDecos[Math.min(h.level, 6) - 1].range(clamp(h.from)));
     if (h.markTo > h.markFrom)
       ranges.push(mdMark.range(clamp(h.markFrom), clamp(h.markTo)));
   }
-  // Quotes are a line tint plus a dimmed `>` run: the marker stays in the
-  // text (this module never hides anything) but stops competing with the
-  // words it introduces.
   for (const quote of prose.quotes) {
+    if (revealed.has(quote.from)) continue;
     const depth = Math.min(Math.max(quote.depth, 1), QUOTE_DEPTHS);
     ranges.push(mdQuoteLines[depth - 1].range(clamp(quote.from)));
     if (quote.markTo > quote.markFrom)
-      ranges.push(mdMark.range(clamp(quote.markFrom), clamp(quote.markTo)));
+      ranges.push(Decoration.replace({}).range(clamp(quote.markFrom), clamp(quote.markTo)));
+  }
+  for (const item of prose.lists) {
+    if (!revealed.has(item.from) && clamp(item.markTo) > clamp(item.markFrom))
+      ranges.push(Decoration.replace({ widget: item.label ? new ListLabel(item.label) : undefined })
+        .range(clamp(item.markFrom), clamp(item.markTo)));
   }
   for (const task of prose.tasks) {
+    if (revealed.has(task.from)) continue;
     ranges.push(
       (task.checked ? mdTaskDoneLine : mdTaskLine).range(clamp(task.from)),
     );
     ranges.push(mdMark.range(clamp(task.boxFrom), clamp(task.boxTo)));
   }
   for (const mark of prose.inline) {
+    while (rawIndex < raw.length && raw[rawIndex].to < mark.openFrom) rawIndex++;
+    if (rawIndex < raw.length && mark.openFrom >= raw[rawIndex].from) continue;
     const style =
       mark.kind === "strong" ? mdStrong : mark.kind === "em" ? mdEm : mdCode;
     ranges.push(mdMark.range(clamp(mark.openFrom), clamp(mark.openTo)));
@@ -123,14 +177,25 @@ export function fencedCodeRanges(text: string): [number, number][] {
 
 /** Headings + inline marks of a plain markdown text (fences are verbatim). */
 export function parseMarkdownProse(text: string): MarkdownProse {
-  return scanMarkdownProse(text, fencedCodeRanges(text), []);
+  return scanMarkdownProse(text, [], []);
 }
 
 /** All markdown display decorations for a plain markdown buffer. */
-export function markdownDecorations(state: EditorState): DecorationSet {
+const plainProseCache = new WeakMap<EditorState["doc"], MarkdownProse>();
+export function markdownProseOf(state: EditorState): MarkdownProse {
+  let prose = plainProseCache.get(state.doc);
+  if (!prose) {
+    prose = parseMarkdownProse(state.doc.toString());
+    plainProseCache.set(state.doc, prose);
+  }
+  return prose;
+}
+
+export function markdownDecorations(state: EditorState, prose = markdownProseOf(state)): DecorationSet {
   const ranges = proseDecorationRanges(
-    parseMarkdownProse(state.doc.toString()),
+    prose,
     state.doc.length,
+    proseCarets(state),
   );
   ranges.sort(
     (a, b) => a.from - b.from || a.value.startSide - b.value.startSide,
@@ -138,18 +203,44 @@ export function markdownDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-const markdownField = StateField.define<DecorationSet>({
-  create: markdownDecorations,
-  update: (deco, tr) => (tr.docChanged ? markdownDecorations(tr.state) : deco),
-  provide: (f) => EditorView.decorations.from(f),
-});
+export function proseStyling(
+  source: (state: EditorState) => MarkdownProse,
+  refresh?: (transaction: Transaction) => boolean,
+): Extension {
+  const field = StateField.define<DecorationSet>({
+    create: state => markdownDecorations(state, source(state)),
+    update: (value, tr) => tr.docChanged || tr.selection || refresh?.(tr)
+      ? markdownDecorations(tr.state, source(tr.state)) : value,
+    provide: field => EditorView.decorations.from(field),
+  });
+  return [field, quoteClipboard(state => source(state).quotes), EditorView.baseTheme({
+    ".cm-line.cm-md-quote": {
+      color: "var(--fg-muted, CanvasText)", borderLeft: "3px solid var(--border, GrayText)",
+      paddingLeft: "0.7em", marginLeft: "0.1em",
+    },
+    ".cm-line.cm-md-quote-2": { boxShadow: "inset 6px 0 0 -3px var(--border, GrayText)", paddingLeft: "1.3em" },
+    ".cm-line.cm-md-quote-3": {
+      boxShadow: "inset 6px 0 0 -3px var(--border, GrayText), inset 12px 0 0 -9px var(--border, GrayText)",
+      paddingLeft: "1.9em",
+    },
+    ".cm-md-task--done": { color: "var(--fg-muted, GrayText)" },
+    ".cm-md-checkbox": {
+      display: "inline-block", width: "1.05em", height: "1.05em", lineHeight: "1.05em",
+      textAlign: "center", verticalAlign: "-0.15em", marginRight: "0.15em",
+      border: "1px solid var(--fg-muted, GrayText)", borderRadius: "3px", fontSize: "0.85em",
+      cursor: "pointer", color: "var(--bg, Canvas)", userSelect: "none",
+    },
+    ".cm-md-checkbox--on": { background: "var(--accent, Highlight)", borderColor: "var(--accent, Highlight)" },
+    '.cm-md-checkbox[aria-disabled="true"]': { cursor: "inherit" },
+  })];
+}
 
 /**
  * The output panes' markdown styling extension: same look as the document
  * editor's prose, display-only, composes with whatever else the pane loads.
  */
 export function markdownStyling(): Extension {
-  return [markdownField, horizontalRuleStyling()];
+  return [proseStyling(markdownProseOf), horizontalRuleStyling()];
 }
 
 

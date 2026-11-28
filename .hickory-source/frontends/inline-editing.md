@@ -69,6 +69,10 @@ The Swift scanner returns source-backed styles and cell ranges. Escaped pipes an
 
 Whole-table structural edits retain a temporary presentation anchor until the background scanner catches up. Old cell rows describe presentation only; the shared spreadsheet writes the exact current table range through the host guard. Keep the Markdown number-format comment inside that replacement and admit a zero-length first cell for an empty standalone CSV. Split HTML comment delimiters in source-language strings so the literate compiler does not treat them as document comments.
 
+The Apple scan records each quote prefix and each list marker at its source
+offset. Adjacent quoted rows share an opening offset. TextKit can reveal them
+as a unit and remove just those prefixes from a copied selection.
+
 <ui:copy id="simple-inline-model-0">
 import Foundation
 // Diagram links are paths relative to the document, bounded by the workspace root.
@@ -120,7 +124,60 @@ func equationSourceCaret(_ equation: InlineEquation, fraction: CGFloat) -> Int {
     return equation.range.location + min(equation.range.length, leading + nearest)
 }
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
+struct MarkdownMarker: Sendable {
+    var range: NSRange
+    var label: String
+}
+
+struct MarkdownBlockLine: Sendable {
+    var range: NSRange
+    var quoteStart: Int?
+    var quotePrefix: NSRange?
+    var markers: [MarkdownMarker]
+}
+
+extension InlineSnapshot {
+    func markdownGlyphs(carets: [Int]) -> [Int: UInt16] {
+        let active = blockLines.filter { line in
+            carets.contains { $0 >= line.range.location && $0 <= NSMaxRange(line.range) }
+        }
+        let activeRows = Set(active.map { $0.range.location })
+        let activeQuotes = Set(active.compactMap(\.quoteStart))
+        var glyphs: [Int: UInt16] = [:]
+        for line in blockLines where !activeRows.contains(line.range.location) {
+            if let quote = line.quoteStart, activeQuotes.contains(quote) { continue }
+            for marker in line.markers {
+                let label = Array(marker.label.utf16)
+                for index in 0..<marker.range.length {
+                    // A zero entry suppresses a glyph without moving any source offset.
+                    glyphs[marker.range.location + index] = index < label.count ? label[index] : 0
+                }
+            }
+        }
+        return glyphs
+    }
+
+    func quoteContents(_ selection: NSRange) -> String? {
+        let text = source as NSString, end = NSMaxRange(selection)
+        guard selection.length > 0, end <= text.length,
+              let first = blockLines.first(where: { selection.location >= $0.range.location && selection.location <= NSMaxRange($0.range) }),
+              let quote = first.quoteStart,
+              let last = blockLines.last(where: { $0.quoteStart == quote }),
+              end <= NSMaxRange(last.range) + 1 else { return nil }
+        var parts: [String] = [], offset = selection.location
+        for line in blockLines where line.quoteStart == quote {
+            guard let prefix = line.quotePrefix, NSMaxRange(prefix) > offset, prefix.location < end else { continue }
+            let stop = max(offset, prefix.location)
+            parts.append(text.substring(with: NSRange(location: offset, length: stop - offset)))
+            offset = min(end, NSMaxRange(prefix))
+        }
+        guard offset > selection.location else { return nil }
+        parts.append(text.substring(with: NSRange(location: offset, length: end - offset)))
+        return parts.joined()
+    }
+}
+
+struct InlineSnapshot: Sendable { var blockLines: [MarkdownBlockLine] = []; var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = []; var links: [InlineLink] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -524,10 +581,19 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
     let links = try! NSRegularExpression(pattern: #"(?<![!\\])\[([^\]\n]+)\]\(([^\s()]+)\)"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
-    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
+    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table|entry|patch|expect)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
     var equationStart: Int?, equationLine = 0, equationOpen = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
+    let quoteMarker = try! NSRegularExpression(pattern: #"^ {0,3}(?:>[ \t]?)+"#)
+    let listMarker = try! NSRegularExpression(pattern: #"^( *)([-*+]|[0-9]{1,9}[.)])(?=[ \t]|$)[ \t]*"#)
+    let taskMarker = try! NSRegularExpression(pattern: #"^\[([ xX])\](?=[ \t]|$)"#)
+    let ruleMarker = try! NSRegularExpression(pattern: #"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"#)
+    let frontMatterEnd = rows.first?.trimmingCharacters(in: CharacterSet(charactersIn: "\u{feff}\r")) == "---"
+        ? rows.dropFirst().firstIndex { ["---", "..."].contains($0.trimmingCharacters(in: .whitespacesAndNewlines)) } : nil
+    let quoteFenceMarker = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})(.*)$"#)
+    var quoteFence = ""
+    var quoteRow = -2, quoteStart: Int?, listIndent: Int?, listRow = -2
     for (line, rawRow) in rows.enumerated() {
         defer { offset += rawRow.utf16.count + 1 }
         let row = rawRow.hasSuffix("\r") ? String(rawRow.dropLast()) : rawRow
@@ -574,6 +640,48 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             }
             if trimmed.contains("</") || trimmed.hasSuffix("/>") { payload = ""; equationStart = nil }
             table = false; continue
+        }
+        if frontMatterEnd.map({ line > $0 }) ?? true {
+            var content = row, base = offset, prefix: NSRange?, markers: [MarkdownMarker] = []
+            if let match = quoteMarker.firstMatch(in: row, range: all) {
+                let raw = ns.substring(with: match.range)
+                let depth = raw.filter { $0 == ">" }.count
+                prefix = NSRange(location: offset, length: match.range.length)
+                markers.append(MarkdownMarker(range: prefix!, label: String(repeating: "│", count: depth) + (depth < match.range.length ? " " : "")))
+                if quoteRow != line - 1 { quoteStart = offset; quoteFence = "" }
+                quoteRow = line
+                content = ns.substring(from: match.range.length)
+                base += match.range.length
+            }
+            let contentNS = content as NSString, contentRange = NSRange(location: 0, length: contentNS.length)
+            let inQuoteFence = prefix != nil && !quoteFence.isEmpty
+            let quotedFence = prefix == nil ? nil : quoteFenceMarker.firstMatch(in: content, range: contentRange)
+            if let quotedFence {
+                let delimiter = contentNS.substring(with: quotedFence.range(at: 1))
+                let tail = contentNS.substring(with: quotedFence.range(at: 2))
+                if !inQuoteFence { quoteFence = delimiter }
+                else if delimiter.hasPrefix(quoteFence), tail.trimmingCharacters(in: .whitespaces).isEmpty { quoteFence = "" }
+            }
+            if !inQuoteFence, quotedFence == nil, let match = listMarker.firstMatch(in: content, range: contentRange),
+               match.range(at: 1).length <= (listRow == line - 1 ? (listIndent ?? -1) + 4 : 3),
+               ruleMarker.firstMatch(in: content, range: contentRange) == nil {
+                listIndent = match.range(at: 1).length; listRow = line
+                let marker = match.range(at: 2), ordered = marker.length > 1
+                let boxOffset = match.range.length
+                let tail = contentNS.substring(from: boxOffset)
+                let task = taskMarker.firstMatch(in: tail, range: NSRange(location: 0, length: tail.utf16.count))
+                let label = ordered ? String(contentNS.substring(with: marker).dropLast()) + "." : task == nil ? "•" : ""
+                let markerEnd = task != nil && !ordered ? boxOffset : NSMaxRange(marker)
+                markers.append(MarkdownMarker(range: NSRange(location: base + marker.location, length: markerEnd - marker.location), label: label))
+                if let task {
+                    let checked = (tail as NSString).substring(with: task.range(at: 1)) != " "
+                    markers.append(MarkdownMarker(range: NSRange(location: base + boxOffset, length: 3), label: checked ? "☑" : "☐"))
+                }
+            }
+            if !markers.isEmpty {
+                result.blockLines.append(MarkdownBlockLine(range: NSRange(location: offset, length: rawRow.utf16.count),
+                    quoteStart: prefix == nil ? nil : quoteStart, quotePrefix: prefix, markers: markers))
+            }
         }
         if let match = heading.firstMatch(in: row, range: all) { result.marks.append(InlineMark(kind: "heading", range: NSRange(location: offset, length: row.utf16.count), level: match.range(at: 1).length)) }
         var codeRanges: [NSRange] = []
@@ -635,6 +743,10 @@ by their opening lines. A fenced example can quote a patch tag without offering
 an action for it. The engine rereads the recorded message before supplying launch
 authority or establishing a captured construction.
 
+Android also records quote and list prefixes in the source snapshot. Compose
+uses its output transformation for the markers and copies from that visual
+text. Quote rules are drawn separately so they contribute no clipboard text.
+
 <ui:copy id="simple-inline-model-1">
 package com.hickorydocs.simple
 
@@ -665,7 +777,18 @@ fun workspaceLinkTarget(href: String, source: String): WorkspaceLinkTarget? {
     val line = parts.getOrNull(1)?.takeIf { it.startsWith("L") }?.drop(1)?.toIntOrNull()?.takeIf { it > 0 }?.minus(1)
     return WorkspaceLinkTarget(resolved.joinToString("/"), line)
 }
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList(), val links: List<InlineLink> = emptyList())
+data class MarkdownMarker(val from: Int, val to: Int, val label: String)
+data class MarkdownBlockLine(
+    val from: Int, val to: Int, val quoteStart: Int?, val quoteDepth: Int, val markers: List<MarkdownMarker>,
+)
+
+fun InlineSnapshot.renderedBlockLines(caret: Int?): List<MarkdownBlockLine> {
+    val active = caret?.let { offset -> blockLines.firstOrNull { offset in it.from..it.to } }
+    return blockLines.filter { it != active && (active?.quoteStart == null || it.quoteStart != active.quoteStart) }
+}
+
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList(), val links: List<InlineLink> = emptyList(),
+    val blockLines: List<MarkdownBlockLine> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>, val visibleRows: Int? = null) {
     val displayRows: Int get() = visibleRows ?: maxOf(22, minOf(32, rows.size * 2 + 10))
@@ -1057,8 +1180,18 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
-    val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\\b[^>]*>")
+    val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|container|diagram|math|table|entry|patch|expect)\\b[^>]*>")
     var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var equationOpen = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
+    val quoteMarker = Regex("""^ {0,3}(?:>[ \t]?)+""")
+    val listMarker = Regex("""^( *)([-*+]|[0-9]{1,9}[.)])(?=[ \t]|$)[ \t]*""")
+    val taskMarker = Regex("""^\[([ xX])\](?=[ \t]|$)""")
+    val ruleMarker = Regex("""^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$""")
+    val frontMatterEnd = if (rows.first().trim('\uFEFF', '\r') == "---")
+        (1 until rows.size).firstOrNull { rows[it].trim() in listOf("---", "...") } ?: -1 else -1
+    val blockLines = mutableListOf<MarkdownBlockLine>()
+    val quoteFenceMarker = Regex("^ {0,3}(`{3,}|~{3,})(.*)$")
+    var quoteFence = ""
+    var quoteRow = -2; var quoteStart = 0; var listRow = -2; var listIndent = 0
     rows.forEachIndexed { line, rawRow ->
         val row = rawRow.removeSuffix("\r")
         val start = offset; offset += rawRow.length + 1; val trimmed = row.trim()
@@ -1094,6 +1227,42 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             if (trimmed.contains("</") || trimmed.endsWith("/>")) { payload = ""; equationStart = null }
             table = false; return@forEachIndexed
         }
+        if (line > frontMatterEnd) {
+            val quote = quoteMarker.find(row)
+            val markers = mutableListOf<MarkdownMarker>()
+            val prefixLength = quote?.value?.length ?: 0
+            val depth = quote?.value?.count { it == '>' } ?: 0
+            if (quote != null) {
+                if (quoteRow != line - 1) { quoteStart = start; quoteFence = "" }
+                quoteRow = line
+                markers.add(MarkdownMarker(start, start + prefixLength, ""))
+            }
+            val content = row.substring(prefixLength)
+            val inQuoteFence = quote != null && quoteFence.isNotEmpty()
+            val quotedFence = if (quote == null) null else quoteFenceMarker.matchEntire(content)
+            if (quotedFence != null) {
+                val (delimiter, tail) = quotedFence.destructured
+                if (!inQuoteFence) quoteFence = delimiter
+                else if (delimiter.startsWith(quoteFence) && tail.isBlank()) quoteFence = ""
+            }
+            val list = if (inQuoteFence || quotedFence != null) null else listMarker.find(content)
+            if (list != null && list.groupValues[1].length <= (if (listRow == line - 1) listIndent + 4 else 3) &&
+                !ruleMarker.matches(content)) {
+                listIndent = list.groupValues[1].length; listRow = line
+                val base = start + prefixLength
+                val marker = list.groupValues[2]
+                val boxOffset = list.value.length
+                val task = taskMarker.find(content.substring(boxOffset))
+                val ordered = marker.length > 1
+                val label = if (ordered) marker.dropLast(1) + "." else if (task == null) "•" else ""
+                val markerEnd = if (task != null && !ordered) boxOffset else listIndent + marker.length
+                markers.add(MarkdownMarker(base + listIndent, base + markerEnd, label))
+                if (task != null) markers.add(MarkdownMarker(base + boxOffset, base + boxOffset + 3,
+                    if (task.groupValues[1] == " ") "☐" else "☑"))
+            }
+            if (markers.isNotEmpty()) blockLines.add(MarkdownBlockLine(start, start + rawRow.length,
+                if (quote == null) null else quoteStart, depth, markers))
+        }
         heading.find(row)?.let { marks.add(InlineMark("heading", start, start + row.length, it.groupValues[1].length)) }
         val codeRanges = mutableListOf<IntRange>()
         for ((kind, expression) in styles) for (match in expression.findAll(row)) {
@@ -1121,7 +1290,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
     val patchMarks = debug.code.flatMap { (line, target) ->
         if (rows.getOrNull(line)?.startsWith('+') == true) inlineSyntaxMarks(rows[line].drop(1), target).map { it.copy(from = it.from + starts[line] + 1, to = it.to + starts[line] + 1) } else emptyList()
     }
-    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source), links = links)
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source), links = links, blockLines = blockLines)
 }
 
 fun inlineTableAttribute(name: String, table: InlineTable, source: String): String? {

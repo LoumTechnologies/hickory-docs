@@ -115,11 +115,20 @@ describe("markdownStyling — block quotes", () => {
     expect(parseMarkdownProse(src).quotes).toEqual([]);
   });
 
-  it("gives a quote line a tinted line class and dims its marker", () => {
+  it("keeps list markers inside quoted code fences literal", () => {
+    const src = "> ````md\n> ```\n> - [x] literal\n> ````\n> + visible";
+    const { quotes, lists, tasks } = parseMarkdownProse(src);
+    expect(quotes).toHaveLength(5);
+    expect(lists.map(list => src.slice(list.markFrom, list.markTo))).toEqual(["+"]);
+    expect(tasks).toEqual([]);
+  });
+
+  it("gives a quote line a tinted line class and conceals its prefix", () => {
     const src = "> quoted\n";
     const classes = proseDecorationRanges(parseMarkdownProse(src), src.length).map(classOf);
     expect(classes).toContain("cm-md-quote cm-md-quote-1");
-    expect(classes).toContain("cm-md-mark");
+    expect(proseDecorationRanges(parseMarkdownProse(src), src.length).some(r =>
+      r.from === 0 && r.to === 2 && r.value.spec.widget === undefined)).toBe(true);
   });
 
   it("caps the tint at three levels rather than inventing a fourth grey", () => {
