@@ -7,6 +7,11 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The host launcher supplies `HICKORY_API_ORIGIN` for the initial connection and can name a file with `HICKORY_OPEN_FILE`. Race the independent source read and file tree. If source arrives first, mount a read-only buffer with its observed root identity. Only the exact tree entry and ordinary guarded source read can attach editing authority. The guarded read may find a newer revision after the preview mounted. When workspace and path match, update the same buffer before attaching editing authority. A failed or differently addressed read leaves the preview readable. Show the file's containing folder in Files while keeping the full root available to navigation, including relative diagram links that leave the displayed folder. A refresh keeps that folder selected while it exists. Language services attach independently. Without a launch address the manual Connect sheet remains available.
 
+Opening a folder uses its listed immediate README as the default document.
+Select the folder in Files first, then acquire the README through the ordinary
+file reader under the current pane and workspace. A later navigation can retire
+that read. A launch that explicitly names a file follows its own preview path.
+
 An activated diagram link reports unsafe or missing destinations in the
 existing workspace status. Hold the original buffer and source revision
 through acquisition, including file-only links that leave the caret alone.
@@ -480,6 +485,17 @@ struct StartupSourceObservation {
         }
         displayFolder(folder)
         showUtility(.files)
+        openFolderReadme()
+    }
+
+    private func openFolderReadme() {
+        guard let readme = files.first(where: { !$0.dir && $0.name == "README.md" }) else { return }
+        let scope = generation, interaction = paneInteraction
+        Task {
+            _ = await activateFile(readme, recordNavigation: false, isCurrent: {
+                self.generation == scope && self.paneInteraction == interaction && !self.windowConnectionLost
+            })
+        }
     }
 
     private func displayFolder(_ folder: FileNode?) {
@@ -788,6 +804,8 @@ preserve the native editor and its view state.
                 } else {
                     status = "Requested file not found: \(requestedPath). Choose a file from the workspace tree."
                 }
+            } else if requestedPath == nil, startupIsCurrent() {
+                openFolderReadme()
             }
             return true
         } catch { status = error.localizedDescription; return false }

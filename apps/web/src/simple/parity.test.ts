@@ -757,6 +757,53 @@ describe("tab drop placement", () => {
 });
 
 describe("simple background source loading", () => {
+  it("opens the root README on folder startup and leaves it closed on Files refresh", async () => {
+    const path = "README.md", source = "# Welcome to this folder";
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [
+      { name: "README.md", path, dir: false },
+      { name: "src", path: "src", dir: true, children: [
+        { name: "README.md", path: "src/README.md", dir: false },
+      ] },
+    ] });
+    vi.mocked(api.file).mockReset().mockResolvedValue({ path, content: source, hash: "readme", language: "text" });
+    const screen = render(createElement(App));
+    try {
+      const editor = EditorView.findFromDOM(await screen.findByLabelText(path))!;
+      expect(editor.state.doc.toString()).toBe(source);
+      expect(screen.getByLabelText("Files status").textContent).toBe("workspace");
+      expect(api.file).toHaveBeenCalledExactlyOnceWith(path);
+
+      fireEvent.click(screen.getByRole("button", { name: "Close README.md" }));
+      fireEvent.click(screen.getByText("File", { selector: "summary" }));
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh" })));
+      expect(screen.queryByRole("tab", { name: "README.md" })).toBeNull();
+      expect(api.file).toHaveBeenCalledExactlyOnceWith(path);
+    } finally {
+      screen.unmount();
+      vi.mocked(api.file).mockReset();
+    }
+  });
+  it("drops a delayed folder README when the user opens another file", async () => {
+    const path = "README.md", other = "notes.txt";
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [
+      { name: path, path, dir: false }, { name: other, path: other, dir: false },
+    ] });
+    let finishReadme!: (reply: Awaited<ReturnType<typeof api.file>>) => void;
+    vi.mocked(api.file).mockReset()
+      .mockImplementationOnce(() => new Promise(resolve => { finishReadme = resolve; }))
+      .mockResolvedValueOnce({ path: other, content: "Notes", hash: "notes", language: "text" });
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: other }));
+      await screen.findByLabelText(other);
+      await act(async () => finishReadme({ path, content: "# Late README", hash: "readme", language: "text" }));
+      expect(screen.getByRole("tab", { name: other, selected: true })).toBeTruthy();
+      expect(screen.queryByRole("tab", { name: path })).toBeNull();
+    } finally {
+      screen.unmount();
+      vi.mocked(api.file).mockReset();
+    }
+  });
   it("keeps a tree-first guardless startup editor through late raw text and Refresh", async () => {
     const path = "nested/wanted.txt", source = "First row\nSecond readable row\n";
     const workspace = "a".repeat(32), namespace = "/owned";
@@ -770,6 +817,7 @@ describe("simple background source loading", () => {
         { name: "peer.txt", path: "nested/peer.txt", dir: false },
       ] },
       { name: "outside.txt", path: "outside.txt", dir: false },
+      { name: "README.md", path: "README.md", dir: false },
     ] });
     const currentSource = source + "Written while opening.\n";
     const reply = { path, content: source, language: "text", hash: "loaded" };
@@ -794,7 +842,7 @@ describe("simple background source loading", () => {
       fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
       await waitFor(() => expect(view.state.readOnly).toBe(false));
       expect(view.state.doc.toString()).toBe(currentSource);
-      expect(api.file).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(api.file).mock.calls).toEqual([[path], [path]]);
       expect(EditorView.findFromDOM(screen.getByLabelText(path))).toBe(view);
       expect(view.state.selection.main.anchor).toBe(10);
       expect(view.state.selection.main.head).toBe(16);
@@ -1198,10 +1246,19 @@ describe("simple workspace Problems", () => {
   });
 });
 describe("simple semantic navigation", () => {
-  it("resolves workspace navigation outside the folder currently shown in Files", async () => {
+  it("opens the selected folder README and still navigates outside that folder", async () => {
     // Contract: .hickory-source/frontends/contract.md
-    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "src", path: "src", dir: true, children: [{ name: "a.py", path: "src/a.py", dir: false }] }, { name: "other.py", path: "other.py", dir: false }] });
-    vi.mocked(api.file).mockResolvedValueOnce({ path: "other.py", language: "python", content: "value = 1", hash: "base" });
+    const readme = "src/README.md";
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [
+      { name: "src", path: "src", dir: true, children: [
+        { name: "README.md", path: readme, dir: false },
+        { name: "a.py", path: "src/a.py", dir: false },
+      ] },
+      { name: "other.py", path: "other.py", dir: false },
+    ] });
+    vi.mocked(api.file).mockReset()
+      .mockResolvedValueOnce({ path: readme, language: "text", content: "# Source files", hash: "readme" })
+      .mockResolvedValueOnce({ path: "other.py", language: "python", content: "value = 1", hash: "base" });
     // jsdom omits the browser dialog methods. Playwright also exercises the real modal.
     const prototype = HTMLDialogElement.prototype;
     const showModal = Object.getOwnPropertyDescriptor(prototype, "showModal");
@@ -1211,14 +1268,17 @@ describe("simple semantic navigation", () => {
     const screen = render(createElement(App));
     try {
       await screen.findByRole("button", { name: "other.py" });
+      expect(api.file).not.toHaveBeenCalled();
       const filesStatus = screen.container.querySelector('[aria-label="Files status"]')!;
       expect(filesStatus.textContent).toBe("workspace");
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
       fireEvent.click(screen.getByRole("button", { name: "Open Directory" }));
       const picker = within(screen.getByRole("dialog", { name: "Open Directory" }));
       fireEvent.click(picker.getByRole("button", { name: "src" }));
+      expect(api.file).not.toHaveBeenCalled();
       fireEvent.click(picker.getByRole("button", { name: "Open this folder" }));
-      await waitFor(() => expect(screen.queryByRole("button", { name: "other.py" })).toBeNull());
+      expect(EditorView.findFromDOM(await screen.findByLabelText(readme))!.state.doc.toString()).toBe("# Source files");
+      expect(screen.queryByRole("button", { name: "other.py" })).toBeNull();
       expect(filesStatus.textContent).toBe("src");
       act(() => openLocation("other.py", 1, 2));
       await waitFor(() => expect(screen.container.querySelector('.cm-content[aria-label="other.py"]')).toBeTruthy());
@@ -1242,6 +1302,7 @@ describe("simple semantic navigation", () => {
       expect(EditorView.findFromDOM(input)).toBe(editor);
     } finally {
       screen.unmount();
+      vi.mocked(api.file).mockReset();
       if (showModal) Object.defineProperty(prototype, "showModal", showModal);
       else Reflect.deleteProperty(prototype, "showModal");
       if (close) Object.defineProperty(prototype, "close", close);

@@ -75,6 +75,7 @@ type OpenFileOptions = {
   startup?: { observe: (buffer: Buffer) => void; refuse: (message: string) => void };
   current?: () => boolean;
   originCurrent?: () => boolean;
+  foregroundOnly?: boolean;
   observed?: Buffer;
   verify?: (buffer: Buffer) => Promise<void>;
 };
@@ -303,6 +304,10 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     if (!connected || openDesktopDirectory()) return;
     setDirectoryPicker(findPath(filesFolder)?.dir ? filesFolder : "");
   }
+  function openFolderReadme(children: FileNode[], current: () => boolean) {
+    const readme = children.find(file => !file.dir && file.name === "README.md");
+    if (readme) void open(readme, {current, foregroundOnly: true});
+  }
   async function saveAs(source = buffer) {
     if (!source || source.saving) return;
     const path = window.prompt("Save As — new path in this workspace", source.isUntitledDraft ? "" : source.file.path);
@@ -391,7 +396,12 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     // Refresh uses the same lease after an unavailable listing or guarded
     // read. Promote the mounted owner without activating its tab again.
     acceptStartupFiles.current = response => {
-      if (path === null || !current()) return;
+      if (!current()) return;
+      if (path === null) {
+        resolved = true;
+        openFolderReadme(response.tree, () => attached && connectedNow.current && liveLayout.current === initial);
+        return;
+      }
       const file = findPath(path, response.tree);
       if (!file || file.dir) { setNotice(`Requested file ${path || "(empty path)"} is unavailable. Choose a file from the workspace tree.`); return; }
       if (observed) {
@@ -475,7 +485,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     terminal.publish();
     openTab("terminal");
   }), [terminal, currentGroup.id]);
-  async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify, startup}: OpenFileOptions = {}): Promise<OpenedFile | null> {
+  async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, foregroundOnly = false, observed, verify, startup}: OpenFileOptions = {}): Promise<OpenedFile | null> {
     if (!isCurrent() || !originCurrent()) return null;
     const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);
     const documents = panes.filter(group => !group.tabs.includes("files") && !group.tabs.includes("agent-history"));
@@ -486,6 +496,7 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
     const namespace = buffers.workspace, workspace = buffers.workspaceId;
     const pending = () => {
       if (requested.current.get(target) !== ticket || !isCurrent()
+        || (foregroundOnly && !foreground())
         || !observed && (buffers.workspace !== namespace || buffers.workspaceId !== workspace)) return false;
       const live = groups(liveLayout.current);
       const owner = live.find(group => group.tabs.includes(tab));
@@ -821,7 +832,12 @@ export function WorkspaceApp({ connected = true }: { connected?: boolean }) {
       cancel={() => { setDirectoryPicker(null); focusCurrent(); }}
       open={() => {
         setDirectoryPicker(null);
-        if (overlayCurrent()) { setFilesFolder(directoryPicker); openTab("files"); }
+        if (!overlayCurrent()) return;
+        const folder = directoryPicker ? findPath(directoryPicker) : null;
+        if (directoryPicker && !folder?.dir) return;
+        setFilesFolder(directoryPicker);
+        openTab("files");
+        openFolderReadme(folder ? folder.children ?? [] : workspaceFiles, overlayCurrent);
       }}
     />}
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />

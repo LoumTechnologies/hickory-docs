@@ -450,6 +450,17 @@ struct StartupSourceObservation {
         }
         displayFolder(folder)
         showUtility(.files)
+        openFolderReadme()
+    }
+
+    private func openFolderReadme() {
+        guard let readme = files.first(where: { !$0.dir && $0.name == "README.md" }) else { return }
+        let scope = generation, interaction = paneInteraction
+        Task {
+            _ = await activateFile(readme, recordNavigation: false, isCurrent: {
+                self.generation == scope && self.paneInteraction == interaction && !self.windowConnectionLost
+            })
+        }
     }
 
     private func displayFolder(_ folder: FileNode?) {
@@ -733,6 +744,8 @@ struct StartupSourceObservation {
                 } else {
                     status = "Requested file not found: \(requestedPath). Choose a file from the workspace tree."
                 }
+            } else if requestedPath == nil, startupIsCurrent() {
+                openFolderReadme()
             }
             return true
         } catch { status = error.localizedDescription; return false }

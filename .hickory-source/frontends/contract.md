@@ -27,6 +27,9 @@ server. iOS, Android and the browser use an existing host. The browser,
 KDE and WinForms use the editor served at that host's origin. File and
 preconfigured workspace launches go directly to the requested workspace.
 A readable startup preview stays available while workspace authority loads.
+Opening a workspace root or confirming **Open Directory** opens its immediate
+`README.md` in the editor when present. An explicitly requested file takes
+precedence. Browsing folders and refreshing Files leave the active document alone.
 
 On macOS, **File → New → .NET Project…** shows the templates available from
 the local .NET SDK for the chosen destination. Choosing a template and language

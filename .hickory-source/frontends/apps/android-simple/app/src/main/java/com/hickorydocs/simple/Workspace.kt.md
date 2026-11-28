@@ -50,6 +50,10 @@ An unbound cross-file source remains readable with an explicit notice. Hash
 agreement establishes source correspondence, not frozen runtime inputs or
 execution coverage.
 
+A folder open scopes Files immediately. Read its immediate README through the
+ordinary file opener, and check the foreground navigation before applying the
+result. Workspace startup uses the same default when it has no requested file.
+
 <ui:copy id="simple-f6fdc8535c-0">
 package com.hickorydocs.simple
 
@@ -461,6 +465,17 @@ Provider acquisition and resource publication share the same retained owner leas
         directoryScope = path
         files = folder
         show("files")
+        openFolderReadme()
+    }
+
+    private fun openFolderReadme() {
+        val readme = files.firstOrNull { !it.dir && it.name == "README.md" } ?: return
+        val scope = generation
+        val navigationCurrent = captureForegroundNavigation()
+        val workspaceCurrent = { generation == scope && !windowConnectionLost }
+        workspaceScope.launch {
+            if (navigationCurrent()) activateFile(readme, recordNavigation = false, isCurrent = workspaceCurrent)
+        }
     }
 
     private fun scopedFiles(tree:List<FileNode>):List<FileNode>{
@@ -763,6 +778,8 @@ cache after that selection is retired.
                         if (!opened && startupIsCurrent()) reading?.join()
                     }
                 }
+            } else if (startupIsCurrent()) {
+                openFolderReadme()
             }
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -965,10 +982,10 @@ Open the destination before checking a cross-file provider name. If the current 
         val request = Any()
         newestOpen[target] = request
         if (!forStartup) foregroundNavigation++
-        val startingPane = focused
+        val startingNavigation = foregroundNavigation
         if (isCurrent == null) focused = target
         fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target } &&
-            (isCurrent == null || focused == startingPane && isCurrent())
+            (isCurrent == null || foregroundNavigation == startingNavigation && isCurrent())
         return try {
             val buffer = loadBuffer(file, forStartup)
             if (!ownsGroup()) return false
