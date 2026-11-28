@@ -20,15 +20,15 @@ It also skips restore so the scaffold capture contains source only.
 <demo:exec id="blazor-scaffold" container="sdk" mount="blazor:out">
 <demo:copy id="dotnet-new-blazor">
 set -eu
+export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_GENERATE_ASPNET_CERTIFICATE=false
 cd out
 cat > global.json <<'SDK'
 {"sdk":{"version":"10.0.100","rollForward":"latestFeature","allowPrerelease":false}}
 SDK
 dotnet new blazor --name HickoryTodos --framework net10.0 --interactivity Server --auth Individual --empty --no-restore --no-update-check --output app
 </demo:copy>
-<demo:ingested from="#dotnet-new-blazor" sha256="e37c47ebbfe3a2c35e0b804768b28ff379f0b9e60747dd1018fa2cb386e16271" at="2026-11-28" files="71" skipped="1">
-<demo:file path="examples/projects/blazor-todos/.local/share/NuGet/Migrations/1">
-</demo:file>
+<demo:ingested from="#dotnet-new-blazor" sha256="267630fc3c36c420d3081367cb22a0e5542cdea019fa3f2c7d5977add4529b03" at="2026-11-28" files="70" skipped="2">
 <demo:file path="examples/projects/blazor-todos/app/Components/Account/IdentityComponentsEndpointRouteBuilderExtensions.cs">
 using System.Security.Claims;
 using System.Text.Json;
@@ -4847,7 +4847,7 @@ namespace HickoryTodos.Migrations
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>aspnet-HickoryTodos-0eff9cf1-116c-4d70-aa85-b76ce632ce79</UserSecretsId>
+    <UserSecretsId>aspnet-HickoryTodos-3502bff1-f56c-41ad-9592-2d1e8f20ef26</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
@@ -5027,8 +5027,8 @@ h1:focus {
 </demo:ingested>
 </demo:exec>
 
-Hickory captured the text files from the real template. The template's empty
-SQLite file was excluded by Git ignore rules. The supplied Identity migration
+Hickory captured the text files from the real template. Git ignore rules excluded the
+template's empty SQLite file and the SDK's first-run cache. The supplied Identity migration
 reconstructs the database schema instead, and the account pages stay folded
 with the rest of the scaffold until you need to inspect them.
 

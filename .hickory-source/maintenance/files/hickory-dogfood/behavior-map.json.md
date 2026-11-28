@@ -68096,14 +68096,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "scaffold-view-actions"
       ]
     },
-    "examples/projects/blazor-todos/.local/share/NuGet/Migrations/1": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
-      "owner": "support",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "raw-file",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
     "examples/projects/blazor-todos/app/Components/Account/IdentityComponentsEndpointRouteBuilderExtensions.cs": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
       "owner": "support",
@@ -68614,7 +68606,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "42ff0deefc3eb1281bd26dcbf02cefab31af408c796f04ed15d8d3dc5a23033a"
+      "sha256": "3305c1f163759a6a8ed7d41ea6b85d3e7c805a5dccb61f45f38642d1b473caf6"
     },
     "examples/projects/blazor-todos/app/Program.cs": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",

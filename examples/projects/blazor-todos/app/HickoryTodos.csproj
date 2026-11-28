@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>aspnet-HickoryTodos-0eff9cf1-116c-4d70-aa85-b76ce632ce79</UserSecretsId>
+    <UserSecretsId>aspnet-HickoryTodos-3502bff1-f56c-41ad-9592-2d1e8f20ef26</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
