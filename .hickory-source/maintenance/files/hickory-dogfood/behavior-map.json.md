@@ -68574,7 +68574,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "18ea3dd7ec3a018e20a86648245ad3ac471748aa396ad281eea1b700fc9c1a3d"
+      "sha256": "6e32d110a3e0e5e9322e53dd6962e125d53c15527fe667ef2d558a5ba9983a22"
     },
     "examples/projects/blazor-todos/app/Data/ApplicationUser.cs": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68606,7 +68606,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "f96fee462c66dcc1310545331bec0f96347c8e80ce7d1c38976a41d4485ae567"
+      "sha256": "80dd666b2d73b4099091bc8bc4b7ebffe7c661de098a8eeb53eb943a20050e75"
     },
     "examples/projects/blazor-todos/app/HickoryTodos.csproj": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68622,7 +68622,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
-      "sha256": "6dd7b74fc28c7d2fc85780328b83bc3903d362301585189b892dbaebd9af02c9"
+      "sha256": "2f90d7bd65cbd10ee5a2171055b891e665c4563675ff02faa8b8771eeff72c35"
     },
     "examples/projects/blazor-todos/app/Properties/launchSettings.json": {
       "source": ".hickory-source/demos/blazor-todos/scaffold.md",
@@ -68663,6 +68663,30 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "implementation",
       "construction": "raw-file",
       "sha256": "a63b77552b51f013c7db69270edd0055d64edbe77cdd5b0b9584dfdeefac10c5"
+    },
+    "examples/projects/blazor-todos/app/Models/TodoItem.cs": {
+      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "72f0d413e41b7fc04121366d5a021fcd0b41797862f7c3dfff79472fa57103fc"
+    },
+    "examples/projects/blazor-todos/app/Data/Migrations/20261128114903_AddTodos.Designer.cs": {
+      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "ab581e7e15e6cd6d86dcdff28bcad9eda8fb55e3f69d1d5d1aa93ca696c18d38"
+    },
+    "examples/projects/blazor-todos/app/Data/Migrations/20261128114903_AddTodos.cs": {
+      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "raw-file",
+      "sha256": "dd486fd734049c3b3efdcd1419a6c3ca1c35446b2040a1722a8c37a412a467e9"
     }
   },
   "evidence_records": [

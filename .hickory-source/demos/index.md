@@ -7,4 +7,5 @@ Each project keeps its construction here and its runnable files under
 - [Blazor todos](blazor-todos/scaffold.md)
 
 <demo:include file="blazor-todos/scaffold.md" />
+<demo:include file="blazor-todos/model.md" />
 </demo:doc>
