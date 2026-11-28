@@ -50,6 +50,18 @@ class BehaviorAuditTests(unittest.TestCase):
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_tracked_demo_readme_can_own_outputs(self):
+        readme = self.root / "examples/projects/demo/README.md"
+        readme.parent.mkdir(parents=True)
+        self.document.rename(readme)
+        new_source = readme.relative_to(self.root).as_posix()
+        for path in (self.base / "behavior-map.json", self.base / "narrative-map.json"):
+            path.write_text(path.read_text().replace(self.source, new_source))
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", new_source], check=True)
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_current_tracked_output_without_constructor_is_refused(self):
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
         (self.root / "unowned.py").write_text("unowned\n")

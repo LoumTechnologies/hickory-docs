@@ -141749,14 +141749,14 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "demo-todo-query",
       "output": "examples/projects/blazor-todos/tools/make-crud.py",
-      "page": ".hickory-source/demos/blazor-todos/crud.md",
+      "page": "examples/projects/blazor-todos/README.md",
       "symbol": "demo-todo-query",
       "basis": "explained-behavior"
     },
     {
       "id": "demo-todo-render",
       "output": "examples/projects/blazor-todos/tools/make-crud.py",
-      "page": ".hickory-source/demos/blazor-todos/crud.md",
+      "page": "examples/projects/blazor-todos/README.md",
       "symbol": "demo-todo-render",
       "basis": "explained-behavior"
     }

@@ -76,7 +76,7 @@ not separately compiling releases.
 
 ## Try a demo project
 
-<book:include file=".hickory-source/demos/index.md" />
+<book:include file="examples/projects/blazor-todos/README.md" />
 
 ## Find a remaining component or review a requirement
 

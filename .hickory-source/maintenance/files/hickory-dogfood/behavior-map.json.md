@@ -68097,7 +68097,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     "examples/projects/blazor-todos/app/Components/Account/IdentityComponentsEndpointRouteBuilderExtensions.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68105,7 +68105,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "3b188925a0c56abad38ba843eaf52c06c1b8e570189127fbd3dc11f044ee0fd2"
     },
     "examples/projects/blazor-todos/app/Components/Account/IdentityNoOpEmailSender.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68113,7 +68113,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "4fc9b133fa99267ca791a48a7038b8ad04af009f0556446d9bd950a82172fd86"
     },
     "examples/projects/blazor-todos/app/Components/Account/IdentityRedirectManager.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68121,7 +68121,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "e705e111c76e85393252f4ea961e3fc22babe9182b7378d0f3cf3f8cac9e5759"
     },
     "examples/projects/blazor-todos/app/Components/Account/IdentityRevalidatingAuthenticationStateProvider.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68129,7 +68129,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "2bb659093dd1ef29880149c519be6f522bd885bf9b7f9575fdc7ed622bf08c58"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/AccessDenied.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68137,7 +68137,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "3550cf1e22ea596751bb87b1df61eb2b31c63876a6e8855494347224e12cf352"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ConfirmEmail.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68145,7 +68145,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "722aa22af987a4ad3c03304818c24252e9a1b02cc00e5927311b1b2bb0d75681"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ConfirmEmailChange.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68153,7 +68153,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "dc1bdc243f82e42baa8b44c3baad509dd374e3c8992e2065e6c70b8f0b58a19e"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ExternalLogin.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68161,7 +68161,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "a4c903d243bd64d445494bc43caf79aa1f568a02d4aebd62b2df9bdfa6015efb"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ForgotPassword.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68169,7 +68169,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "07b189e6470f1fcbf8e45da15a93fca091be05c300edd6023c742ba375735916"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ForgotPasswordConfirmation.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68177,7 +68177,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "b24d9b39ea43784b52bbe07d2066d99f4d4bd50c26d61fc0aead7e733e95af83"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/InvalidPasswordReset.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68185,7 +68185,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "7cdfe1879d251a9218e466df9589f273a6899cf82e04feef2f93bc16ba2b6dee"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/InvalidUser.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68193,7 +68193,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "cb58af703b32daa330d458605103a0cd7665311823d271d748a63123048b410a"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Lockout.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68201,7 +68201,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "f2a83452a1da572ca282f20a0d20b5855b410cc2a4d0610c3a5c886a338c4f8a"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Login.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68209,7 +68209,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "44fa597aaf9f879aec8a234aca9aea63872d75260c352144e57ca4157c9cb856"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/LoginWith2fa.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68217,7 +68217,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "17f8ab03d0f9ce6c78b957b696cb4976c1ed9ad05e68e93cc2933d987371b254"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/LoginWithRecoveryCode.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68225,7 +68225,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "8a9823f1b2e031332acdba73d6136208c9c08d879022693c31dd49fc1db7cf1b"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/ChangePassword.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68233,7 +68233,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "5c175b53644c551e24febac8d857100d746f8c2adb08cfda0e78ab65791c06b8"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/DeletePersonalData.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68241,7 +68241,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "4e786a3c8e80387b20d8e3371a65e4da49c0bfa0323f6baa9fa955076b72c8f2"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/Disable2fa.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68249,7 +68249,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "cec7d0b9240104f73934621cf1c767d3fec4e2d64517ff75802eaff05e08e5d1"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/Email.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68257,7 +68257,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "337a8ce9f602aed7c4d6abee1baf06bb37a64528b8bb039c71103204d5dc687f"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/EnableAuthenticator.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68265,7 +68265,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "b6154d08591bb7b5c711c8c4498f8835f3e725c0b8f4cf6b2f3909a52684a5a3"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/ExternalLogins.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68273,7 +68273,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "f323e9dd3516fc652baf9f49d3586f6ca0bb982ec6af7c69344efebd4d4cace1"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/GenerateRecoveryCodes.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68281,7 +68281,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "3e8835289a991ff091adfcd2945aa2a2f2b0313480f30fb82b0093facf1490d6"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/Index.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68289,7 +68289,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "bb2dcbfeef46a40e02ae05cf3a7e63be616c5d54c928e607b17656ecf78e8361"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/Passkeys.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68297,7 +68297,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "1e08fe9f2379e4c2714b89f3e01a7b9c89133c3aea9300564ad22956c04aec40"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/PersonalData.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68305,7 +68305,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ca7cd8e4d15558c41c72fe80dbc8984d7b6eb1130125ddd02b80b932120301a8"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/RenamePasskey.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68313,7 +68313,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "776d5e7fc65c197ba0eb8029628f8e36cfc01a78a13ba6baf383fca0ae978f5e"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/ResetAuthenticator.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68321,7 +68321,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "eb1bdb49cf49b95902717927c67ea090e42632f9cf2435a8ab98d85382111712"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/SetPassword.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68329,7 +68329,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "5cea288000974cf06f33d16143b8c3484bb5d8f9816b4df248caa2cc81163eca"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/TwoFactorAuthentication.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68337,7 +68337,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "38100100397412063d8edba72137263de0994acbed8113600e1919494f49413e"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Manage/_Imports.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68345,7 +68345,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "aea74d73b99fda1b92da77fed4400a4ebe8eeb68e8f216420593d7b1768774ca"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/Register.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68353,7 +68353,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "a853eed4c69932e023d3b191e84640e41c43ae622f32b917305884b475690259"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/RegisterConfirmation.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68361,7 +68361,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ac8f2421c6574cc1d3034037744041dcddd0f93b5d6a9d4a68a81773f78279fd"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ResendEmailConfirmation.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68369,7 +68369,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "d9684c0799f550b448712f914b0346f951caf5a0fa1937f7428b00a617b0389a"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ResetPassword.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68377,7 +68377,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "61fca96e03f5c99edb8f377ed11d765fd67c83e3246b0486b8f321b30ddcc720"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/ResetPasswordConfirmation.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68385,7 +68385,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "3374c1ab0cdfb601db60c475189c1b1397e4159261679993a0514aaeb9237126"
     },
     "examples/projects/blazor-todos/app/Components/Account/Pages/_Imports.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68393,7 +68393,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "7dbfac075c380c7e6d2f9525e52e53e377eafa17b661fc76069f2dba31b609f6"
     },
     "examples/projects/blazor-todos/app/Components/Account/PasskeyInputModel.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68401,7 +68401,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "9c5ba0d8d9a3405046d69aa9612bef2a51da9eae960de2d59c370193bac89d98"
     },
     "examples/projects/blazor-todos/app/Components/Account/PasskeyOperation.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68409,7 +68409,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "52889c604f8f4cb6519d01e7e1cf7357af17d021041d2c89b764c0af831a2327"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/ExternalLoginPicker.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68417,7 +68417,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "dca50e6a08f23a1657cd27b28fafe259eca7bd14c3f4d2d891ad7032053da6dd"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/ManageLayout.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68425,7 +68425,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "918674f1db4d1d26a8f8b512cfd6334966870cf3c9a1803fa37b076b97421507"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/ManageNavMenu.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68433,7 +68433,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "d9c9ead3c8b379c9ce9b989d66ae38d1f9abf755d8e9446f76c7f9ed1c0e41f4"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/PasskeySubmit.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68441,7 +68441,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "dcf8bdaad1d8193d5227d6585ad48329e49f93003930c23a539a53fca661e399"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/PasskeySubmit.razor.js": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68449,7 +68449,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "bbd59d02863fcf348386313603e701e15d99dc3d63b07d52e249da6924114773"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/RedirectToLogin.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68457,7 +68457,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "c6732201ce84b18f80b3bdd89c093e2af17899024eed7cfbc97b1b009fe1ec36"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/ShowRecoveryCodes.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68465,7 +68465,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "de1e589004702fbdfb95b37a90e7bb83e33cbafa34ccebf0deb01b932e185017"
     },
     "examples/projects/blazor-todos/app/Components/Account/Shared/StatusMessage.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68473,7 +68473,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "20002cc5d2529e3085099d09e7949eb455cdfcf1e7ddad782f8552d04d303729"
     },
     "examples/projects/blazor-todos/app/Components/App.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68481,7 +68481,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "d369bede39195c6c255c0e14e518c54361e1ac6ba54f0713a668ae0905b52ab2"
     },
     "examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68489,7 +68489,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ce93851b28c9a1cb1612c56011797a66ef9f4728a0021a69cecef6d21083b425"
     },
     "examples/projects/blazor-todos/app/Components/Layout/MainLayout.razor.css": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68497,7 +68497,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "9589888a71b9a0a40300a94d095aafe43fd4d4bace9a933f147f9bf020098db9"
     },
     "examples/projects/blazor-todos/app/Components/Layout/ReconnectModal.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68505,7 +68505,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "e1c8308c1ec6656c8f5cd50df3f1879b614e43109ad6b1e23ab26d6f1007c6db"
     },
     "examples/projects/blazor-todos/app/Components/Layout/ReconnectModal.razor.css": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68513,7 +68513,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ba73539337ecff370e1ce8ebb9ebc0992d6ed100080a29f4bcac888f1ce1abd8"
     },
     "examples/projects/blazor-todos/app/Components/Layout/ReconnectModal.razor.js": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68521,7 +68521,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "e6efaff747ceb6d105cc4daa1cc18c3979b2f77224fc1686a8baeb9eeea67465"
     },
     "examples/projects/blazor-todos/app/Components/Pages/Error.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68529,7 +68529,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "e77473780e53f2ba6d42105b745d3eca7cdbdaec1d407bc46a8ce9338b43eb29"
     },
     "examples/projects/blazor-todos/app/Components/Pages/Home.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68537,7 +68537,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "4e146df60f6d80282b76ef6ef56a95ccf68fd494c7e9c63c78b60a99af2d6025"
     },
     "examples/projects/blazor-todos/app/Components/Pages/NotFound.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68545,7 +68545,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "c267b98a248a516f8ca8c79dd8410d9f09d9ad302466e65c6b9b959b5ffc7cbd"
     },
     "examples/projects/blazor-todos/app/Components/Routes.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68553,7 +68553,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "576ce6f05fac2cc560790b7018e6ce29b412add7fd1d6c3a177dd7008f945976"
     },
     "examples/projects/blazor-todos/app/Components/_Imports.razor": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68561,7 +68561,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "1bc095c178df99ed8112197c4f4c285cb82bae89a59baf50a52c03aa45236cab"
     },
     "examples/projects/blazor-todos/app/Data/ApplicationDbContext.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68569,7 +68569,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "6e32d110a3e0e5e9322e53dd6962e125d53c15527fe667ef2d558a5ba9983a22"
     },
     "examples/projects/blazor-todos/app/Data/ApplicationUser.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68577,7 +68577,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "128b0da479bd2ae4728627a91166ac9bd71126ca1fb7082ded117cd20cecf41f"
     },
     "examples/projects/blazor-todos/app/Data/Migrations/00000000000000_CreateIdentitySchema.Designer.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68585,7 +68585,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "82c7fa7d6ce382368e79cc97f70699d885af04c62a4b4f68eca2ac6711e5aabb"
     },
     "examples/projects/blazor-todos/app/Data/Migrations/00000000000000_CreateIdentitySchema.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68593,7 +68593,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "c71c7026800f3e38f6747fdbe2f7c6e69bd03cc69acbbdef21034d9e41241d95"
     },
     "examples/projects/blazor-todos/app/Data/Migrations/ApplicationDbContextModelSnapshot.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68601,7 +68601,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "80dd666b2d73b4099091bc8bc4b7ebffe7c661de098a8eeb53eb943a20050e75"
     },
     "examples/projects/blazor-todos/app/HickoryTodos.csproj": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68609,7 +68609,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "3305c1f163759a6a8ed7d41ea6b85d3e7c805a5dccb61f45f38642d1b473caf6"
     },
     "examples/projects/blazor-todos/app/Program.cs": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68617,7 +68617,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "2f90d7bd65cbd10ee5a2171055b891e665c4563675ff02faa8b8771eeff72c35"
     },
     "examples/projects/blazor-todos/app/Properties/launchSettings.json": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68625,7 +68625,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "b1f1e8289f61ad30b835f72126ee7e9ab40d3cefa1624c8a510a29ac682b8d07"
     },
     "examples/projects/blazor-todos/app/appsettings.Development.json": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68633,7 +68633,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "73f95f9e0ceb205fc1c4dc50c07697fcfa29d7087868c2aef1d504cb38c771ec"
     },
     "examples/projects/blazor-todos/app/appsettings.json": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68641,7 +68641,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "5a9eadcdf174cbc75309c7ad6f1aa913ae4f62ce0803b9628d18a480ebf9ed4b"
     },
     "examples/projects/blazor-todos/app/wwwroot/app.css": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68649,7 +68649,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "f434788ea7a9188a3d0a3ed50982ae66d66a5c02d7d635aaf14a67b85deecf7d"
     },
     "examples/projects/blazor-todos/global.json": {
-      "source": ".hickory-source/demos/blazor-todos/scaffold.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68657,7 +68657,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "a63b77552b51f013c7db69270edd0055d64edbe77cdd5b0b9584dfdeefac10c5"
     },
     "examples/projects/blazor-todos/app/Models/TodoItem.cs": {
-      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68665,7 +68665,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "72f0d413e41b7fc04121366d5a021fcd0b41797862f7c3dfff79472fa57103fc"
     },
     "examples/projects/blazor-todos/app/Data/Migrations/20261128114903_AddTodos.Designer.cs": {
-      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68673,23 +68673,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ab581e7e15e6cd6d86dcdff28bcad9eda8fb55e3f69d1d5d1aa93ca696c18d38"
     },
     "examples/projects/blazor-todos/app/Data/Migrations/20261128114903_AddTodos.cs": {
-      "source": ".hickory-source/demos/blazor-todos/model.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
       "construction": "raw-file",
       "sha256": "dd486fd734049c3b3efdcd1419a6c3ca1c35446b2040a1722a8c37a412a467e9"
     },
-    "examples/projects/blazor-todos/README.md": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
-      "owner": "support",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "raw-file",
-      "sha256": "80c321f94ac0ac990c2a2253b9ae81cee969cd430de7683ad760b2f9f7da7c58"
-    },
     "examples/projects/blazor-todos/tools/make-crud.py": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68701,7 +68693,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     "examples/projects/blazor-todos/tools/Todos.razor.template": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68709,7 +68701,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "0b37882e8febdfb18f9aeb1590d8c733c519e6a9067be3c795b2948b6d80be6f"
     },
     "examples/projects/blazor-todos/tools/smoke.mjs": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "test",
@@ -68717,7 +68709,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "c57035ca8b283dde36f83c9a14c1fa4cd240d41ecb7f16f3ee80e5d85603ce43"
     },
     "examples/projects/blazor-todos/app/Components/Pages/Todos.razor": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68725,7 +68717,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "ae16025ea8afc55acee537aecbb1cafed73f1f25a24d547cadc3443ee1cddd5c"
     },
     "examples/projects/blazor-todos/app/Components/Pages/Todos.razor.cs": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",
@@ -68733,7 +68725,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "9983511e5f9753fdd07b4363049de33bba5e28c03522034a3768fac327230171"
     },
     "examples/projects/blazor-todos/app/Components/Pages/Todos.razor.css": {
-      "source": ".hickory-source/demos/blazor-todos/crud.md",
+      "source": "examples/projects/blazor-todos/README.md",
       "owner": "support",
       "used_by": [],
       "role": "implementation",

@@ -50,11 +50,12 @@ def audit():
     m=read_map()
     baseline=json.loads((BASE/'baseline.json').read_text())
     pages=[c['source'] for c in m['constructors'].values()]
+    source_pages=set(pages)
     # Several outputs may share a narrative; each output still has one construction.
     assert all((ROOT/page).is_file() for page in pages), 'A constructor source is missing'
     if (ROOT/'.git').exists():
         tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
-        outputs={p for p in tracked if p and p!='project.md' and not p.startswith('.hickory-source/') and ((ROOT/p).exists() or (ROOT/p).is_symlink())}
+        outputs={p for p in tracked if p and p!='project.md' and p not in source_pages and not p.startswith('.hickory-source/') and ((ROOT/p).exists() or (ROOT/p).is_symlink())}
         assert outputs<=set(m['constructors']), 'Tracked outputs without a constructor: '+str(sorted(outputs-set(m['constructors'])))
     original_guarantees={e['path'] for e in baseline['entries'] if e['path'].startswith('docs/guarantees/') and e['path'].endswith('.md')}
     assert original_guarantees=={r['origin'] for r in m['contracts'].values()}|set(m['evidence_records']), 'A guarantee/evidence file has no disposition'
@@ -62,7 +63,8 @@ def audit():
     constructions=collections.defaultdict(list)
     definitions=collections.defaultdict(list)
     selections=[]
-    for page in [ROOT/'project.md',*(ROOT/'.hickory-source').rglob('*.md')]:
+    documents={ROOT/'project.md', *(ROOT/'.hickory-source').rglob('*.md'), *(ROOT/p for p in source_pages)}
+    for page in sorted(documents):
         if not page.is_file(): continue
         text=page.read_text()
         relative=page.relative_to(ROOT).as_posix()

@@ -18,8 +18,10 @@ products. Other historical wrapper code retains its explanation-review gaps.
 
 Audit the current constructions rather than freezing the migration-era file layout.
 A retired implementation path need not remain in the constructor map. Existing
-tracked outputs, including dangling symlinks, must still have a construction;
-source/output verification independently rejects missing constructed outputs.
+tracked outputs, including dangling symlinks, must still have a construction.
+A demo README named as a constructor is a source page even when it sits beside
+its products. Include it in the ownership scan. Project verification separately
+checks that the declared source closure reconstructs the tracked outputs.
 The baseline continues to identify historical requirements and their dispositions.
 
 The literal construction preserves embedded document-syntax patterns.
@@ -77,11 +79,12 @@ def audit():
     m=read_map()
     baseline=json.loads((BASE/'baseline.json').read_text())
     pages=[c['source'] for c in m['constructors'].values()]
+    source_pages=set(pages)
     # Several outputs may share a narrative; each output still has one construction.
     assert all((ROOT/page).is_file() for page in pages), 'A constructor source is missing'
     if (ROOT/'.git').exists():
         tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
-        outputs={p for p in tracked if p and p!='project.md' and not p.startswith('.hickory-source/') and ((ROOT/p).exists() or (ROOT/p).is_symlink())}
+        outputs={p for p in tracked if p and p!='project.md' and p not in source_pages and not p.startswith('.hickory-source/') and ((ROOT/p).exists() or (ROOT/p).is_symlink())}
         assert outputs<=set(m['constructors']), 'Tracked outputs without a constructor: '+str(sorted(outputs-set(m['constructors'])))
     original_guarantees={e['path'] for e in baseline['entries'] if e['path'].startswith('docs/guarantees/') and e['path'].endswith('.md')}
     assert original_guarantees=={r['origin'] for r in m['contracts'].values()}|set(m['evidence_records']), 'A guarantee/evidence file has no disposition'
@@ -89,7 +92,8 @@ def audit():
     constructions=collections.defaultdict(list)
     definitions=collections.defaultdict(list)
     selections=[]
-    for page in [ROOT/'project.md',*(ROOT/'.hickory-source').rglob('*.md')]:
+    documents={ROOT/'project.md', *(ROOT/'.hickory-source').rglob('*.md'), *(ROOT/p for p in source_pages)}
+    for page in sorted(documents):
         if not page.is_file(): continue
         text=page.read_text()
         relative=page.relative_to(ROOT).as_posix()
@@ -286,8 +290,8 @@ class BehaviorAuditTests(unittest.TestCase):
 ### Accept multiple outputs
 
 Two output files may share an explanation page. A path retained only in the
-migration baseline may also be retired. These assertions distinguish both cases
-from a current tracked file that lacks a construction.
+migration baseline may also be retired. A tracked demo README can own the files
+beside it. These assertions distinguish those cases from an unowned output.
 
 <storycode:copy id="audit-witness-accept-multiple-outputs">
     def test_retired_baseline_output_does_not_require_a_constructor(self):
@@ -295,6 +299,18 @@ from a current tracked file that lacks a construction.
         data = json.loads(baseline.read_text())
         data["entries"].append({"path": "retired.rs"})
         baseline.write_text(json.dumps(data))
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_tracked_demo_readme_can_own_outputs(self):
+        readme = self.root / "examples/projects/demo/README.md"
+        readme.parent.mkdir(parents=True)
+        self.document.rename(readme)
+        new_source = readme.relative_to(self.root).as_posix()
+        for path in (self.base / "behavior-map.json", self.base / "narrative-map.json"):
+            path.write_text(path.read_text().replace(self.source, new_source))
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", new_source], check=True)
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
