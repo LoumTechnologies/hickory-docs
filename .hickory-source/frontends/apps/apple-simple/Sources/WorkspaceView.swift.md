@@ -141,11 +141,13 @@ New Window starts at the same workspace chooser as a blank app launch. On an
 iOS device with one system window, present the chooser in a full-screen window
 with its own guarded Close Window command.
 
-Welcome and File share the directory action on macOS. With a bundled host,
-the native open panel chooses a local workspace and the existing session guard
-protects open drafts. A server-only client browses folders from the connected
-tree in a SwiftUI sheet. Browsing changes the candidate folder until Open is
-pressed. Recheck the listed folder and connection before applying the choice.
+Welcome and File share the directory action on macOS. The welcome button names
+both options so someone starting a workspace knows they can create its folder.
+With a bundled host, the native open panel provides New Folder and opens the
+selected directory only after confirmation. The existing session guard protects
+open drafts. A server-only client browses folders from the connected tree in a
+SwiftUI sheet. Browsing changes the candidate folder until Open is pressed.
+Recheck the listed folder and connection before applying the choice.
 
 <ui:copy id="simple-80f4e5a1a0-0">
 import SwiftUI
@@ -426,7 +428,7 @@ struct WorkspaceView: View {
                 Text("Welcome to Hickory Docs").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                 #if os(macOS)
                 if LocalWorkspaceHost.isAvailable {
-                    Button("Open Directory…", action: openDirectory)
+                    Button("Open or Create Directory…", action: openDirectory)
                         .buttonStyle(.borderedProminent)
                 }
                 #else
@@ -501,6 +503,7 @@ struct WorkspaceView: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.canCreateDirectories = true
         panel.prompt = "Open Directory"
         let select: (NSApplication.ModalResponse) -> Void = { response in
             choosingLocalWorkspace = false

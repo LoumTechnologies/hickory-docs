@@ -15,10 +15,13 @@ sibling. Use SwiftUI decoration on Apple platforms, Compose drawing on Android,
 and themed CSS in browser-based hosts, including KDE/Linux and Windows. Lines
 must preserve filename text, disclosure controls, wrapping and hit targets.
 
-A launch without a selected workspace offers a welcome screen. On a desktop
-with a bundled host, **Open Directory…** opens the platform folder picker and
-starts a local workspace for the selected directory. In the browser and on
-mobile, **Open Workspace** opens the known host when one is available.
+A launch without a selected workspace offers a welcome screen. On macOS with a
+bundled host, **Open or Create Directory…** opens the native picker. Its
+**New Folder** button creates a directory, and **Open Directory** starts a local
+workspace for the selected directory. On KDE and Windows with a bundled host,
+**Open Directory…** opens the platform folder picker for a local workspace.
+In the browser and on mobile, **Open Workspace** opens the known host when one
+is available.
 **Connect to a Workspace Server…** reveals an address field for choosing a
 server. iOS, Android and the browser use an existing host. The browser,
 KDE and WinForms use the editor served at that host's origin. File and

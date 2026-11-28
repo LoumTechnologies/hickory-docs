@@ -276,7 +276,7 @@ struct WorkspaceView: View {
                 Text("Welcome to Hickory Docs").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                 #if os(macOS)
                 if LocalWorkspaceHost.isAvailable {
-                    Button("Open Directory…", action: openDirectory)
+                    Button("Open or Create Directory…", action: openDirectory)
                         .buttonStyle(.borderedProminent)
                 }
                 #else
@@ -351,6 +351,7 @@ struct WorkspaceView: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.canCreateDirectories = true
         panel.prompt = "Open Directory"
         let select: (NSApplication.ModalResponse) -> Void = { response in
             choosingLocalWorkspace = false
